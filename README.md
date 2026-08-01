@@ -29,6 +29,16 @@ build step, no server, no dependencies. Your progress **auto-saves** to the devi
 - **Sandbox / cheats** — a bottom-right 🛠️ button opens God mode (∞ resources), 100×
   build/train speed, and instant tools to stress-test every mechanic.
 
+## Continuing the project
+
+[`docs/HANDOFF.md`](docs/HANDOFF.md) is the full context document for anyone (human or
+AI agent) picking up the work: architecture, the `S` state model, config/tuning tables,
+a function map, how each system works, conventions/gotchas, and the roadmap toward an
+eventual multiplayer backend.
+
+> Note: the handoff references two companion docs — `KingsAge_Reforged_Plan.md` and
+> `KingsAge_Reforged_Backend_Spec.md` — that are not yet in this repo.
+
 ## Status
 
 Prototype only — mechanics and balancing are exploratory and subject to change.
