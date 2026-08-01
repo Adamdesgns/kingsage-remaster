@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>KingsAge Reforged — Prototype</title>
+<style>
+  :root{
+    --bg:#0f0c08;--bg2:#171009;--panel:#20180f;--panel2:#2a2013;--line:#4a3925;--line2:#6f5636;
+    --ink:#f2e8d6;--muted:#b8a684;--gold:#f0c057;--gold2:#c8912f;--ember:#ff7a3c;
+    --wood:#d0954f;--stone:#b3bcc6;--iron:#8fb0cf;--green:#83c85f;--red:#e05a4c;--blue:#5fa0d6;--purple:#c58fe0;
+    --shadow:0 8px 30px rgba(0,0,0,.55);--ring:0 0 0 1px rgba(240,192,87,.25),0 8px 30px rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{color:var(--ink);font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;min-height:100vh;overscroll-behavior:none;
+    background:radial-gradient(1000px 500px at 50% -8%,#3a2c16 0%,rgba(58,44,22,0) 55%),
+      radial-gradient(700px 400px at 90% 10%,rgba(120,60,30,.18) 0%,rgba(0,0,0,0) 60%),linear-gradient(#12100b,#0c0906);}
+  .wrap{max-width:940px;margin:0 auto;padding:0 0 140px}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.05;z-index:0;
+    background-image:repeating-linear-gradient(45deg,#fff 0 1px,transparent 1px 6px),repeating-linear-gradient(-45deg,#fff 0 1px,transparent 1px 6px);}
+  header.topbar{position:sticky;top:0;z-index:50;background:linear-gradient(#241b10,#15100a);border-bottom:1px solid var(--line2);box-shadow:0 6px 24px rgba(0,0,0,.5)}
+  .brand{display:flex;align-items:center;gap:11px;padding:11px 15px 5px}
+  .brand .crest{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:20px;
+    background:radial-gradient(circle at 40% 30%,#5c440f,#241b10);border:1px solid var(--gold2);box-shadow:inset 0 0 8px rgba(240,192,87,.4)}
+  .brand h1{font-size:19px;margin:0;letter-spacing:.5px;background:linear-gradient(#ffe7a6,#e2a53a);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .brand small{color:var(--muted);font-size:10.5px;margin-left:auto;text-align:right;line-height:1.25}
+  #villageBar{display:flex;gap:6px;padding:2px 12px 6px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .vchip{flex:none;display:flex;align-items:center;gap:5px;padding:5px 11px;border-radius:20px;font-size:12px;font-weight:bold;cursor:pointer;
+    background:linear-gradient(#2a2013,#1a130c);border:1px solid var(--line2);color:var(--muted);white-space:nowrap}
+  .vchip.active{background:linear-gradient(#f6cf6b,#c8912f);color:#231a0a;border-color:#8a6416;box-shadow:0 2px 10px rgba(240,192,87,.25)}
+  .resbar{display:flex;gap:8px;padding:2px 11px 11px;flex-wrap:wrap}
+  .res{flex:1 1 0;min-width:98px;background:linear-gradient(var(--panel),#1a130c);border:1px solid var(--line);border-radius:12px;padding:7px 10px;display:flex;flex-direction:column;gap:2px;box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
+  .res .r-top{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted)}
+  .res .r-ico{width:15px;height:15px;border-radius:4px;display:inline-block;box-shadow:0 0 6px rgba(0,0,0,.4)}
+  .res .r-val{font-size:16px;font-weight:bold;font-variant-numeric:tabular-nums}
+  .res .r-cap{font-size:9.5px;color:var(--muted)}
+  .res.warn .r-val{color:var(--red)}
+  .bar{height:5px;background:#0b0805;border-radius:4px;overflow:hidden;margin-top:2px;box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}
+  .bar>i{display:block;height:100%;transition:width .25s linear}
+  main{padding:13px;position:relative;z-index:1}
+  .card{background:linear-gradient(155deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:16px;padding:13px;margin-bottom:13px;box-shadow:var(--ring)}
+  .card h2{margin:0 0 11px;font-size:15px;color:var(--gold);letter-spacing:.4px;display:flex;align-items:center;gap:8px}
+  .b-row{display:flex;align-items:center;gap:11px;padding:10px;border:1px solid var(--line);border-radius:12px;background:linear-gradient(var(--panel2),#20180f);margin-bottom:8px;transition:border-color .2s}
+  .b-row:hover{border-color:var(--line2)}
+  .b-ico{width:42px;height:42px;flex:none;border-radius:11px;display:grid;place-items:center;font-size:22px;background:radial-gradient(circle at 40% 30%,#2a2013,#14100a);border:1px solid var(--line2);box-shadow:inset 0 0 10px rgba(0,0,0,.5)}
+  .b-main{flex:1;min-width:0}
+  .b-name{font-size:14px;font-weight:bold;display:flex;gap:7px;align-items:baseline}
+  .b-lvl{font-size:11px;color:var(--gold);background:#14100a;border:1px solid var(--line2);border-radius:20px;padding:1px 8px}
+  .b-desc{font-size:11px;color:var(--muted);margin-top:2px}
+  .b-cost{font-size:11px;margin-top:4px;display:flex;gap:10px;flex-wrap:wrap;color:var(--ink)}
+  .b-cost span{display:inline-flex;align-items:center;gap:3px}
+  .dot{width:9px;height:9px;border-radius:3px;display:inline-block}
+  .btn{border:1px solid var(--line2);background:linear-gradient(#3d2f1c,#281e12);color:var(--ink);border-radius:10px;padding:9px 13px;font-size:13px;font-weight:bold;cursor:pointer;font-family:inherit;white-space:nowrap;transition:transform .05s,box-shadow .2s}
+  .btn:active{transform:translateY(1px)}
+  .btn.gold{background:linear-gradient(#f6cf6b,#c8912f);color:#231a0a;border-color:#8a6416;box-shadow:0 2px 12px rgba(240,192,87,.25)}
+  .btn.green{background:linear-gradient(#6fb14f,#487a34);color:#0d1707;border-color:#2f5220}
+  .btn.red{background:linear-gradient(#e0604f,#a23428);color:#fff;border-color:#7a241a;box-shadow:0 2px 14px rgba(224,90,76,.3)}
+  .btn.blue{background:linear-gradient(#5fa0d6,#37729e);color:#06121c;border-color:#2f5877}
+  .btn.purple{background:linear-gradient(#c58fe0,#8a53b0);color:#160a1e;border-color:#5f2f80}
+  .btn.sm{padding:7px 10px;font-size:12px}
+  .btn:disabled{opacity:.38;cursor:not-allowed;box-shadow:none}
+  nav.tabs{position:fixed;bottom:0;left:0;right:0;z-index:60;display:flex;background:linear-gradient(#20190f,#100b06);border-top:1px solid var(--line2);box-shadow:0 -6px 24px rgba(0,0,0,.5);backdrop-filter:blur(6px)}
+  nav.tabs button{flex:1;background:none;border:none;color:var(--muted);padding:9px 4px calc(12px + env(safe-area-inset-bottom));font-family:inherit;font-size:10.5px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;position:relative}
+  nav.tabs button .ic{font-size:20px}
+  nav.tabs button.active{color:var(--gold)}
+  nav.tabs button.active::before{content:"";position:absolute;top:0;left:22%;right:22%;height:2px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
+  nav.tabs button .badge{position:absolute;top:4px;right:24%;background:var(--red);color:#fff;font-size:9px;min-width:15px;height:15px;border-radius:9px;display:grid;place-items:center;padding:0 3px}
+  .hidden{display:none}
+  .queue-item{display:flex;align-items:center;gap:9px;padding:9px;border:1px solid var(--line2);border-radius:11px;margin-bottom:7px;background:linear-gradient(#1b140c,#140f08);font-size:12px}
+  .q-name{flex:1;font-weight:bold}.q-time{font-variant-numeric:tabular-nums;color:var(--gold)}
+  .qbar{height:6px;background:#0b0805;border-radius:4px;overflow:hidden;margin-top:6px;box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}
+  .qbar>i{display:block;height:100%;background:linear-gradient(90deg,#c8912f,#f6cf6b);transition:width .25s linear}
+  .t-row{display:flex;align-items:center;gap:9px;padding:9px;border:1px solid var(--line);border-radius:12px;background:linear-gradient(var(--panel2),#20180f);margin-bottom:7px}
+  .t-ico{width:38px;height:38px;flex:none;border-radius:10px;display:grid;place-items:center;font-size:19px;background:radial-gradient(circle at 40% 30%,#2a2013,#14100a);border:1px solid var(--line2)}
+  .t-main{flex:1;min-width:0}
+  .t-name{font-size:13px;font-weight:bold}.t-stats{font-size:10px;color:var(--muted);margin-top:1px}
+  .t-have{font-size:12px;color:var(--gold);font-weight:bold;text-align:right;min-width:34px}
+  .qty{width:56px;background:#0b0805;border:1px solid var(--line2);color:var(--ink);border-radius:8px;padding:7px;font-size:13px;text-align:center;font-family:inherit}
+  .qty:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 2px rgba(240,192,87,.2)}
+  #mapWrap{overflow:auto;border:1px solid var(--line2);border-radius:14px;background:radial-gradient(circle at 50% 40%,#1b2414,#0c0f08);-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
+  #map{position:relative;display:grid;gap:3px;padding:12px;width:max-content}
+  .tile{width:46px;height:46px;border-radius:8px;display:grid;place-items:center;font-size:19px;position:relative;user-select:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}
+  .tile.plain{background:linear-gradient(145deg,#3f5027,#2c3a1a)}
+  .tile.forest{background:linear-gradient(145deg,#2f4720,#1d3013)}
+  .tile.hill{background:linear-gradient(145deg,#5a4d2e,#3c3218)}
+  .tile.water{background:linear-gradient(145deg,#26506b,#173547)}
+  .tile.barb,.tile.home,.tile.rival,.tile.own{cursor:pointer}
+  .tile.home{box-shadow:inset 0 0 0 2px var(--gold),0 0 14px rgba(240,192,87,.4)}
+  .tile.own{box-shadow:inset 0 0 0 2px #83c85f,0 0 12px rgba(131,200,95,.4)}
+  .tile.barb{box-shadow:inset 0 0 0 1px #6b3a2c,0 0 8px rgba(190,70,50,.25)}
+  .tile.barb:hover{box-shadow:inset 0 0 0 2px #b5563e,0 0 12px rgba(190,70,50,.5)}
+  .tile.rival{background:linear-gradient(145deg,#5a231a,#2a0f0b)!important;box-shadow:inset 0 0 0 2px #b5563e,0 0 12px rgba(224,90,76,.5)}
+  .tile.selected{outline:2px solid var(--gold);outline-offset:1px}
+  .tile .co{position:absolute;bottom:1px;right:3px;font-size:7px;color:rgba(255,255,255,.35)}
+  .tile .gar{position:absolute;top:1px;left:3px;font-size:8px;color:#ffbfae;font-weight:bold;text-shadow:0 1px 2px #000}
+  .tile .eye{position:absolute;top:1px;right:2px;font-size:9px}
+  .tile .loy{position:absolute;left:2px;right:2px;bottom:1px;height:3px;background:rgba(0,0,0,.5);border-radius:2px;overflow:hidden}
+  .tile .loy>i{display:block;height:100%;background:var(--purple)}
+  #marchLayer{position:absolute;inset:0;pointer-events:none;z-index:5}
+  .mtoken{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;display:grid;place-items:center;font-size:13px;transition:left .25s linear,top .25s linear;box-shadow:0 3px 10px rgba(0,0,0,.6)}
+  .mtoken.out{background:radial-gradient(circle,#f6cf6b,#c8912f);border:1px solid #8a6416}
+  .mtoken.back{background:radial-gradient(circle,#8fb0cf,#4a6f8f);border:1px solid #2f4d63}
+  .mtoken.fight{background:radial-gradient(circle,#e0604f,#a23428);border:1px solid #7a241a;animation:pulse .7s infinite}
+  .mtoken.scout{background:radial-gradient(circle,#c8b28a,#8a7550);border:1px solid #5a4a30}
+  .mtoken.support{background:radial-gradient(circle,#83c85f,#3f7a2d);border:1px solid #2f5220}
+  .mtoken.incoming{background:radial-gradient(circle,#e0604f,#7a241a);border:1px solid #4a120c;animation:pulse .6s infinite}
+  @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}
+  #log{max-height:230px;overflow:auto;font-size:12px}
+  .logline{padding:6px 4px;border-bottom:1px solid #241b10;color:var(--muted);display:flex;gap:7px}
+  .logline .lt{color:#6b5334;font-variant-numeric:tabular-nums;flex:none}
+  .logline.win{color:var(--green)}.logline.loss{color:var(--red)}.logline.info{color:var(--ink)}.logline.retreat{color:var(--gold)}.logline.scout{color:var(--blue)}.logline.alert{color:var(--ember)}.logline.conquer{color:var(--purple)}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:100;display:grid;place-items:center;padding:14px;backdrop-filter:blur(3px)}
+  .modal{background:linear-gradient(155deg,var(--panel),var(--bg2));border:1px solid var(--line2);border-radius:18px;padding:16px;max-width:440px;width:100%;box-shadow:var(--shadow);max-height:90vh;overflow:auto}
+  .modal h3{margin:0 0 4px;color:var(--gold)}.modal .sub{color:var(--muted);font-size:12px;margin-bottom:12px}
+  .recon{background:#0f1a24;border:1px solid var(--blue);border-radius:10px;padding:8px 10px;margin-bottom:10px;font-size:12px}
+  .recon b{color:var(--blue)}
+  .loyrow{display:flex;align-items:center;gap:8px;font-size:11px;margin-bottom:12px;color:var(--muted)}
+  .loybar{flex:1;height:8px;background:#0b0805;border-radius:5px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.6)}
+  .loybar>i{display:block;height:100%;background:linear-gradient(90deg,#8a53b0,#c58fe0);transition:width .3s}
+  .march{display:flex;align-items:center;gap:9px;padding:9px;border:1px solid var(--blue);border-radius:11px;margin-bottom:7px;background:linear-gradient(#101a24,#0c141c);font-size:12px}
+  .march .q-time{color:var(--blue)}
+  .toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);z-index:200;background:#241b10;border:1px solid var(--gold2);color:var(--ink);padding:10px 16px;border-radius:30px;font-size:13px;box-shadow:var(--shadow);opacity:0;transition:opacity .3s;pointer-events:none;max-width:90%}
+  .toast.show{opacity:1}
+  #fab{position:fixed;right:14px;bottom:calc(72px + env(safe-area-inset-bottom));z-index:70;width:50px;height:50px;border-radius:50%;
+    background:linear-gradient(#3d2f1c,#281e12);color:var(--gold);border:1px solid var(--line2);font-size:22px;
+    box-shadow:var(--shadow);display:grid;place-items:center;cursor:pointer;transition:transform .1s}
+  #fab:active{transform:scale(.92)}
+  #fab.on{background:linear-gradient(#c58fe0,#8a53b0);color:#fff;border-color:#5f2f80;box-shadow:0 0 16px rgba(197,143,224,.6)}
+  #fab.on::after{content:"SANDBOX";position:absolute;top:-8px;right:-6px;background:var(--purple);color:#160a1e;font-size:8px;font-weight:bold;padding:1px 5px;border-radius:8px;letter-spacing:.5px}
+  .flag{font-size:10.5px;color:var(--muted);text-align:center;margin:2px 0 10px}
+  .pop{font-size:11px;color:var(--muted)}.pop b{color:var(--ink)}
+  #alertStrip{position:fixed;left:0;right:0;bottom:calc(58px + env(safe-area-inset-bottom));z-index:65;display:none;
+    background:linear-gradient(#7a241a,#a23428);border-top:1px solid #e0604f;color:#fff;padding:9px 14px;font-size:13px;
+    align-items:center;gap:10px;cursor:pointer;box-shadow:0 -4px 18px rgba(224,90,76,.4);animation:alertPulse 1.4s infinite}
+  #alertStrip .cd{margin-left:auto;font-weight:bold;font-variant-numeric:tabular-nums;background:rgba(0,0,0,.3);padding:2px 8px;border-radius:20px}
+  @keyframes alertPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.2)}}
+  .battle-overlay{position:fixed;inset:0;z-index:150;display:flex;flex-direction:column;justify-content:center;background:radial-gradient(1200px 700px at 50% 0%,#3a2412 0%,#0c0806 62%)}
+  .battle-overlay.def{background:radial-gradient(1200px 700px at 50% 0%,#3a1212 0%,#0c0806 62%)}
+  .battle-top{padding:12px 16px 6px;text-align:center}
+  .battle-top h3{margin:0;font-size:18px;color:var(--gold);letter-spacing:.5px;text-shadow:0 2px 8px #000}
+  .battle-top .meta{font-size:12px;color:var(--muted);margin-top:2px}
+  .luck{display:inline-block;min-width:44px}
+  .tug{height:16px;margin:10px 16px 4px;border-radius:10px;overflow:hidden;display:flex;box-shadow:inset 0 2px 6px rgba(0,0,0,.6);border:1px solid #000}
+  .tug .a{background:linear-gradient(#6fb14f,#3f7a2d);transition:width .35s ease}
+  .tug .d{background:linear-gradient(#e0604f,#8f2c20);transition:width .35s ease}
+  .tug-lbl{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin:0 16px}
+  .field{flex:0 1 auto;height:38vh;min-height:230px;max-height:400px;position:relative;overflow:hidden;margin:6px 0;background:linear-gradient(#22384f 0%,#3a5a3a 46%,#456028 47%,#2b3f1c 100%)}
+  .field::after{content:"";position:absolute;left:0;right:0;bottom:0;height:52%;background:repeating-linear-gradient(90deg,rgba(0,0,0,.07) 0 14px,transparent 14px 28px)}
+  .hills{position:absolute;left:0;right:0;top:34%;height:22%;background:radial-gradient(70% 100% at 18% 100%,#3d4f2b,transparent),radial-gradient(70% 100% at 55% 100%,#354420,transparent),radial-gradient(70% 100% at 85% 100%,#3d4f2b,transparent)}
+  .sun{position:absolute;top:9%;left:50%;transform:translateX(-50%);width:56px;height:56px;border-radius:50%;background:radial-gradient(circle,rgba(255,224,150,.9),rgba(255,180,90,.15));filter:blur(2px)}
+  .army-line{position:absolute;bottom:20%;display:flex;align-items:flex-end;gap:3px;transition:transform .6s ease;z-index:2}
+  .army-a{left:6%;transform:translateX(-70px)}
+  .army-d{right:6%;flex-direction:row-reverse;transform:translateX(70px)}
+  .army-line.engaged.army-a{transform:translateX(0)}.army-line.engaged.army-d{transform:translateX(0)}
+  .fighter{width:26px;height:44px;position:relative;transition:opacity .3s}
+  .fighter.dead{animation:fall .5s forwards}
+  @keyframes fall{to{opacity:0;transform:translateY(10px) rotate(35deg)}}
+  .clash{position:absolute;left:50%;bottom:26%;transform:translateX(-50%);font-size:46px;opacity:0;pointer-events:none;z-index:3}
+  .clash.go{animation:clashPop .5s ease}
+  @keyframes clashPop{0%{opacity:0;transform:translateX(-50%) scale(.4)}40%{opacity:1;transform:translateX(-50%) scale(1.3)}100%{opacity:0;transform:translateX(-50%) scale(1.6)}}
+  .field.shake{animation:shake .28s}
+  @keyframes shake{0%,100%{transform:translate(0,0)}25%{transform:translate(-4px,2px)}50%{transform:translate(4px,-2px)}75%{transform:translate(-3px,1px)}}
+  .float{position:absolute;font-weight:bold;font-size:15px;pointer-events:none;animation:floatUp 1s forwards;text-shadow:0 2px 4px #000}
+  @keyframes floatUp{0%{opacity:0;transform:translateY(0)}20%{opacity:1}100%{opacity:0;transform:translateY(-38px)}}
+  .rosters{display:flex;gap:8px;padding:0 12px}
+  .roster{flex:1;background:rgba(10,8,5,.5);border:1px solid var(--line);border-radius:12px;padding:8px}
+  .roster h4{margin:0 0 6px;font-size:12px;display:flex;justify-content:space-between}
+  .roster.a h4{color:var(--green)}.roster.d h4{color:var(--red)}
+  .u-line{display:flex;align-items:center;gap:6px;font-size:11px;padding:2px 0}
+  .u-line .uc{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:bold}
+  .u-line .ubar{flex:1;height:4px;background:#0b0805;border-radius:3px;overflow:hidden;max-width:70px}
+  .u-line .ubar>i{display:block;height:100%}
+  .battle-actions{padding:12px 16px calc(14px + env(safe-area-inset-bottom));display:flex;gap:10px;background:linear-gradient(transparent,#0c0806 40%)}
+  .battle-actions .btn{flex:1;padding:13px}
+  .outcome-banner{text-align:center;font-size:22px;font-weight:bold;padding:6px;letter-spacing:1px;text-shadow:0 2px 10px #000}
+  .outcome-banner.win{color:var(--green)}.outcome-banner.loss{color:var(--red)}.outcome-banner.retreat{color:var(--gold)}.outcome-banner.conquer{color:var(--purple)}
+  .loot-line{text-align:center;font-size:13px;color:var(--ink);margin-bottom:6px}
+  .victory{position:fixed;inset:0;z-index:170;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:26px;
+    background:radial-gradient(1000px 700px at 50% 28%,#4a3712,#0c0806 72%)}
+  .victory .vcrown{font-size:64px;filter:drop-shadow(0 4px 20px rgba(240,192,87,.6));animation:vfloat 3s ease-in-out infinite}
+  @keyframes vfloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+  .victory h2{margin:14px 0 4px;font-size:30px;letter-spacing:1px;background:linear-gradient(#ffe7a6,#e2a53a);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .victory p{color:var(--muted);font-size:14px;max-width:340px;line-height:1.5;margin:2px 0 16px}
+  .victory .vstats{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;justify-content:center}
+  .victory .vstat{background:rgba(10,8,5,.6);border:1px solid var(--line2);border-radius:12px;padding:10px 16px;min-width:90px}
+  .victory .vstat b{display:block;font-size:22px;color:var(--gold)}.victory .vstat span{font-size:11px;color:var(--muted)}
+  .realm-row{display:flex;justify-content:space-between;padding:7px 4px;border-bottom:1px solid #241b10;font-size:13px}
+  .realm-row b{color:var(--gold);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="topbar">
+    <div class="brand"><span class="crest">👑</span><h1>KingsAge&nbsp;Reforged</h1>
+      <small>Prototype · Phase 0<br>60× speed feel-test</small></div>
+    <div id="villageBar"></div>
+    <div class="resbar" id="resbar"></div>
+  </header>
+  <main>
+    <section id="tab-village">
+      <div class="card"><h2 id="villageTitle">🏰 Your Castle <span class="pop" style="margin-left:auto">Pop <b id="popTxt">0/0</b></span></h2>
+        <div id="buildings"></div></div>
+      <div class="card"><h2>🔨 Construction Queue</h2><div id="buildQueue"><div class="pop">Idle. Upgrade a building to begin.</div></div></div>
+    </section>
+    <section id="tab-army" class="hidden">
+      <div class="card"><h2>⚔️ Barracks — Recruit</h2><div class="flag" id="barracksFlag"></div><div id="troopTrain"></div></div>
+      <div class="card"><h2>🛡️ Training Queue</h2><div id="trainQueue"><div class="pop">No troops in training.</div></div></div>
+      <div class="card"><h2>🏹 Home Garrison <span class="pop" style="margin-left:auto">defends this village</span></h2><div id="armyList"></div></div>
+    </section>
+    <section id="tab-map" class="hidden">
+      <div class="card"><h2>🗺️ The Continent <span class="pop" style="margin-left:auto">Tap 🏕️ camp · 🏯 village · 🏴 rival</span></h2>
+        <div id="mapWrap"><div id="map"><div id="marchLayer"></div></div></div></div>
+      <div class="card"><h2>🐎 Marching &amp; Incoming</h2><div id="marchList"><div class="pop">No armies on the march.</div></div></div>
+    </section>
+    <section id="tab-log" class="hidden">
+      <div class="card"><h2>👑 Realm</h2><div id="realm"></div></div>
+      <div class="card"><h2>📜 Reports</h2><div id="log"></div></div>
+      <div class="card"><h2>ℹ️ About this prototype</h2>
+        <div class="pop" style="line-height:1.55">
+          A mobile-first, no-reload feel-test of KingsAge. Time runs at <b>60×</b>. Build and recruit, <b>scout</b> a camp,
+          raid it and <b>watch the battle</b> (retreat to save survivors). Build an <b>Academy</b>, train <b>Noblemen</b>,
+          and send them on a winning attack to grind a camp's <b>loyalty</b> to zero — it then joins your realm as a
+          <b>second village</b>. Tap your own villages on the map to <b>reinforce</b> them with troops from another village.
+          Meanwhile <b>Warlord Kaas</b> raids your capital — scout, clear, and finally <b>conquer his stronghold</b> to end the
+          raids and <b>win</b>. Tap the <b>🛠️ sandbox button</b> (bottom-right) for God mode (∞ resources), 100× training/build
+          speed, and instant tools to stress-test everything. Your game <b>auto-saves</b> on this device, so you can pick up where
+          you left off.
+        </div></div>
+    </section>
+  </main>
+</div>
+<div id="alertStrip" onclick="switchTab('map')"><span>⚠️ Incoming attack on your capital!</span><span class="cd" id="alertCd"></span></div>
+<nav class="tabs" id="tabs">
+  <button data-tab="village" class="active"><span class="ic">🏰</span>Village</button>
+  <button data-tab="army"><span class="ic">⚔️</span>Army</button>
+  <button data-tab="map"><span class="ic">🗺️</span>Map</button>
+  <button data-tab="log"><span class="ic">📜</span>Reports</button>
+</nav>
+<div id="toast" class="toast"></div>
+<button id="fab" title="Sandbox / Cheats" onclick="openCheats()">🛠️</button>
+<div id="battleRoot"></div>
+
+<script>
+"use strict";
+const SPEED=60,now=()=>Date.now(),ROUND_MS=850;
+const fmt=n=>Math.floor(n).toLocaleString('en-US');
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function dur(sec){sec=Math.max(0,Math.ceil(sec));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;
+  if(h)return `${h}h ${String(m).padStart(2,'0')}m`;if(m)return `${m}m ${String(s).padStart(2,'0')}s`;return `${s}s`;}
+const RES={wood:{name:'Wood',col:'var(--wood)'},stone:{name:'Stone',col:'var(--stone)'},iron:{name:'Iron',col:'var(--iron)'}};
+
+const B={
+ hq:{name:'Headquarters',ico:'🏛️',max:20,desc:'Speeds up all construction.',base:{wood:90,stone:80,iron:70},time:900,cf:1.55,tf:1.2,info:l=>`Construction ${Math.round((1-Math.pow(0.96,l-1))*100)}% faster`},
+ timber:{name:'Timber Camp',ico:'🌲',max:25,desc:'Produces wood.',base:{wood:50,stone:60,iron:40},time:600,cf:1.5,tf:1.2,info:l=>`+${prod(l)}/h wood`},
+ quarry:{name:'Clay Quarry',ico:'⛏️',max:25,desc:'Produces stone.',base:{wood:65,stone:50,iron:40},time:600,cf:1.5,tf:1.2,info:l=>`+${prod(l)}/h stone`},
+ iron:{name:'Iron Mine',ico:'🕳️',max:25,desc:'Produces iron ore.',base:{wood:75,stone:65,iron:70},time:700,cf:1.5,tf:1.2,info:l=>`+${prod(l)}/h iron`},
+ farm:{name:'Farm',ico:'🌾',max:30,desc:'Feeds people & troops (population cap).',base:{wood:45,stone:40,iron:30},time:700,cf:1.45,tf:1.2,info:l=>`Population cap ${popCap(l)}`},
+ wh:{name:'Warehouse',ico:'🏚️',max:30,desc:'Stores raw materials.',base:{wood:60,stone:50,iron:40},time:650,cf:1.45,tf:1.2,info:l=>`Storage ${fmt(storeCap(l))} each`},
+ barracks:{name:'Barracks',ico:'🛖',max:25,desc:'Recruits infantry & cavalry.',base:{wood:200,stone:170,iron:90},time:1800,cf:1.4,tf:1.18,info:l=>`Recruit speed +${Math.round((1-Math.pow(0.95,l-1))*100)}%`},
+ wall:{name:'Rampart',ico:'🧱',max:20,desc:'Boosts this village’s defence.',base:{wood:80,stone:120,iron:40},time:1000,cf:1.5,tf:1.2,info:l=>`Defenders +${l*8}% defence`},
+ academy:{name:'Academy',ico:'🎓',max:3,desc:'Trains Noblemen to conquer villages.',base:{wood:1400,stone:1600,iron:1200},time:3000,cf:1.7,tf:1.25,info:l=>l<1?'Unlocks Noblemen':`Field up to ${l} nobleman${l===1?'':'en'}`},
+};
+const BORDER=['hq','timber','quarry','iron','farm','wh','barracks','wall','academy'];
+const prod=l=>l<=0?0:Math.round(28*Math.pow(1.17,l-1));
+const storeCap=l=>Math.round(1200*Math.pow(1.22,l));
+const popCap=l=>Math.round(200*Math.pow(1.16,l));
+function costOf(k,lvl){const d=B[k],f=Math.pow(d.cf,lvl);return{wood:Math.round(d.base.wood*f),stone:Math.round(d.base.stone*f),iron:Math.round(d.base.iron*f)};}
+function buildTime(v,k,lvl){const d=B[k];return d.time*Math.pow(d.tf,lvl)*Math.pow(0.96,Math.max(0,v.b.hq-1))/SPEED/(S.cheats.buildMult||1);}
+function trainTime(t){return t.time/SPEED/(S.cheats.trainMult||1);}
+
+const T={
+ spear:{name:'Spearman',ico:'🔱',fig:'#8fb0cf',cost:{wood:50,stone:30,iron:10},pop:1,time:120,atk:10,def:25,speed:18,carry:25,req:1},
+ sword:{name:'Swordsman',ico:'🗡️',fig:'#c9d2dc',cost:{wood:30,stone:30,iron:70},pop:1,time:180,atk:25,def:30,speed:22,carry:15,req:3},
+ axe:{name:'Axeman',ico:'🪓',fig:'#e0a04c',cost:{wood:60,stone:30,iron:40},pop:1,time:150,atk:40,def:10,speed:18,carry:10,req:3},
+ archer:{name:'Archer',ico:'🏹',fig:'#8fd0a0',cost:{wood:100,stone:30,iron:60},pop:1,time:220,atk:15,def:40,speed:18,carry:10,req:5},
+ scout:{name:'Scout',ico:'🐎',fig:'#c8b28a',cost:{wood:50,stone:50,iron:20},pop:2,time:90,atk:0,def:2,speed:9,carry:0,req:4},
+ lcav:{name:'Light Cavalry',ico:'🐴',fig:'#f0c057',cost:{wood:125,stone:100,iron:250},pop:4,time:360,atk:130,def:30,speed:10,carry:80,req:8},
+ ram:{name:'Battering Ram',ico:'🛞',fig:'#a98a5a',cost:{wood:300,stone:200,iron:200},pop:5,time:480,atk:2,def:20,speed:30,carry:0,req:12},
+ noble:{name:'Nobleman',ico:'👑',fig:'#e8d070',cost:{wood:2800,stone:3000,iron:3500},pop:25,time:900,atk:25,def:35,speed:35,carry:0,req:99,academy:1},
+};
+const TORDER=['spear','sword','axe','archer','scout','lcav','ram','noble'];
+const BARB={
+ raider:{name:'Raider',ico:'🪓',fig:'#c56a4a',atk:18,def:18},
+ bowman:{name:'Bowman',ico:'🏹',fig:'#b58a5a',atk:14,def:26},
+ brute:{name:'Brute',ico:'🛡️',fig:'#9a4a3a',atk:24,def:14},
+};
+function makeGarrison(D){const n=Math.max(3,Math.round(D/20));
+ const raider=Math.round(n*0.5),bowman=Math.round(n*0.25),brute=Math.max(1,n-raider-bowman);
+ const g={};if(raider>0)g.raider=raider;if(bowman>0)g.bowman=bowman;if(brute>0)g.brute=brute;return g;}
+const garrisonStrength=g=>{let s=0;for(const k in g)s+=g[k]*BARB[k].def;return Math.round(s);};
+
+/* ===================== STATE (multi-village) ===================== */
+let nextVid=1;
+function newArmy(){return {spear:0,sword:0,axe:0,archer:0,scout:0,lcav:0,ram:0,noble:0};}
+function makeVillage(name,x,y,capital){
+ return {id:nextVid++,name,x,y,capital,
+  res:capital?{wood:520,stone:480,iron:300}:{wood:260,stone:240,iron:180},
+  b:capital?{hq:1,timber:1,quarry:1,iron:1,farm:1,wh:1,barracks:0,wall:0,academy:0}
+           :{hq:2,timber:2,quarry:2,iron:2,farm:2,wh:2,barracks:1,wall:1,academy:0},
+  army:newArmy(),buildQ:[],trainQ:[]};
+}
+const S={villages:[],active:0,marches:[],map:[],home:{x:7,y:7},rival:null,rivalDefeated:false,won:false,wavesRepelled:0,wave:0,nextEnemyAt:now()+75000,lastTick:now(),seed:0x2b1c3f,
+ cheats:{god:false,trainMult:1,buildMult:1,noWaves:false}};
+let selTile=null,marchId=1,activeBattle=null;
+const rnd=()=>{S.seed=(S.seed*1103515245+12345)&0x7fffffff;return S.seed/0x7fffffff;};
+const V=()=>S.villages[S.active];
+const capital=()=>S.villages[0];
+const villageById=id=>S.villages.find(v=>v.id===id)||S.villages[0];
+const storageCap=v=>S.cheats.god?1e9:storeCap(v.b.wh),popMax=v=>S.cheats.god?1e9:popCap(v.b.farm);
+function popUsed(v){let p=0;for(const k in v.army)p+=v.army[k]*T[k].pop;
+ for(const q of v.trainQ)p+=T[q.key].pop;
+ for(const m of S.marches)if(m.owner==='me'&&m.fromVid===v.id)for(const k in (m.units||{}))p+=m.units[k]*T[k].pop;return p;}
+const prodPerSec=(v,kind)=>prod(v.b[{wood:'timber',stone:'quarry',iron:'iron'}[kind]])*SPEED/3600;
+const totalUnits=o=>{let n=0;for(const k in o)n+=o[k];return n;};
+function nobleCount(v){let n=v.army.noble||0;for(const q of v.trainQ)if(q.key==='noble')n++;
+ for(const m of S.marches)if(m.owner==='me'&&m.fromVid===v.id&&m.units)n+=(m.units.noble||0);
+ for(const m of S.marches)if(m.owner==='me'&&m.fromVid===v.id&&m.you&&m.you!==m.units)n+=(m.you.noble||0);return n;}
+
+const barbNames=['Ashfen','Greymoor','Blackrook','Duncrag','Thornhold','Ravenmire','Kelbrook','Oxfell','Wychwood','Dunmore','Farholt','Redmarsh','Ironbrook','Coldharbor','Stonewick','Marlow','Netherby','Gorse End'];
+function terrainOf(x,y){const h=((x*73856093)^(y*19349663))>>>0;const r=(h%100)/100;
+ if(r<0.10)return 'water';if(r<0.42)return 'forest';if(r<0.60)return 'hill';return 'plain';}
+function genMap(){const N=15;
+ for(let y=0;y<N;y++)for(let x=0;x<N;x++)S.map.push({x,y,type:'empty',terrain:terrainOf(x,y),res:null,def:0,name:'',recon:null});
+ const home=S.map[S.home.y*N+S.home.x];home.type='home';home.terrain='plain';home.vid=S.villages[0].id;
+ const rc=[{x:1,y:1},{x:13,y:1},{x:1,y:13},{x:13,y:13}][Math.floor(rnd()*4)];
+ const rt=S.map[rc.y*N+rc.x];rt.type='rival';rt.terrain='hill';rt.name='Warlord Kaas';
+ rt.def=460;rt.garrison=makeGarrison(rt.def);rt.loyalty=100;
+ rt.res={wood:2600,stone:2300,iron:1900};rt.cap={wood:4000,stone:4000,iron:4000};rt.regen=3;S.rival=rt;
+ let placed=0,guard=0;
+ while(placed<15&&guard++<400){const x=Math.floor(rnd()*N),y=Math.floor(rnd()*N),t=S.map[y*N+x];
+  if(t.type!=='empty'||t.terrain==='water')continue;
+  const d=Math.hypot(x-S.home.x,y-S.home.y);if(d<2.2)continue;
+  t.type='barb';t.def=Math.round(20+d*d*2.2+rnd()*40);
+  t.garrison=makeGarrison(t.def);t.loyalty=100;
+  t.res={wood:Math.round(300+rnd()*900),stone:Math.round(250+rnd()*800),iron:Math.round(150+rnd()*600)};
+  t.cap={wood:1600,stone:1400,iron:1100};t.name=barbNames[placed%barbNames.length];t.regen=1+rnd()*2;placed++;}
+}
+
+/* ===================== LOOP ===================== */
+function tick(){
+ const t=now();let dt=(t-S.lastTick)/1000;S.lastTick=t;if(dt>3600)dt=0;
+ for(const v of S.villages){
+   const cap=storageCap(v);
+   if(S.cheats.god){v.res.wood=v.res.stone=v.res.iron=1e9;}
+   else for(const kind of ['wood','stone','iron'])v.res[kind]=clamp(v.res[kind]+prodPerSec(v,kind)*dt,0,cap);
+   while(v.buildQ.length&&v.buildQ[0].ends<=t){const j=v.buildQ.shift();v.b[j.key]=j.targetLvl;
+     log('info',`🏗️ [${v.name}] ${B[j.key].name} → level ${j.targetLvl}.`);startNextBuild(v);if(v===V())toast(`${B[j.key].name} → Lv ${j.targetLvl}`);}
+   while(v.trainQ.length&&v.trainQ[0].ends<=t){const j=v.trainQ.shift();v.army[j.key]=(v.army[j.key]||0)+1;startNextTrain(v);}
+ }
+ for(const tile of S.map)if((tile.type==='barb'||tile.type==='rival')&&tile.res)for(const k in tile.res)tile.res[k]=clamp(tile.res[k]+(tile.regen||1)*dt,0,tile.cap[k]);
+ // loyalty slowly recovers
+ for(const tile of S.map)if((tile.type==='barb'||tile.type==='rival')&&tile.loyalty<100)tile.loyalty=clamp(tile.loyalty+dt*0.15,0,100);
+ if(t>=S.nextEnemyAt){if(!S.cheats.noWaves)spawnEnemyWave();S.nextEnemyAt=t+(95+rnd()*55)*1000;}
+ const battleBusy=activeBattle||S.marches.some(m=>m.phase==='battle');
+ for(const m of S.marches){
+   if(m.phase==='out'&&m.arrive<=t)enterBattle(m);
+   else if(m.phase==='incoming'&&m.arrive<=t){if(!battleBusy)startDefense(m);}
+   else if(m.phase==='scout'&&m.arrive<=t)doScout(m);
+   else if(m.phase==='scoutback'&&m.retreat<=t){m.done=true;returnScouts(m);}
+   else if(m.phase==='support'&&m.arrive<=t){m.done=true;doSupport(m);}
+   else if(m.phase==='back'&&m.retreat<=t){m.done=true;returnArmy(m);}
+ }
+ if(!activeBattle){const nb=S.marches.find(m=>m.phase==='battle'&&!m.resolvedShown);if(nb)openBattle(nb);}
+ if(activeBattle&&activeBattle.phase==='battle'&&!activeBattle.outcomeReady&&t>=activeBattle.nextRound){
+   activeBattle.nextRound=t+ROUND_MS;battleRound(activeBattle);renderBattle();}
+ S.marches=S.marches.filter(m=>!m.done);
+ render();
+}
+function startNextBuild(v){if(v.buildQ.length&&!v.buildQ[0].ends)v.buildQ[0].ends=now()+v.buildQ[0].dur*1000;}
+function startNextTrain(v){if(v.trainQ.length&&!v.trainQ[0].ends)v.trainQ[0].ends=now()+v.trainQ[0].dur*1000;}
+
+/* ===================== ACTIONS ===================== */
+const canAfford=(v,c)=>S.cheats.god||(v.res.wood>=c.wood&&v.res.stone>=c.stone&&v.res.iron>=c.iron);
+const pay=(v,c)=>{if(S.cheats.god)return;v.res.wood-=c.wood;v.res.stone-=c.stone;v.res.iron-=c.iron;};
+function queuedLevel(v,k){let lvl=v.b[k];for(const j of v.buildQ)if(j.key===k)lvl=Math.max(lvl,j.targetLvl);return lvl;}
+function upgrade(k){const v=V();const cur=queuedLevel(v,k);if(cur>=B[k].max){toast('Max level');return;}
+ const c=costOf(k,cur);if(!canAfford(v,c)){toast('Not enough resources');return;}
+ if(v.buildQ.length>=5){toast('Queue full (5)');return;}
+ pay(v,c);v.buildQ.push({key:k,targetLvl:cur+1,dur:buildTime(v,k,cur),ends:0});if(v.buildQ.length===1)startNextBuild(v);render();}
+function train(k){const v=V();const inp=document.getElementById('qty-'+k);let q=parseInt(inp.value,10);if(!q||q<1){toast('Enter a quantity');return;}
+ const td=T[k];
+ if(k==='noble'&&!S.cheats.god){if(v.b.academy<1){toast('Build an Academy first');return;}
+   const room=v.b.academy-nobleCount(v);if(room<=0){toast('Academy noble limit reached');return;}q=Math.min(q,room);}
+ const freePop=popMax(v)-popUsed(v),maxPop=Math.floor(freePop/td.pop),
+  maxRes=S.cheats.god?q:Math.min(Math.floor(v.res.wood/td.cost.wood),Math.floor(v.res.stone/td.cost.stone),Math.floor(v.res.iron/td.cost.iron)),
+  make=Math.min(q,maxPop,maxRes);
+ if(make<=0){toast(freePop<td.pop?'No free population':'Not enough resources');return;}
+ const br=Math.pow(0.95,Math.max(0,v.b.barracks-1));
+ for(let i=0;i<make;i++){pay(v,td.cost);v.trainQ.push({key:k,dur:td.time*br/SPEED/(S.cheats.trainMult||1),ends:0});}
+ startNextTrain(v);if(make<q)toast(`Recruiting ${make} (capped)`);inp.value='';render();}
+
+/* ---- raid & scout ---- */
+function openRaid(tile){
+ const v=V(),dist=Math.hypot(tile.x-v.x,tile.y-v.y);
+ const ov=document.createElement('div');ov.className='overlay';ov.id='raidOverlay';
+ let reconHtml;
+ if(tile.recon){const g=tile.recon.garrison,gl=Object.keys(g).map(k=>`${BARB[k].ico}${g[k]}`).join(' ');
+  reconHtml=`<div class="recon"><b>🔍 Scout report</b> — garrison: ${gl||'empty'} · strength ${garrisonStrength(tile.garrison)}<br>
+   loot 🪵${fmt(tile.res.wood)} 🪨${fmt(tile.res.stone)} ⚙️${fmt(tile.res.iron)}</div>`;}
+ else reconHtml=`<div class="recon" style="border-color:var(--muted);background:#161310;color:var(--muted)">🌫️ Garrison unknown — send scouts to reveal it.</div>`;
+ const loy=tile.loyalty==null?100:tile.loyalty;
+ const loyHtml=`<div class="loyrow"><span>👑 Loyalty</span><div class="loybar"><i style="width:${loy}%"></i></div><b style="color:var(--purple)">${Math.round(loy)}</b></div>
+   <div class="pop" style="margin:-6px 0 12px">Defeat the garrison, then win an attack that includes <b>Noblemen</b> to drop loyalty to 0 and conquer.</div>`;
+ const rows=TORDER.filter(k=>v.army[k]>0).map(k=>{const t=T[k];
+  return `<div class="t-row"><div class="t-ico">${t.ico}</div><div class="t-main"><div class="t-name">${t.name}</div>
+   <div class="t-stats">Atk ${t.atk} · carry ${t.carry} · ${t.speed}min/tile</div></div>
+   <div class="t-have">${v.army[k]}</div><input class="qty" id="raid-${k}" inputmode="numeric" placeholder="0"></div>`;}).join('')
+  ||`<div class="pop">No troops in ${v.name}. Recruit some first.</div>`;
+ const scoutBtn=v.army.scout>0?`<button class="btn blue sm" onclick="sendScout(${tile.x},${tile.y})">🔍 Scout</button>`:'';
+ const isRival=tile.type==='rival';
+ ov.innerHTML=`<div class="modal"><h3>${isRival?'🏴':'🏕️'} ${tile.name}</h3>
+  <div class="sub">${isRival?'Rival stronghold — defeat him to end the raids':'Barbarian camp'} · ${dist.toFixed(1)} tiles from ${v.name}</div>${reconHtml}${loyHtml}${rows}
+  <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+   <button class="btn sm" onclick="fillAll()">Send all</button>${scoutBtn}
+   <button class="btn green" style="flex:1" onclick="sendRaid(${tile.x},${tile.y})">March ⚔️</button>
+   <button class="btn sm" onclick="closeModal()">Cancel</button></div></div>`;
+ ov.addEventListener('click',e=>{if(e.target===ov)closeModal();});document.body.appendChild(ov);
+}
+function fillAll(){const v=V();TORDER.forEach(k=>{const el=document.getElementById('raid-'+k);if(el&&k!=='scout')el.value=v.army[k];});}
+function closeModal(){const o=document.getElementById('raidOverlay');if(o)o.remove();}
+function sendRaid(x,y){const v=V(),tile=S.map[y*15+x];const units={};let total=0,slowest=0,carry=0;
+ for(const k of TORDER){const el=document.getElementById('raid-'+k);if(!el)continue;
+  let q=clamp(parseInt(el.value,10)||0,0,v.army[k]);if(q>0){units[k]=q;total+=q;slowest=Math.max(slowest,T[k].speed);carry+=q*T[k].carry;}}
+ if(total===0){toast('Select troops to send');return;}
+ for(const k in units)v.army[k]-=units[k];
+ const dist=Math.hypot(x-v.x,y-v.y),travel=dist*slowest*60/SPEED;
+ S.marches.push({id:marchId++,owner:'me',type:'raid',fromVid:v.id,fromX:v.x,fromY:v.y,tx:x,ty:y,name:tile.name,units,carry,depart:now(),arrive:now()+travel*1000,travel,phase:'out'});
+ log('info',`🐎 [${v.name}] army marching to ${tile.name} (${total} troops, ${dur(travel)}).`);
+ closeModal();switchTab('map');render();
+}
+function sendScout(x,y){const v=V(),tile=S.map[y*15+x];let n=parseInt((document.getElementById('raid-scout')||{}).value,10)||0;
+ if(n<1)n=Math.min(v.army.scout,2);n=clamp(n,0,v.army.scout);
+ if(n<1){toast('No scouts available');return;}
+ v.army.scout-=n;const dist=Math.hypot(x-v.x,y-v.y),travel=dist*T.scout.speed*60/SPEED;
+ S.marches.push({id:marchId++,owner:'me',type:'scout',fromVid:v.id,fromX:v.x,fromY:v.y,tx:x,ty:y,name:tile.name,units:{scout:n},depart:now(),arrive:now()+travel*1000,travel,phase:'scout'});
+ log('scout',`🔍 [${v.name}] ${n} scouts riding to ${tile.name} (${dur(travel)}).`);closeModal();switchTab('map');render();}
+function doScout(m){const tile=S.map[m.ty*15+m.tx];
+ tile.recon={garrison:{...tile.garrison},loot:{wood:tile.res.wood,stone:tile.res.stone,iron:tile.res.iron}};
+ const gl=Object.keys(tile.garrison).map(k=>`${BARB[k].name} ${tile.garrison[k]}`).join(', ');
+ log('scout',`🔍 Report from ${tile.name}: ${gl||'no garrison'} · loyalty ${Math.round(tile.loyalty)} · loot 🪵${fmt(tile.res.wood)} 🪨${fmt(tile.res.stone)} ⚙️${fmt(tile.res.iron)}.`);
+ toast(`Scout report: ${tile.name}`);m.phase='scoutback';m.retreat=now()+m.travel*1000;}
+function returnScouts(m){const v=villageById(m.fromVid);for(const k in m.units)v.army[k]=(v.army[k]||0)+m.units[k];}
+
+/* ===================== ENEMY WAVES ===================== */
+function spawnEnemyWave(){if(!S.rival)return;S.wave++;
+ const power=6+S.wave*5;
+ const units={spear:Math.round(power*0.35),axe:Math.round(power*0.3),sword:Math.round(power*0.2),lcav:Math.max(1,Math.round(power*0.12))};
+ for(const k in units)if(units[k]<=0)delete units[k];
+ let carry=0;for(const k in units)carry+=units[k]*T[k].carry;
+ const cap=capital(),dist=Math.hypot(S.rival.x-cap.x,S.rival.y-cap.y);let slow=0;for(const k in units)slow=Math.max(slow,T[k].speed);
+ const travel=dist*slow*60/SPEED;
+ S.marches.push({id:marchId++,owner:'enemy',type:'raid',phase:'incoming',enemyName:S.rival.name,units,carry,targetVid:cap.id,
+  sx:S.rival.x,sy:S.rival.y,tx:cap.x,ty:cap.y,depart:now(),arrive:now()+travel*1000,travel});
+ log('alert',`⚔️ ${S.rival.name} marches on ${cap.name} with ${totalUnits(units)} troops! Arrives in ${dur(travel)}.`);
+ toast(`Incoming attack — ${dur(travel)}`);}
+
+/* ===================== BATTLE ENGINE ===================== */
+function enterBattle(m){const tile=S.map[m.ty*15+m.tx];
+ m.phase='battle';m.mode='attack';m.you=m.units;m.youTbl=T;
+ if(!tile.garrison)tile.garrison=makeGarrison(tile.def);
+ m.foe=tile.garrison;m.foeTbl=BARB;                       // reference: battle depletes the real garrison
+ m.startYou={...m.you};m.startFoe={...m.foe};m.round=0;m.nextRound=now()+700;m.outcomeReady=false;m.result=null;
+ m.tile=tile;m.morale=1;m.fx={dmgA:0,dmgD:0,key:0};
+ log('info',`⚔️ Army reached ${m.name}. Battle begins!`);}
+function startDefense(m){const v=villageById(m.targetVid);
+ m.phase='battle';m.mode='defense';m.defV=v;m.you=v.army;m.youTbl=T;m.foe=m.units;m.foeTbl=T;
+ m.startYou={...v.army};m.startFoe={...m.units};m.round=0;m.nextRound=now()+700;m.outcomeReady=false;m.result=null;
+ m.name=v.name;m.fx={dmgA:0,dmgD:0,key:0};
+ const defPts=Object.values(v.b).reduce((a,l)=>a+l*10,0)+totalUnits(v.army)*5;
+ const atkPts=Object.keys(m.foe).reduce((a,k)=>a+m.foe[k]*(T[k].atk+T[k].def)/2,0)||1;
+ m.morale=clamp(defPts/atkPts,0.3,1);m.wall=v.b.wall;
+ log('alert',`🛡️ ${m.enemyName} attacks ${v.name}! Garrison of ${totalUnits(v.army)} defends.`);}
+const sideOffense=(u,t)=>{let o=0;for(const k in u)o+=u[k]*t[k].atk;return o;};
+const sideDefense=(u,t)=>{let d=0;for(const k in u)d+=u[k]*t[k].def;return d;};
+function killFraction(u,frac){let killed=0;for(const k in u){if(u[k]<=0)continue;
+  let dead=Math.floor(u[k]*frac);if(frac>0.12&&dead===0&&u[k]>0)dead=1;dead=Math.min(dead,u[k]);u[k]-=dead;killed+=dead;}return killed;}
+function battleRound(m){m.round++;
+ const luckA=0.86+rnd()*0.28,luckD=0.86+rnd()*0.28;
+ const atk=m.mode==='attack'?{u:m.you,t:m.youTbl}:{u:m.foe,t:m.foeTbl};
+ const def=m.mode==='attack'?{u:m.foe,t:m.foeTbl}:{u:m.you,t:m.youTbl};
+ const atkMorale=m.mode==='defense'?m.morale:1;
+ const wallMult=m.mode==='defense'?1+0.08*(m.wall||0):1;
+ const Pa=(sideOffense(atk.u,atk.t)+sideDefense(atk.u,atk.t)*0.3)*atkMorale*luckA;
+ const Pd=(sideDefense(def.u,def.t)*wallMult+sideOffense(def.u,def.t)*0.3)*luckD;
+ const tot=Pa+Pd||1,esc=1+m.round*0.12;
+ const dK=killFraction(def.u,clamp(Pa/tot*0.7*esc,0,1)),aK=killFraction(atk.u,clamp(Pd/tot*0.7*esc,0,1));
+ m.lastLuck=Math.round((luckA-1)*100);
+ const youLoss=m.mode==='attack'?aK:dK,foeLoss=m.mode==='attack'?dK:aK;
+ m.fx={dmgA:youLoss,dmgD:foeLoss,key:(m.fx.key||0)+1};
+ if(totalUnits(m.foe)<=0)goodEnd(m);else if(totalUnits(m.you)<=0)badEnd(m);}
+function goodEnd(m){m.outcomeReady=true;
+ if(m.mode==='attack'){m.result='win';
+   const haul={wood:0,stone:0,iron:0};let space=m.carry;
+   for(const kind of ['wood','stone','iron']){const take=Math.min(m.tile.res[kind],Math.floor(space/3));haul[kind]=take;m.tile.res[kind]-=take;space-=take;}
+   m.haul=haul;m.retreat=now()+m.travel*1000;m.willReturn=true;
+   // loyalty / conquest
+   const nobles=m.you.noble||0;
+   if(nobles>0&&(m.tile.type==='barb'||m.tile.type==='rival')){let drop=0;for(let i=0;i<nobles;i++)drop+=20+Math.floor(rnd()*16);
+     m.tile.loyalty=(m.tile.loyalty==null?100:m.tile.loyalty)-drop;m.loyDrop=drop;
+     if(m.tile.loyalty<=0){conquer(m.tile);m.conquered=m.tile.name;m.result='conquer';}
+     else log('conquer',`👑 Noblemen sway ${m.name}: loyalty −${drop} (now ${Math.round(m.tile.loyalty)}).`);}
+   const extra=m.conquered?` 👑 ${m.name} CONQUERED!`:(nobles>0?` Loyalty now ${Math.round(m.tile.loyalty)}.`:'');
+   log(m.conquered?'conquer':'win',`🏆 Victory at ${m.name}! Loot 🪵${fmt(haul.wood)} 🪨${fmt(haul.stone)} ⚙️${fmt(haul.iron)}. ${totalUnits(m.you)} survive.${extra}`);
+ }else{m.result='defended';S.wavesRepelled++;log('win',`🛡️ ${m.name} held! ${m.enemyName} driven off. ${totalUnits(m.defV.army)} defenders remain.`);}}
+function badEnd(m){m.outcomeReady=true;
+ if(m.mode==='attack'){m.result='loss';m.you={};log('loss',`💀 Defeat at ${m.name}. Your army was wiped out.`);
+ }else{m.result='raided';const v=m.defV,cap=storageCap(v);const stolen={wood:0,stone:0,iron:0};let space=m.carry;
+   for(const kind of ['wood','stone','iron']){const take=Math.min(v.res[kind],Math.floor(space/3));stolen[kind]=take;v.res[kind]-=take;space-=take;}
+   m.stolen=stolen;log('loss',`🔥 ${v.name} was overrun! ${m.enemyName} plundered 🪵${fmt(stolen.wood)} 🪨${fmt(stolen.stone)} ⚙️${fmt(stolen.iron)}.`);}}
+function doRetreat(){const m=activeBattle;if(!m||m.outcomeReady||m.mode!=='attack')return;
+ const lost=killFraction(m.you,0.12);m.outcomeReady=true;m.result='retreat';m.haul=null;m.willReturn=true;m.retreat=now()+m.travel*1000;
+ log('retreat',`🏳️ Retreat from ${m.name}. ${lost} lost; ${totalUnits(m.you)} pull back.`);renderBattle();}
+function conquer(tile){const isRival=(tile===S.rival);
+ const name=isRival?'Kaas Keep':tile.name;
+ tile.type='own';tile.captured=true;tile.garrison={};tile.loyalty=100;tile.name=name;tile.recon=null;
+ const v=makeVillage(name,tile.x,tile.y,false);
+ if(isRival){v.b={hq:5,timber:5,quarry:5,iron:5,farm:6,wh:5,barracks:6,wall:6,academy:1};v.res={wood:1200,stone:1200,iron:1000};}
+ S.villages.push(v);tile.vid=v.id;
+ if(isRival){S.rival=null;S.rivalDefeated=true;S.won=true;
+   log('conquer',`👑 WARLORD KAAS IS DEFEATED! ${name} joins your realm and the raids cease.`);
+   setTimeout(showVictory,700);}
+ else{log('conquer',`👑 ${name} joins your realm as a new village! Switch to it to build & defend.`);
+   toast(`Conquered ${name}!`);}}
+function returnArmy(m){const v=villageById(m.fromVid);const src=m.you||m.units||{};
+ for(const k in src)v.army[k]=(v.army[k]||0)+src[k];
+ if(m.haul){const cap=storageCap(v);for(const kind of ['wood','stone','iron'])v.res[kind]=clamp(v.res[kind]+m.haul[kind],0,cap);}
+ log('info',`🏠 Army returned to ${v.name} (${totalUnits(src)} troops).`);}
+
+/* ---- reinforcements between your villages ---- */
+function openVillageMenu(v){
+ const ov=document.createElement('div');ov.className='overlay';ov.id='raidOverlay';
+ const isActive=(v===V());const src=V();
+ const gar=TORDER.filter(k=>v.army[k]>0).map(k=>`${T[k].ico}${v.army[k]}`).join(' ')||'no troops';
+ let body;
+ if(isActive){body=`<div class="pop">This is your current village. Manage it from the Village and Army tabs.</div>
+   <div style="margin-top:10px"><button class="btn" style="width:100%" onclick="closeModal()">Close</button></div>`;}
+ else{body=`<div class="recon" style="border-color:var(--green);background:#0f1a10;color:var(--muted)">Garrison: <b style="color:var(--green)">${gar}</b></div>
+   <div style="display:flex;gap:8px"><button class="btn gold" style="flex:1" onclick="closeModal();setActive(${S.villages.indexOf(v)})">🏯 Switch to manage</button>
+   <button class="btn green" style="flex:1" onclick="openReinforce(${v.id})">🛡️ Reinforce</button></div>
+   <div class="pop" style="margin-top:8px">Reinforce sends troops from <b>${src.name}</b> to join ${v.name}'s garrison.</div>`;}
+ ov.innerHTML=`<div class="modal"><h3>${v.capital?'🏰':'🏯'} ${v.name}</h3><div class="sub">Your village</div>${body}</div>`;
+ ov.addEventListener('click',e=>{if(e.target===ov)closeModal();});document.body.appendChild(ov);
+}
+function openReinforce(toId){closeModal();const src=V(),target=villageById(toId);
+ const ov=document.createElement('div');ov.className='overlay';ov.id='raidOverlay';
+ const rows=TORDER.filter(k=>src.army[k]>0).map(k=>{const t=T[k];
+  return `<div class="t-row"><div class="t-ico">${t.ico}</div><div class="t-main"><div class="t-name">${t.name}</div>
+   <div class="t-stats">🛡️${t.def} · ${t.speed}min/tile</div></div><div class="t-have">${src.army[k]}</div>
+   <input class="qty" id="sup-${k}" inputmode="numeric" placeholder="0"></div>`;}).join('')
+  ||`<div class="pop">No troops in ${src.name} to send.</div>`;
+ const dist=Math.hypot(target.x-src.x,target.y-src.y);
+ ov.innerHTML=`<div class="modal"><h3>🛡️ Reinforce ${target.name}</h3>
+  <div class="sub">From ${src.name} · ${dist.toFixed(1)} tiles</div>${rows}
+  <div style="display:flex;gap:8px;margin-top:8px"><button class="btn sm" onclick="fillSup()">Send all</button>
+   <button class="btn green" style="flex:1" onclick="sendSupport(${toId})">March 🛡️</button>
+   <button class="btn sm" onclick="closeModal()">Cancel</button></div></div>`;
+ ov.addEventListener('click',e=>{if(e.target===ov)closeModal();});document.body.appendChild(ov);
+}
+function fillSup(){const v=V();TORDER.forEach(k=>{const el=document.getElementById('sup-'+k);if(el)el.value=v.army[k];});}
+function sendSupport(toId){const src=V(),target=villageById(toId);const units={};let total=0,slowest=0;
+ for(const k of TORDER){const el=document.getElementById('sup-'+k);if(!el)continue;
+  let q=clamp(parseInt(el.value,10)||0,0,src.army[k]);if(q>0){units[k]=q;total+=q;slowest=Math.max(slowest,T[k].speed);}}
+ if(total===0){toast('Select troops to send');return;}
+ for(const k in units)src.army[k]-=units[k];
+ const dist=Math.hypot(target.x-src.x,target.y-src.y),travel=dist*slowest*60/SPEED;
+ S.marches.push({id:marchId++,owner:'me',type:'support',fromVid:src.id,fromX:src.x,fromY:src.y,toVid:toId,tx:target.x,ty:target.y,name:target.name,units,depart:now(),arrive:now()+travel*1000,travel,phase:'support'});
+ log('info',`🛡️ [${src.name}] ${total} troops reinforcing ${target.name} (${dur(travel)}).`);
+ closeModal();switchTab('map');render();}
+function doSupport(m){const v=villageById(m.toVid);for(const k in m.units)v.army[k]=(v.army[k]||0)+m.units[k];
+ log('info',`🛡️ ${totalUnits(m.units)} troops arrived to defend ${v.name}.`);toast(`Reinforcements reached ${v.name}`);}
+
+/* ---- realm score & victory ---- */
+function realmPoints(){let p=S.villages.length*100;
+ for(const v of S.villages){for(const k of BORDER)p+=v.b[k]*12;for(const k in v.army)p+=v.army[k]*3;}
+ return Math.round(p);}
+function showVictory(){const root=document.getElementById('battleRoot');
+ root.innerHTML=`<div class="victory"><div class="vcrown">👑</div><h2>THE REALM IS UNITED</h2>
+  <p>Warlord Kaas is defeated and his stronghold flies your banner. The continent is yours, my liege.</p>
+  <div class="vstats"><div class="vstat"><b>${S.villages.length}</b><span>villages</span></div>
+   <div class="vstat"><b>${realmPoints()}</b><span>realm points</span></div>
+   <div class="vstat"><b>${S.wavesRepelled}</b><span>raids repelled</span></div></div>
+  <button class="btn gold" style="padding:13px 26px" onclick="document.getElementById('battleRoot').innerHTML=''">Continue your reign</button></div>`;}
+function renderRealm(){const wrap=document.getElementById('realm');if(!wrap)return;
+ const rival=S.rivalDefeated?'<b style="color:var(--green)">Defeated ✓</b>':(S.rival?`<b style="color:var(--red)">At large</b>`:'—');
+ let totalTroops=0;for(const v of S.villages)for(const k in v.army)totalTroops+=v.army[k];
+ wrap.innerHTML=`<div class="realm-row"><span>Realm points</span><b>${realmPoints()}</b></div>
+  <div class="realm-row"><span>Villages</span><b>${S.villages.length}</b></div>
+  <div class="realm-row"><span>Total troops</span><b>${totalTroops}</b></div>
+  <div class="realm-row"><span>Raids repelled</span><b>${S.wavesRepelled}</b></div>
+  <div class="realm-row"><span>Warlord Kaas</span><span>${rival}</span></div>
+  ${S.won?'<div class="realm-row" style="border:none"><span>Status</span><b style="color:var(--gold)">👑 Realm united</b></div>':'<div class="realm-row" style="border:none"><span>Goal</span><span class="pop">Defeat Warlord Kaas to win</span></div>'}`;}
+
+/* ---- battle UI ---- */
+function openBattle(m){activeBattle=m;buildBattleDOM(m);renderBattle();switchTab('map');}
+function closeBattle(){const m=activeBattle;if(!m)return;m.resolvedShown=true;
+ if(m.mode==='attack'&&(m.result==='win'||m.result==='retreat'||m.result==='conquer'))m.phase='back';else m.done=true;
+ activeBattle=null;document.getElementById('battleRoot').innerHTML='';render();}
+function figs(units,tbl,side){
+ const start=side==='a'?totalUnits(activeBattle.startYou):totalUnits(activeBattle.startFoe);
+ const cur=totalUnits(units),n=start>0?Math.ceil(cur/start*12):0;
+ let col=side==='d'?'#d0574a':'#ccc',best=0;if(side!=='d')for(const k in units){if(units[k]>best){best=units[k];col=tbl[k].fig;}}
+ let out='';for(let i=0;i<12;i++)out+=`<div class="fighter ${i<n?'':'dead'}">${soldier(col,i<n?1:.15)}</div>`;return out;}
+function soldier(c,op){return `<svg width="26" height="44" viewBox="0 0 20 34" style="opacity:${op}">
+  <ellipse cx="10" cy="33" rx="7" ry="2" fill="rgba(0,0,0,.35)"/><rect x="7" y="14" width="6" height="12" rx="2" fill="${c}"/>
+  <rect x="8.5" y="2" width="3" height="14" fill="#6b5334"/><polygon points="8.5,2 11.5,2 12.5,6 7.5,6" fill="#cfcfcf"/>
+  <circle cx="10" cy="9" r="3.4" fill="#e9d3b0"/><path d="M6.5 8 A3.5 3.5 0 0 1 13.5 8 Z" fill="${c}"/>
+  <rect x="4" y="16" width="3" height="9" rx="1.5" fill="#5a4a30"/></svg>`;}
+function buildBattleDOM(m){const root=document.getElementById('battleRoot');
+ root.innerHTML=`<div class="battle-overlay ${m.mode==='defense'?'def':''}">
+  <div class="battle-top"><h3 id="bTitle"></h3><div class="meta" id="bMeta"></div></div>
+  <div class="tug-lbl"><span id="lblA"></span><span id="lblD"></span></div>
+  <div class="tug"><i class="a" id="tugA" style="width:50%"></i><i class="d" id="tugD" style="width:50%"></i></div>
+  <div class="field" id="bField"><div class="sun"></div><div class="hills"></div>
+    <div class="army-line army-a" id="lineA"></div><div class="army-line army-d" id="lineD"></div><div class="clash" id="clash">⚔️</div></div>
+  <div class="rosters"><div class="roster a"><h4><span id="hA"></span><span id="cntA"></span></h4><div id="rosA"></div></div>
+    <div class="roster d"><h4><span id="hD"></span><span id="cntD"></span></h4><div id="rosD"></div></div></div>
+  <div class="battle-actions" id="bActions"></div></div>`;
+ requestAnimationFrame(()=>{const a=document.getElementById('lineA'),d=document.getElementById('lineD');if(a)a.classList.add('engaged');if(d)d.classList.add('engaged');});}
+let lastFxKey=-1;
+function renderBattle(){const m=activeBattle;if(!m)return;const root=document.getElementById('battleRoot');if(!root.firstChild)buildBattleDOM(m);
+ const def=m.mode==='defense';
+ document.getElementById('bTitle').textContent=def?`Defending ${m.name}`:`Battle at ${m.name}`;
+ const luck=m.lastLuck!=null?`${m.lastLuck>=0?'+':''}${m.lastLuck}%`:'—';
+ let meta=m.outcomeReady?`Round ${m.round} · over`:`Round ${m.round} · luck <span class="luck" style="color:${m.lastLuck>=0?'var(--green)':'var(--red)'}">${luck}</span>`;
+ if(def)meta+=` · morale <b style="color:var(--gold)">${Math.round(m.morale*100)}%</b>`;
+ else if((m.you.noble||0)>0)meta+=` · 👑 ${m.you.noble} noble${m.you.noble>1?'s':''}`;
+ document.getElementById('bMeta').innerHTML=meta;
+ document.getElementById('lblA').textContent=def?'Your defenders':'Your army';
+ document.getElementById('lblD').textContent=def?m.enemyName:'Garrison';
+ document.getElementById('hA').textContent='⚔️ '+(def?'Defenders':'Your Army');
+ document.getElementById('hD').textContent=(def?'🏴 ':'🏕️ ')+(def?'Raiders':'Garrison');
+ const Pa=sideOffense(m.you,m.youTbl)+sideDefense(m.you,m.youTbl),Pd=sideOffense(m.foe,m.foeTbl)+sideDefense(m.foe,m.foeTbl),tot=Pa+Pd||1;
+ document.getElementById('tugA').style.width=(Pa/tot*100)+'%';document.getElementById('tugD').style.width=(Pd/tot*100)+'%';
+ document.getElementById('lineA').innerHTML=figs(m.you,m.youTbl,'a');document.getElementById('lineD').innerHTML=figs(m.foe,m.foeTbl,'d');
+ document.getElementById('cntA').textContent=totalUnits(m.you);document.getElementById('cntD').textContent=totalUnits(m.foe);
+ document.getElementById('rosA').innerHTML=rosterRows(m.you,m.startYou,m.youTbl,'var(--green)');
+ document.getElementById('rosD').innerHTML=rosterRows(m.foe,m.startFoe,m.foeTbl,'var(--red)');
+ if(m.fx&&m.fx.key!==lastFxKey){lastFxKey=m.fx.key;const field=document.getElementById('bField'),clash=document.getElementById('clash');
+  field.classList.remove('shake');void field.offsetWidth;field.classList.add('shake');
+  clash.classList.remove('go');void clash.offsetWidth;clash.classList.add('go');
+  if(m.fx.dmgA>0)floatNum(field,'-'+m.fx.dmgA,'var(--red)',22);if(m.fx.dmgD>0)floatNum(field,'-'+m.fx.dmgD,'var(--gold)',72);}
+ const act=document.getElementById('bActions');
+ if(!m.outcomeReady){act.innerHTML=m.mode==='attack'?`<button class="btn red" onclick="doRetreat()">🏳️ Retreat &amp; save survivors</button>`
+     :`<div style="flex:1;text-align:center;color:var(--muted);font-size:12px;padding:8px">Your defenders hold the walls…</div>`;
+ }else{
+   const map={win:['win','🏆 VICTORY'],conquer:['conquer','👑 CONQUERED'],retreat:['retreat','🏳️ RETREAT'],defended:['win','🛡️ HELD'],raided:['loss','🔥 RAIDED'],loss:['loss','💀 DEFEAT']};
+   const [cls,txt]=map[m.result];let loot='';
+   if(m.result==='conquer')loot=`<div class="loot-line">👑 ${m.name} is yours! Loot 🪵${fmt(m.haul.wood)} 🪨${fmt(m.haul.stone)} ⚙️${fmt(m.haul.iron)} · army marching home</div>`;
+   else if(m.result==='win')loot=`<div class="loot-line">Plundered 🪵${fmt(m.haul.wood)} 🪨${fmt(m.haul.stone)} ⚙️${fmt(m.haul.iron)}${(m.loyDrop?` · loyalty −${m.loyDrop}`:'')} · ${totalUnits(m.you)} marching home</div>`;
+   else if(m.result==='retreat')loot=`<div class="loot-line">No loot · ${totalUnits(m.you)} withdrawing home</div>`;
+   else if(m.result==='defended')loot=`<div class="loot-line">Enemy driven off · ${totalUnits(m.defV.army)} defenders survive</div>`;
+   else if(m.result==='raided')loot=`<div class="loot-line">Enemy looted 🪵${fmt(m.stolen.wood)} 🪨${fmt(m.stolen.stone)} ⚙️${fmt(m.stolen.iron)} · garrison fell</div>`;
+   else loot=`<div class="loot-line">Your entire army was lost.</div>`;
+   const good=(m.result!=='loss'&&m.result!=='raided');
+   act.innerHTML=`<div style="flex:1"><div class="outcome-banner ${cls}">${txt}</div>${loot}
+     <button class="btn ${good?'gold':''}" style="width:100%" onclick="closeBattle()">${m.mode==='attack'&&good?'March home 🏠':'Continue'}</button></div>`;
+ }}
+function rosterRows(u,start,tbl,barcol){let out='';for(const k in start){const cur=u[k]||0,mx=start[k],pct=mx>0?cur/mx*100:0;
+  out+=`<div class="u-line">${tbl[k].ico}<span>${tbl[k].name}</span><span class="ubar"><i style="width:${pct}%;background:${barcol}"></i></span>
+   <span class="uc" style="color:${cur>0?'var(--ink)':'var(--red)'}">${cur}</span></div>`;}return out;}
+function floatNum(field,txt,col,leftPct){const s=document.createElement('div');s.className='float';s.textContent=txt;s.style.color=col;
+ s.style.left=leftPct+'%';s.style.bottom='40%';field.appendChild(s);setTimeout(()=>s.remove(),1000);}
+
+const logs=[];
+function log(cls,msg){const d=new Date();const ts=`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+ logs.unshift({cls,msg,ts});if(logs.length>70)logs.pop();}
+let toastTimer=null;
+function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),1900);}
+
+/* ===================== RENDER ===================== */
+function render(){renderVillageBar();renderRes();renderBuildings();renderBuildQueue();renderTroops();renderTrainQueue();renderArmy();
+ renderMarches();renderMarchTokens();renderLog();renderBadges();renderAlert();renderRealm();}
+function setActive(i){S.active=i;render();switchTab('village');}
+function renderVillageBar(){const bar=document.getElementById('villageBar');
+ bar.innerHTML=S.villages.map((v,i)=>`<div class="vchip ${i===S.active?'active':''}" onclick="setActive(${i})">${v.capital?'🏰':'🏯'} ${v.name}</div>`).join('');
+ document.getElementById('villageTitle').innerHTML=`${V().capital?'🏰':'🏯'} ${V().name} <span class="pop" style="margin-left:auto">Pop <b id="popTxt">${popUsed(V())}/${popMax(V())}</b></span>`;}
+function renderRes(){const v=V(),cap=storageCap(v);const bar=document.getElementById('resbar');let html='';
+ for(const kind of ['wood','stone','iron']){const val=v.res[kind],pct=clamp(val/cap*100,0,100),rate=prod(v.b[{wood:'timber',stone:'quarry',iron:'iron'}[kind]]);
+  const disp=S.cheats.god?'∞':fmt(val);
+  html+=`<div class="res ${(!S.cheats.god&&val>=cap)?'warn':''}"><div class="r-top"><span class="r-ico" style="background:${RES[kind].col}"></span>${RES[kind].name}
+   <span style="margin-left:auto;color:var(--muted)">${S.cheats.god?'god':'+'+rate+'/h'}</span></div><div class="r-val" style="${S.cheats.god?'color:var(--purple)':''}">${disp}</div>
+   <div class="bar"><i style="width:${S.cheats.god?100:pct}%;background:${RES[kind].col}"></i></div><div class="r-cap">${S.cheats.god?'sandbox':'cap '+fmt(cap)}</div></div>`;}
+ const pu=popUsed(v),pm=popMax(v);
+ html+=`<div class="res ${(!S.cheats.god&&pu>=pm)?'warn':''}"><div class="r-top"><span class="r-ico" style="background:var(--green)"></span>People<span style="margin-left:auto;color:var(--muted)">farm</span></div>
+   <div class="r-val">${pu}/${S.cheats.god?'∞':pm}</div><div class="bar"><i style="width:${S.cheats.god?100:clamp(pu/pm*100,0,100)}%;background:var(--green)"></i></div><div class="r-cap">${S.cheats.god?'sandbox':(pm-pu)+' free'}</div></div>`;
+ bar.innerHTML=html;const pt=document.getElementById('popTxt');if(pt)pt.textContent=`${pu}/${pm}`;}
+function costChips(c){return `<span><span class="dot" style="background:var(--wood)"></span>${fmt(c.wood)}</span>
+  <span><span class="dot" style="background:var(--stone)"></span>${fmt(c.stone)}</span><span><span class="dot" style="background:var(--iron)"></span>${fmt(c.iron)}</span>`;}
+function renderBuildings(){const v=V(),wrap=document.getElementById('buildings');let html='';
+ for(const key of BORDER){const d=B[key],lvl=v.b[key],qLvl=queuedLevel(v,key),atMax=qLvl>=d.max,c=costOf(key,qLvl),afford=canAfford(v,c);
+  const inQ=qLvl>lvl?` <span style="color:var(--blue)">(→${qLvl})</span>`:'';
+  html+=`<div class="b-row"><div class="b-ico">${d.ico}</div><div class="b-main">
+   <div class="b-name">${d.name}<span class="b-lvl">Lv ${lvl}${inQ}</span></div><div class="b-desc">${d.info(lvl)}</div>
+   ${atMax?'<div class="b-cost" style="color:var(--gold)">Maximum level</div>':`<div class="b-cost">${costChips(c)}<span>⏱️ ${dur(buildTime(v,key,qLvl))}</span></div>`}</div>
+   <button class="btn ${afford&&!atMax?'gold':''} sm" ${(!afford||atMax)?'disabled':''} onclick="upgrade('${key}')">${atMax?'MAX':'Upgrade'}</button></div>`;}
+ wrap.innerHTML=html;}
+function renderBuildQueue(){const v=V(),wrap=document.getElementById('buildQueue');
+ if(!v.buildQ.length){wrap.innerHTML='<div class="pop">Idle. Upgrade a building to begin.</div>';return;}
+ const t=now();let html='';v.buildQ.forEach((j,i)=>{const d=B[j.key];
+  if(i===0){const rem=(j.ends-t)/1000,pct=clamp(100-(rem/j.dur*100),0,100);
+   html+=`<div class="queue-item" style="flex-wrap:wrap"><div class="q-name">${d.ico} ${d.name} → Lv ${j.targetLvl}</div><div class="q-time">${dur(rem)}</div><div class="qbar" style="flex-basis:100%"><i style="width:${pct}%"></i></div></div>`;}
+  else html+=`<div class="queue-item"><div class="q-name" style="opacity:.7">${d.ico} ${d.name} → Lv ${j.targetLvl}</div><div class="q-time" style="color:var(--muted)">queued</div></div>`;});
+ wrap.innerHTML=html;}
+function renderTroops(){const v=V(),flag=document.getElementById('barracksFlag'),wrap=document.getElementById('troopTrain');
+ if(v.b.barracks<1){flag.innerHTML='';wrap.innerHTML='<div class="pop">Build a <b>Barracks</b> (Village tab) to recruit troops.</div>';return;}
+ flag.innerHTML=`Barracks Lv ${v.b.barracks} · Academy Lv ${v.b.academy} (nobles ${nobleCount(v)}/${v.b.academy})`;let html='';
+ for(const key of TORDER){const t=T[key];const locked=key==='noble'?v.b.academy<1:v.b.barracks<t.req;
+  const reqTxt=key==='noble'?'🔒 needs Academy':`🔒 needs Barracks Lv ${t.req}`;
+  html+=`<div class="t-row"><div class="t-ico">${t.ico}</div><div class="t-main">
+   <div class="t-name">${t.name} <span class="pop">· have <b>${v.army[key]}</b></span></div>
+   <div class="t-stats">${locked?reqTxt:`⚔️${t.atk} 🛡️${t.def} · pop ${t.pop} · 🎒${t.carry} · ⏱️${dur(trainTime(t))}`}</div>
+   ${locked?'':`<div class="b-cost" style="margin-top:3px">${costChips(t.cost)}</div>`}</div>
+   ${locked?'':`<input class="qty" id="qty-${key}" inputmode="numeric" placeholder="0"><button class="btn ${key==='noble'?'purple':'gold'} sm" onclick="train('${key}')">Train</button>`}</div>`;}
+ wrap.innerHTML=html;}
+function renderTrainQueue(){const v=V(),wrap=document.getElementById('trainQueue');
+ if(!v.trainQ.length){wrap.innerHTML='<div class="pop">No troops in training.</div>';return;}
+ const t=now(),first=v.trainQ[0],rem=(first.ends-t)/1000,pct=clamp(100-(rem/first.dur*100),0,100);
+ const counts={};v.trainQ.forEach(j=>counts[j.key]=(counts[j.key]||0)+1);
+ wrap.innerHTML=`<div class="queue-item" style="flex-wrap:wrap"><div class="q-name">${T[first.key].ico} ${T[first.key].name} <span class="pop">(next)</span></div>
+  <div class="q-time">${dur(rem)}</div><div class="qbar" style="flex-basis:100%"><i style="width:${pct}%"></i></div></div>
+  <div class="pop" style="margin-top:4px">In queue: ${Object.keys(counts).map(k=>`${T[k].ico}×${counts[k]}`).join('  ')}</div>`;}
+function renderArmy(){const v=V(),wrap=document.getElementById('armyList');
+ if(!Object.values(v.army).some(x=>x>0)){wrap.innerHTML='<div class="pop">No troops home. A defenceless village invites raiders.</div>';return;}
+ let html='';for(const key of TORDER){if(v.army[key]<=0)continue;const t=T[key];
+  html+=`<div class="t-row"><div class="t-ico">${t.ico}</div><div class="t-main"><div class="t-name">${t.name}</div>
+   <div class="t-stats">⚔️${t.atk} 🛡️${t.def} · carry ${t.carry}</div></div><div class="t-have">${v.army[key]}</div></div>`;}
+ wrap.innerHTML=html;}
+function renderMap(){const map=document.getElementById('map');map.style.gridTemplateColumns=`repeat(15,46px)`;
+ let html='';for(const tile of S.map){
+  if(tile.type==='home')html+=`<div class="tile plain home" title="Your capital">🏰<span class="co">${tile.x}|${tile.y}</span></div>`;
+  else if(tile.type==='own')html+=`<div class="tile ${tile.terrain} own" data-vid="${tile.vid}" title="${tile.name}">🏯<span class="co">${tile.x}|${tile.y}</span></div>`;
+  else if(tile.type==='rival'){const loy=tile.loyalty==null?100:tile.loyalty;
+   html+=`<div class="tile rival" title="${tile.name}"><span class="gar">${tile.recon?garrisonStrength(tile.garrison):'?'}</span>${tile.recon?'<span class="eye">🔍</span>':''}🏴${loy<100?`<div class="loy"><i style="width:${loy}%"></i></div>`:''}<span class="co">${tile.x}|${tile.y}</span></div>`;}
+  else if(tile.type==='barb'){const sel=selTile&&selTile.x===tile.x&&selTile.y===tile.y?'selected':'';const loy=tile.loyalty==null?100:tile.loyalty;
+   html+=`<div class="tile ${tile.terrain} barb ${sel}" data-x="${tile.x}" data-y="${tile.y}"><span class="gar">${tile.recon?garrisonStrength(tile.garrison):'?'}</span>${tile.recon?'<span class="eye">🔍</span>':''}🏕️${loy<100?`<div class="loy"><i style="width:${loy}%"></i></div>`:''}<span class="co">${tile.x}|${tile.y}</span></div>`;}
+  else html+=`<div class="tile ${tile.terrain}"></div>`;}
+ map.innerHTML=html+'<div id="marchLayer"></div>';
+ map.querySelectorAll('.tile.barb').forEach(el=>el.addEventListener('click',()=>{const x=+el.dataset.x,y=+el.dataset.y;selTile=S.map[y*15+x];renderMap();openRaid(selTile);}));
+ map.querySelectorAll('.tile.own').forEach(el=>el.addEventListener('click',()=>{const vid=+el.dataset.vid;openVillageMenu(villageById(vid));}));
+ map.querySelectorAll('.tile.home').forEach(el=>el.addEventListener('click',()=>openVillageMenu(S.villages[0])));
+ map.querySelectorAll('.tile.rival').forEach(el=>el.addEventListener('click',()=>{if(S.rival){selTile=S.rival;openRaid(S.rival);}}));}
+function renderMarchTokens(){const layer=document.getElementById('marchLayer');if(!layer)return;let html='';
+ for(const m of S.marches){let x,y,cls,ico;
+  if(m.phase==='out'||m.phase==='scout'||m.phase==='support'){const p=clamp((now()-m.depart)/(m.arrive-m.depart),0,1);x=m.fromX+(m.tx-m.fromX)*p;y=m.fromY+(m.ty-m.fromY)*p;
+   cls=m.phase==='scout'?'scout':m.phase==='support'?'support':'out';ico=m.phase==='scout'?'🔍':m.phase==='support'?'🛡️':'⚔️';}
+  else if(m.phase==='scoutback'||m.phase==='back'){const p=clamp(1-(m.retreat-now())/(m.travel*1000),0,1);x=m.tx+(m.fromX-m.tx)*p;y=m.ty+(m.fromY-m.ty)*p;cls=m.phase==='scoutback'?'scout':'back';ico=m.phase==='scoutback'?'🔍':'🐎';}
+  else if(m.phase==='incoming'){const p=clamp((now()-m.depart)/(m.arrive-m.depart),0,1);x=m.sx+(m.tx-m.sx)*p;y=m.sy+(m.ty-m.sy)*p;cls='incoming';ico='🏴';}
+  else{x=m.tx;y=m.ty;cls='fight';ico='🔥';}
+  html+=`<div class="mtoken ${cls}" style="left:${35+x*49}px;top:${35+y*49}px">${ico}</div>`;}
+ layer.innerHTML=html;}
+function renderMarches(){const wrap=document.getElementById('marchList');
+ if(!S.marches.length){wrap.innerHTML='<div class="pop">No armies on the march.</div>';return;}
+ const t=now();let html='';for(const m of S.marches){const cnt=totalUnits(m.units||m.you||{});
+  if(m.phase==='incoming')html+=`<div class="march" style="border-color:var(--red);background:linear-gradient(#241010,#1a0c0c)"><div class="q-name">⚠️ ${m.enemyName} → ${capital().name} (${cnt})</div><div class="q-time" style="color:var(--red)">lands in ${dur((m.arrive-t)/1000)}</div></div>`;
+  else if(m.phase==='out')html+=`<div class="march"><div class="q-name">⚔️ ${cnt} → ${m.name}</div><div class="q-time">hits in ${dur((m.arrive-t)/1000)}</div></div>`;
+  else if(m.phase==='scout')html+=`<div class="march" style="border-color:var(--muted)"><div class="q-name">🔍 Scouting ${m.name}</div><div class="q-time" style="color:var(--muted)">report in ${dur((m.arrive-t)/1000)}</div></div>`;
+  else if(m.phase==='support')html+=`<div class="march" style="border-color:var(--green)"><div class="q-name">🛡️ ${cnt} reinforcing ${m.name}</div><div class="q-time" style="color:var(--green)">arrive in ${dur((m.arrive-t)/1000)}</div></div>`;
+  else if(m.phase==='scoutback')html+=`<div class="march" style="border-color:var(--muted)"><div class="q-name">🔍 Scouts returning</div><div class="q-time" style="color:var(--muted)">home in ${dur((m.retreat-t)/1000)}</div></div>`;
+  else if(m.phase==='battle')html+=`<div class="march" style="border-color:var(--red)"><div class="q-name">🔥 Battle at ${m.name}</div><div class="q-time" style="color:var(--red)">in combat</div></div>`;
+  else{const tag=m.result==='conquer'?'👑 returning':m.result==='win'?'🏆 returning':m.result==='retreat'?'🏳️ withdrawing':'🐎 returning';
+   html+=`<div class="march" style="border-color:${m.result==='conquer'?'var(--purple)':m.result==='win'?'var(--green)':'var(--gold)'}"><div class="q-name">${tag} from ${m.name} (${cnt})</div><div class="q-time">home in ${dur((m.retreat-t)/1000)}</div></div>`;}}
+ wrap.innerHTML=html;}
+function renderLog(){const wrap=document.getElementById('log');
+ if(!logs.length){wrap.innerHTML='<div class="pop">No reports yet.</div>';return;}
+ wrap.innerHTML=logs.map(l=>`<div class="logline ${l.cls}"><span class="lt">${l.ts}</span><span>${l.msg}</span></div>`).join('');}
+function renderBadges(){const btn=document.querySelector('nav.tabs button[data-tab="map"]');let b=btn.querySelector('.badge');
+ const n=S.marches.filter(m=>m.phase==='incoming'||m.phase==='battle').length;
+ if(n>0){if(!b){b=document.createElement('span');b.className='badge';btn.appendChild(b);}b.textContent=n;}else if(b)b.remove();}
+function renderAlert(){const strip=document.getElementById('alertStrip');
+ const inc=S.marches.filter(m=>m.phase==='incoming').sort((a,b)=>a.arrive-b.arrive)[0];
+ if(inc&&!activeBattle){strip.style.display='flex';document.getElementById('alertCd').textContent=dur((inc.arrive-now())/1000);}else strip.style.display='none';}
+
+function switchTab(name){document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
+ ['village','army','map','log'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==name));}
+document.getElementById('tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)switchTab(b.dataset.tab);});
+
+/* ===================== SANDBOX / CHEATS ===================== */
+function cheatBadge(){const fab=document.getElementById('fab');if(fab)fab.classList.toggle('on',S.cheats.god||S.cheats.trainMult>1||S.cheats.buildMult>1||S.cheats.noWaves);}
+function openCheats(){let ov=document.getElementById('cheatOverlay');
+ if(!ov){ov=document.createElement('div');ov.className='overlay';ov.id='cheatOverlay';
+  ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});document.body.appendChild(ov);}
+ ov.innerHTML=cheatHTML();}
+function refreshCheats(){const ov=document.getElementById('cheatOverlay');if(ov)ov.innerHTML=cheatHTML();cheatBadge();render();}
+function mbtn(label,on,call){return `<button class="btn sm ${on?'purple':''}" onclick="${call}">${label}</button>`;}
+function cheatHTML(){const c=S.cheats;
+ return `<div class="modal"><h3>🛠️ Sandbox / Cheats</h3><div class="sub">Everything applies live. Great for stress-testing every mechanic.</div>
+  <div class="pop" style="margin-bottom:6px"><b>God mode</b> — ∞ resources, no population limit, free everything</div>
+  <div style="display:flex;gap:8px;margin-bottom:12px">${mbtn(c.god?'God mode: ON':'God mode: OFF',c.god,"S.cheats.god=!S.cheats.god;refreshCheats()")}
+   ${mbtn(c.noWaves?'Enemy waves: OFF':'Enemy waves: ON',c.noWaves,"S.cheats.noWaves=!S.cheats.noWaves;refreshCheats()")}</div>
+  <div class="pop" style="margin-bottom:4px"><b>Training speed</b></div>
+  <div style="display:flex;gap:6px;margin-bottom:10px">${[1,10,100,1000].map(x=>mbtn(x+'×',c.trainMult===x,`S.cheats.trainMult=${x};refreshCheats()`)).join('')}</div>
+  <div class="pop" style="margin-bottom:4px"><b>Build speed</b></div>
+  <div style="display:flex;gap:6px;margin-bottom:12px">${[1,10,100,1000].map(x=>mbtn(x+'×',c.buildMult===x,`S.cheats.buildMult=${x};refreshCheats()`)).join('')}</div>
+  <div class="pop" style="margin-bottom:4px"><b>Instant actions</b> (active village: ${V().name})</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+   <button class="btn sm" onclick="finishQueues()">⏩ Finish queues</button>
+   <button class="btn sm" onclick="grantTroops(1000)">+1000 each troop</button>
+   <button class="btn sm" onclick="grantNobles()">🎓 Academy 3 + 5 nobles</button>
+   <button class="btn sm" onclick="maxBuildings()">🏗️ Max all buildings</button>
+   <button class="btn sm" onclick="revealAll()">🔍 Reveal all camps</button>
+   <button class="btn sm" onclick="spawnWaveNow()">⚔️ Spawn enemy wave</button>
+   <button class="btn sm" onclick="conquerNearest()">👑 Conquer nearest camp</button>
+  </div>
+  <div class="pop" style="margin-bottom:4px"><b>Save / resume</b> <span style="color:var(--muted)">(this device)</span></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+   <button class="btn sm gold" onclick="saveGame(false)">💾 Save</button>
+   <button class="btn sm" onclick="loadGame()">📂 Load</button>
+   <button class="btn sm red" onclick="if(confirm('Wipe save and restart?'))resetGame()">♻️ Reset game</button>
+  </div>
+  <button class="btn" style="width:100%" onclick="document.getElementById('cheatOverlay').remove()">Close</button></div>`;}
+function finishQueues(){const v=V();const t=now();
+ while(v.buildQ.length){const j=v.buildQ.shift();v.b[j.key]=j.targetLvl;}
+ while(v.trainQ.length){const j=v.trainQ.shift();v.army[j.key]=(v.army[j.key]||0)+1;}
+ toast('Queues completed');render();}
+function grantTroops(n){const v=V();for(const k of TORDER)if(k!=='noble')v.army[k]=(v.army[k]||0)+n;toast(`+${n} of each troop`);render();}
+function grantNobles(){const v=V();v.b.academy=Math.max(v.b.academy,3);v.army.noble=(v.army.noble||0)+5;toast('Academy 3 + 5 nobles');render();}
+function maxBuildings(){const v=V();for(const k of BORDER)v.b[k]=B[k].max;toast(`${v.name}: all buildings maxed`);render();}
+function revealAll(){let n=0;for(const tile of S.map)if((tile.type==='barb'||tile.type==='rival')&&!tile.recon){tile.recon={garrison:{...tile.garrison},loot:{...tile.res}};n++;}
+ toast(`Revealed ${n} camps`);renderMap();render();}
+function spawnWaveNow(){spawnEnemyWave();switchTab('map');}
+function conquerNearest(){const v=V();let n=null,bd=1e9;
+ for(const t of S.map)if(t.type==='barb'){const d=Math.hypot(t.x-v.x,t.y-v.y);if(d<bd){bd=d;n=t;}}
+ if(!n){toast('No camps left to conquer');return;}
+ conquer(n);renderMap();render();}
+
+/* ===================== SAVE / LOAD (localStorage, best-effort) ===================== */
+const SAVE_KEY='kingsage_reforged_save_v1';
+function saveGame(silent){try{
+  const data={savedAt:now(),active:S.active,home:S.home,seed:S.seed,marchId,nextVid,
+   villages:S.villages,map:S.map,rivalXY:S.rival?{x:S.rival.x,y:S.rival.y}:null,
+   rivalDefeated:S.rivalDefeated,won:S.won,wave:S.wave,wavesRepelled:S.wavesRepelled,nextEnemyAt:S.nextEnemyAt,
+   marches:S.marches.filter(m=>m.phase!=='battle'),cheats:S.cheats,logs:logs.slice(0,40)};
+  localStorage.setItem(SAVE_KEY,JSON.stringify(data));if(!silent)toast('Game saved');return true;
+ }catch(e){if(!silent)toast('Save unavailable here (open the file directly)');return false;}}
+function loadGame(){try{
+  const raw=localStorage.getItem(SAVE_KEY);if(!raw){toast('No save found');return false;}
+  applySave(JSON.parse(raw));toast('Game loaded');return true;
+ }catch(e){toast('Load failed');return false;}}
+function applySave(d){const delta=now()-(d.savedAt||now());
+  S.active=d.active||0;S.home=d.home;S.seed=d.seed;marchId=d.marchId||1;nextVid=d.nextVid||1;
+  S.villages=d.villages;S.map=d.map;S.rival=d.rivalXY?S.map.find(t=>t.x===d.rivalXY.x&&t.y===d.rivalXY.y):null;
+  S.rivalDefeated=!!d.rivalDefeated;S.won=!!d.won;S.wave=d.wave||0;S.wavesRepelled=d.wavesRepelled||0;
+  S.cheats=Object.assign({god:false,trainMult:1,buildMult:1,noWaves:false},d.cheats||{});
+  S.nextEnemyAt=(d.nextEnemyAt||now())+delta;
+  for(const v of S.villages){for(const j of v.buildQ)if(j.ends)j.ends+=delta;for(const j of v.trainQ)if(j.ends)j.ends+=delta;}
+  S.marches=(d.marches||[]).map(m=>{if(m.depart)m.depart+=delta;if(m.arrive)m.arrive+=delta;if(m.retreat)m.retreat+=delta;return m;});
+  logs.length=0;(d.logs||[]).forEach(l=>logs.push(l));
+  S.lastTick=now();activeBattle=null;selTile=null;
+  document.getElementById('battleRoot').innerHTML='';renderMap();render();cheatBadge();}
+function resetGame(){try{localStorage.removeItem(SAVE_KEY);}catch(e){}location.reload();}
+function autosave(){saveGame(true);}
+
+function boot(){
+ let loaded=false;
+ try{if(localStorage.getItem(SAVE_KEY)){/* build a base then overwrite */}}catch(e){}
+ S.villages.push(makeVillage('Kingshold',7,7,true));genMap();
+ try{const raw=localStorage.getItem(SAVE_KEY);if(raw){applySave(JSON.parse(raw));loaded=true;}}catch(e){}
+ if(!loaded){renderMap();log('info','⚜️ Welcome, my liege. Build an Academy, train Noblemen, and conquer camps to grow your realm.');}
+ render();cheatBadge();
+ setInterval(()=>{tick();},250);
+ setInterval(autosave,15000);
+ let lastCount=S.villages.length;setInterval(()=>{if(S.villages.length!==lastCount){lastCount=S.villages.length;renderMap();}},400);}
+boot();
+</script>
+</body>
+</html>
