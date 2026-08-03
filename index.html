@@ -383,6 +383,7 @@ function genWorld(){
  for(let i=0;i<15;i++)S.kingdoms.push({id:i,name:KNAMES[i],color:KCOLORS[i],capital:null,alive:true,
   aggr:i===0?0:(i===1?0.95:0.25+rnd()*0.55),relations:{},allianceId:null});
  S.kingdoms[0].capital={x:S.home.x,y:S.home.y};
+ S.kingdoms[1].relations[0]=-70; // Warlord Kaas despises you from the start
  // capital sites: buildable, >=7 apart, >=8 from the player
  const caps=[];let guard=0;
  while(caps.length<14&&guard++<20000){const x=Math.floor(rnd()*W),y=Math.floor(rnd()*W),t=tileAt(x,y);
@@ -484,19 +485,42 @@ function openRaid(tile){
    <div class="t-have">${v.army[k]}</div><input class="qty" id="raid-${k}" inputmode="numeric" placeholder="0"></div>`;}).join('')
   ||`<div class="pop">No troops in ${v.name}. Recruit some first.</div>`;
  const scoutBtn=v.army.scout>0?`<button class="btn blue sm" onclick="sendScout(${tile.x},${tile.y})">🔍 Scout</button>`:'';
+ const diploBtn=tile.type==='kv'?`<button class="btn purple sm" onclick="openDiplomacy(${tile.kid})">🤝 Diplomacy</button>`:'';
  const isKv=tile.type==='kv',kk=isKv?kingdomOf(tile.kid):null;
  const sub=isKv?`${tile.capitalOf!=null?'👑 Capital of':'Village of'} <b style="color:${kk.color}">${kk.name}</b>`:'Barbarian camp';
  ov.innerHTML=`<div class="modal"><h3>${isKv?'🏯':'🏕️'} ${tile.name}</h3>
   <div class="sub">${sub} · ${dist.toFixed(1)} tiles from ${v.name}</div>${reconHtml}${loyHtml}${rows}
   <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-   <button class="btn sm" onclick="fillAll()">Send all</button>${scoutBtn}
+   <button class="btn sm" onclick="fillAll()">Send all</button>${scoutBtn}${diploBtn}
    <button class="btn green" style="flex:1" onclick="sendRaid(${tile.x},${tile.y})">March ⚔️</button>
    <button class="btn sm" onclick="closeModal()">Cancel</button></div></div>`;
  ov.addEventListener('click',e=>{if(e.target===ov)closeModal();});document.body.appendChild(ov);
 }
 function fillAll(){const v=V();TORDER.forEach(k=>{const el=document.getElementById('raid-'+k);if(el&&k!=='scout')el.value=v.army[k];});}
+function openDiplomacy(kid){closeModal();const k=kingdomOf(kid);
+ const ov=document.createElement('div');ov.className='overlay';ov.id='raidOverlay';
+ ov.innerHTML=diploHTML(kid);ov.addEventListener('click',e=>{if(e.target===ov)closeModal();});
+ document.body.appendChild(ov);}
+function refreshDiplo(kid){const ov=document.getElementById('raidOverlay');if(ov)ov.innerHTML=diploHTML(kid);}
+function diploHTML(kid){const k=kingdomOf(kid),rel=k.relations[0]||0,al=allianceOf(kid),myAl=allianceOf(0);
+ const allied=areAllied(0,kid);
+ const relCol=rel>30?'var(--green)':rel>-10?'var(--muted)':rel>-40?'var(--gold)':'var(--red)';
+ const rows=`<div class="realm-row"><span>Kingdom</span><b style="color:${k.color}">${k.name}</b></div>
+  <div class="realm-row"><span>Strength</span><b>~${Math.round(kPow(kid))}</b></div>
+  <div class="realm-row"><span>Villages</span><b>${villagesOf(kid).length}</b></div>
+  <div class="realm-row"><span>Alliance</span><b>${al?al.name:'—'}</b></div>
+  <div class="realm-row"><span>Stance toward you</span><b style="color:${relCol}">${relWord(rel)}</b></div>`;
+ let actions;
+ if(allied)actions=`<button class="btn red" style="width:100%" onclick="playerBreakAlliance()">💔 Break alliance</button>`;
+ else if(!k.alive)actions=`<div class="pop">This kingdom is no more.</div>`;
+ else actions=`<button class="btn purple" style="width:100%" onclick="proposeAlliance(${kid})">🤝 Propose alliance</button>
+  <div class="pop" style="margin-top:6px">Allies never raid each other and lend defensive strength to nearby allied villages.${myAl?' You are in '+myAl.name+'.':''}</div>`;
+ return `<div class="modal"><h3>🤝 Diplomacy</h3><div class="sub">Relations with ${k.name}</div>${rows}
+  <div style="margin-top:12px">${actions}</div>
+  <button class="btn" style="width:100%;margin-top:8px" onclick="closeModal()">Close</button></div>`;}
 function closeModal(){const o=document.getElementById('raidOverlay');if(o)o.remove();}
 function sendRaid(x,y){const v=V(),tile=tileAt(x,y);const units={};let total=0,slowest=0,carry=0;
+ if(tile.type==='kv'&&areAllied(0,tile.kid)){toast('They are your ally — break the pact first (Diplomacy)');return;}
  for(const k of TORDER){const el=document.getElementById('raid-'+k);if(!el)continue;
   let q=clamp(parseInt(el.value,10)||0,0,v.army[k]);if(q>0){units[k]=q;total+=q;slowest=Math.max(slowest,T[k].speed);carry+=q*T[k].carry;}}
  if(total===0){toast('Select troops to send');return;}
@@ -521,7 +545,7 @@ function doScout(m){const tile=tileAt(m.tx,m.ty);
 function returnScouts(m){const v=villageById(m.fromVid);for(const k in m.units)v.army[k]=(v.army[k]||0)+m.units[k];}
 
 /* ===================== ENEMY WAVES ===================== */
-function kingdomRaid(k,powerOverride){if(!k||!k.alive||k.id===0)return;S.wave++;
+function kingdomRaid(k,powerOverride){if(!k||!k.alive||k.id===0||areAllied(0,k.id))return;S.wave++;
  const power=powerOverride||(6+S.wave*5);
  const units={spear:Math.round(power*0.35),axe:Math.round(power*0.3),sword:Math.round(power*0.2),lcav:Math.max(1,Math.round(power*0.12))};
  for(const kk in units)if(units[kk]<=0)delete units[kk];
@@ -550,6 +574,7 @@ function aiTick(t){if(t<(S.nextAiAt||0))return;
   k.nextActAt=t+(20+rnd()*40)*1000/(0.5+k.aggr);
   aiAct(k,false);}
  for(const k of S.kingdoms)for(const o in k.relations)if(k.relations[o]<0)k.relations[o]=Math.min(0,k.relations[o]+dtMin);
+ if(t>(S.nextAllianceAt||0)){S.nextAllianceAt=t+30000;tryFormAlliances();}
 }
 function aiAct(k,quiet){ // one decision for kingdom k: expand or raid
  const myVs=villagesOf(k.id);if(!myVs.length){k.alive=false;return;}
@@ -576,7 +601,7 @@ function aiRaid(k,quiet){
  // consider raiding the player: aggressive kingdoms near the player's capital
  const t=now();
  const dHome=Math.min(...myVs.map(v=>Math.hypot(v.x-S.home.x,v.y-S.home.y)));
- if(!S.cheats.noWaves&&!quiet&&dHome<=12&&t-(S.lastPlayerRaidAt||0)>90000&&rnd()<k.aggr*0.6){
+ if(!S.cheats.noWaves&&!quiet&&!areAllied(0,k.id)&&dHome<=12&&t-(S.lastPlayerRaidAt||0)>90000&&rnd()<k.aggr*0.6){
   S.lastPlayerRaidAt=t;kingdomRaid(k);return;}
  if(!best)return;
  const defK=kingdomOf(best.kid);
@@ -598,10 +623,68 @@ function aiRaid(k,quiet){
  }else if(!quiet&&rnd()<0.25)worldLog(`⚔️ ${k.name} raided ${best.name} (${defK.name}) and was ${r.win?'victorious':'repelled'}.`);}
 function aiResolve(aPow,dPow,defTile){
  const luck=0.85+rnd()*0.3;
- const hold=(defTile.capitalOf!=null?1.25:1)*(defTile.terrain==='forest'?1.15:1);
+ const allySup=defTile.type==='kv'&&allyNear(defTile.kid,defTile.x,defTile.y,6)?1.25:1;
+ const hold=(defTile.capitalOf!=null?1.25:1)*(defTile.terrain==='forest'?1.15:1)*allySup;
  const Pa=aPow*luck,Pd=Math.max(1,dPow)*hold*(0.9+rnd()*0.2);
  const win=Pa>Pd,ratio=Math.min(Pa,Pd)/Math.max(Pa,Pd);
  return {win,atkLoss:win?ratio*0.5:0.7,defLoss:win?0.7:ratio*0.5,margin:Pa/Pd};}
+/* ---- alliances ---- */
+const ANAMES=['The Accord','Iron Pact','Oath of Thorns','The Concord','Shield League','Ember Compact','Northern Union','The Covenant'];
+function allianceOf(kid){const k=kingdomOf(kid);if(!k||k.allianceId==null)return null;
+ return S.alliances.find(a=>a.id===k.allianceId)||null;}
+function areAllied(a,b){const ka=kingdomOf(a),kb=kingdomOf(b);
+ return ka&&kb&&ka.allianceId!=null&&ka.allianceId===kb.allianceId;}
+function kPow(kid){return kid===0?Math.round(realmPoints()/10):villagesOf(kid).reduce((a,v)=>a+v.pow,0);}
+function joinAlliance(kidA,kidB){ // B joins A's alliance, or a new one forms
+ let al=allianceOf(kidA);
+ if(al&&al.members.length>=4)return null;
+ if(!al){al={id:(S.nextAllianceId=(S.nextAllianceId||0)+1),name:ANAMES[(S.nextAllianceId-1)%ANAMES.length],members:[kidA]};
+  S.alliances.push(al);kingdomOf(kidA).allianceId=al.id;}
+ al.members.push(kidB);kingdomOf(kidB).allianceId=al.id;
+ kingdomOf(kidA).relations[kidB]=50;kingdomOf(kidB).relations[kidA]=50;return al;}
+function leaveAlliance(kid){const al=allianceOf(kid);if(!al)return;
+ al.members=al.members.filter(m=>m!==kid);kingdomOf(kid).allianceId=null;
+ for(const m of al.members){kingdomOf(m).relations[kid]=-50;kingdomOf(kid).relations[m]=-50;}
+ if(al.members.length<2){for(const m of al.members)kingdomOf(m).allianceId=null;
+  S.alliances=S.alliances.filter(a=>a!==al);}}
+function tryFormAlliances(){ // threatened, un-allied kingdoms seek similar-sized partners
+ for(const k of S.kingdoms){if(k.id===0||!k.alive||k.allianceId!=null)continue;
+  const myP=kPow(k.id),myVs=villagesOf(k.id);if(!myVs.length)continue;
+  const threatened=S.kingdoms.some(o=>o.id!==k.id&&o.id!==0&&o.alive&&kPow(o.id)>myP*1.8&&
+   villagesOf(o.id).some(v=>myVs.some(mv=>Math.hypot(v.x-mv.x,v.y-mv.y)<=8)));
+  if(!threatened||rnd()>0.5)continue;
+  let best=null,bd=1e9;
+  for(const o of S.kingdoms){if(o.id===k.id||o.id===0||!o.alive)continue;
+   const oP=kPow(o.id),ratio=oP/(myP||1);if(ratio<0.5||ratio>2)continue;
+   if((k.relations[o.id]||0)<-20)continue;
+   const oal=allianceOf(o.id);if(oal&&oal.members.length>=4)continue;
+   const d=Math.min(...villagesOf(o.id).map(v=>Math.min(...myVs.map(mv=>Math.hypot(v.x-mv.x,v.y-mv.y)))));
+   if(d<bd){bd=d;best=o;}}
+  if(best&&bd<=14){const al=joinAlliance(best.id,k.id);
+   if(al){worldLog(`🤝 ${k.name} and ${best.name} stand together in ${al.name}.`);S.worldDirty=true;}}}}
+function allyNear(kid,x,y,r){ // does an allied village stand within r tiles?
+ const al=allianceOf(kid);if(!al)return false;
+ for(const m of al.members){if(m===kid)continue;
+  if(m===0){if(S.villages.some(v=>Math.hypot(v.x-x,v.y-y)<=r))return true;continue;}
+  if(villagesOf(m).some(v=>Math.hypot(v.x-x,v.y-y)<=r))return true;}
+ return false;}
+function relWord(rel){return rel>30?'Warm':rel>-10?'Neutral':rel>-40?'Wary':'Hostile';}
+function proposeAlliance(kid){const k=kingdomOf(kid);
+ if(S.kingdoms[0].allianceId!=null&&!areAllied(0,kid)){toast('Leave your current alliance first');return;}
+ if(areAllied(0,kid)){toast('Already your ally');return;}
+ const rel=k.relations[0]||0,ratio=kPow(0)/(kPow(kid)||1);
+ if(rel<=-20){toast(`${k.name} refuses — too much bad blood`);refreshDiplo(kid);return;}
+ if(ratio<0.4){toast(`${k.name} refuses — your realm is too weak`);refreshDiplo(kid);return;}
+ if(ratio>2.5){toast(`${k.name} refuses — they fear being swallowed`);refreshDiplo(kid);return;}
+ const al=joinAlliance(kid,0);
+ if(!al){toast(`${k.name}'s alliance is full`);return;}
+ log('conquer',`🤝 You have joined ${al.name} alongside ${k.name}!`);toast(`Alliance formed: ${al.name}`);
+ S.worldDirty=true;refreshDiplo(kid);}
+function playerBreakAlliance(){const al=allianceOf(0);if(!al)return;
+ const name=al.name;leaveAlliance(0);
+ log('alert',`💔 You have left ${name}. Your former allies will not forget.`);toast(`Left ${name}`);
+ S.worldDirty=true;closeModal();}
+
 function ffWorld(minutes){ // sandbox: simulate the living world quickly (no raids on the player)
  const steps=Math.ceil(minutes*2);
  for(let s=0;s<steps;s++){
@@ -626,7 +709,8 @@ function startDefense(m){const v=villageById(m.targetVid);
  const defPts=Object.values(v.b).reduce((a,l)=>a+l*10,0)+totalUnits(v.army)*5;
  const atkPts=Object.keys(m.foe).reduce((a,k)=>a+m.foe[k]*(T[k].atk+T[k].def)/2,0)||1;
  m.morale=clamp(defPts/atkPts,0.3,1);m.wall=v.b.wall;
- log('alert',`🛡️ ${m.enemyName} attacks ${v.name}! Garrison of ${totalUnits(v.army)} defends.`);}
+ m.allySup=allyNear(0,v.x,v.y,6);
+ log('alert',`🛡️ ${m.enemyName} attacks ${v.name}! Garrison of ${totalUnits(v.army)} defends.${m.allySup?' 🤝 Nearby allies lend their strength!':''}`);}
 const sideOffense=(u,t)=>{let o=0;for(const k in u)o+=u[k]*t[k].atk;return o;};
 const sideDefense=(u,t)=>{let d=0;for(const k in u)d+=u[k]*t[k].def;return d;};
 function killFraction(u,frac){let killed=0;for(const k in u){if(u[k]<=0)continue;
@@ -636,7 +720,7 @@ function battleRound(m){m.round++;
  const atk=m.mode==='attack'?{u:m.you,t:m.youTbl}:{u:m.foe,t:m.foeTbl};
  const def=m.mode==='attack'?{u:m.foe,t:m.foeTbl}:{u:m.you,t:m.youTbl};
  const atkMorale=m.mode==='defense'?m.morale:1;
- const wallMult=m.mode==='defense'?1+0.08*(m.wall||0):1;
+ const wallMult=(m.mode==='defense'?1+0.08*(m.wall||0):1)*(m.mode==='defense'&&m.allySup?1.25:1);
  const Pa=(sideOffense(atk.u,atk.t)+sideDefense(atk.u,atk.t)*0.3)*atkMorale*luckA;
  const Pd=(sideDefense(def.u,def.t)*wallMult+sideOffense(def.u,def.t)*0.3)*luckD;
  const tot=Pa+Pd||1,esc=1+m.round*0.12;
@@ -751,6 +835,7 @@ function renderRealm(){const wrap=document.getElementById('realm');if(!wrap)retu
   <div class="realm-row"><span>Total troops</span><b>${totalTroops}</b></div>
   <div class="realm-row"><span>Raids repelled</span><b>${S.wavesRepelled}</b></div>
   <div class="realm-row"><span>Rival kingdoms</span><b>${living}</b></div>
+  ${S.alliances.map(a=>`<div class="realm-row"><span>🤝 ${a.name}</span><span>${a.members.map(m=>{const km=kingdomOf(m);return `<b style="color:${km.color}">${km.name}</b>`;}).join(' · ')}</span></div>`).join('')}
   ${S.won?'<div class="realm-row" style="border:none"><span>Status</span><b style="color:var(--gold)">👑 Realm united</b></div>':'<div class="realm-row" style="border:none"><span>Goal</span><span class="pop">Dominate the continent — topple rival capitals</span></div>'}`;}
 
 /* ---- battle UI ---- */
@@ -786,7 +871,7 @@ function renderBattle(){const m=activeBattle;if(!m)return;const root=document.ge
  document.getElementById('bTitle').textContent=def?`Defending ${m.name}`:`Battle at ${m.name}`;
  const luck=m.lastLuck!=null?`${m.lastLuck>=0?'+':''}${m.lastLuck}%`:'—';
  let meta=m.outcomeReady?`Round ${m.round} · over`:`Round ${m.round} · luck <span class="luck" style="color:${m.lastLuck>=0?'var(--green)':'var(--red)'}">${luck}</span>`;
- if(def)meta+=` · morale <b style="color:var(--gold)">${Math.round(m.morale*100)}%</b>`;
+ if(def)meta+=` · morale <b style="color:var(--gold)">${Math.round(m.morale*100)}%</b>${m.allySup?' · <b style="color:var(--green)">🤝 ally support</b>':''}`;
  else if((m.you.noble||0)>0)meta+=` · 👑 ${m.you.noble} noble${m.you.noble>1?'s':''}`;
  document.getElementById('bMeta').innerHTML=meta;
  document.getElementById('lblA').textContent=def?'Your defenders':'Your army';
@@ -919,7 +1004,8 @@ function renderMap(){const map=document.getElementById('map');
   if(tile.type==='home')html+=`<div class="tile plain home" title="Your capital">🏰<span class="co">${tile.x}|${tile.y}</span></div>`;
   else if(tile.type==='own')html+=`<div class="tile ${tile.terrain} own" data-vid="${tile.vid}" title="${tile.name}">🏯<span class="co">${tile.x}|${tile.y}</span></div>`;
   else if(tile.type==='kv'){const loy=tile.loyalty==null?100:tile.loyalty,kk=kingdomOf(tile.kid);
-   html+=`<div class="tile ${tile.terrain} kv" data-x="${tile.x}" data-y="${tile.y}" title="${tile.name} (${kk.name})" style="box-shadow:inset 0 0 0 2px ${kk.color}"><span class="gar">${tile.recon?garrisonStrength(tile.garrison,T):'?'}</span>${tile.recon?'<span class="eye">🔍</span>':''}${tile.capitalOf!=null?'👑':'🏯'}${loy<100?`<div class="loy"><i style="width:${loy}%"></i></div>`:''}<span class="co">${tile.x}|${tile.y}</span></div>`;}
+   const ally=areAllied(0,tile.kid)?`,0 0 10px #83c85f`:'';
+   html+=`<div class="tile ${tile.terrain} kv" data-x="${tile.x}" data-y="${tile.y}" title="${tile.name} (${kk.name})" style="box-shadow:inset 0 0 0 2px ${kk.color}${ally}"><span class="gar">${tile.recon?garrisonStrength(tile.garrison,T):'?'}</span>${tile.recon?'<span class="eye">🔍</span>':''}${tile.capitalOf!=null?'👑':'🏯'}${loy<100?`<div class="loy"><i style="width:${loy}%"></i></div>`:''}<span class="co">${tile.x}|${tile.y}</span></div>`;}
   else if(tile.type==='barb'){const sel=selTile&&selTile.x===tile.x&&selTile.y===tile.y?'selected':'';const loy=tile.loyalty==null?100:tile.loyalty;
    html+=`<div class="tile ${tile.terrain} barb ${sel}" data-x="${tile.x}" data-y="${tile.y}"><span class="gar">${tile.recon?garrisonStrength(tile.garrison):'?'}</span>${tile.recon?'<span class="eye">🔍</span>':''}🏕️${loy<100?`<div class="loy"><i style="width:${loy}%"></i></div>`:''}<span class="co">${tile.x}|${tile.y}</span></div>`;}
   else html+=`<div class="tile ${tile.terrain}"></div>`;}
@@ -1027,7 +1113,7 @@ function conquerNearest(){const v=V();let n=null,bd=1e9;
 const SAVE_KEY='kingsage_reforged_save_v2'; // v1 saves (15×15 world) are incompatible and ignored
 function saveGame(silent){try{
   const data={savedAt:now(),active:S.active,home:S.home,seed:S.seed,marchId,nextVid,
-   villages:S.villages,map:S.map,kingdoms:S.kingdoms,alliances:S.alliances,kvNameI:S.kvNameI,
+   villages:S.villages,map:S.map,kingdoms:S.kingdoms,alliances:S.alliances,kvNameI:S.kvNameI,nextAllianceId:S.nextAllianceId||0,
    won:S.won,wave:S.wave,wavesRepelled:S.wavesRepelled,nextEnemyAt:S.nextEnemyAt,
    marches:S.marches.filter(m=>m.phase!=='battle'),cheats:S.cheats,logs:logs.slice(0,40)};
   localStorage.setItem(SAVE_KEY,JSON.stringify(data));if(!silent)toast('Game saved');return true;
@@ -1038,7 +1124,7 @@ function loadGame(){try{
  }catch(e){toast('Load failed');return false;}}
 function applySave(d){const delta=now()-(d.savedAt||now());
   S.active=d.active||0;S.home=d.home;S.seed=d.seed;marchId=d.marchId||1;nextVid=d.nextVid||1;
-  S.villages=d.villages;S.map=d.map;S.kingdoms=d.kingdoms||[];S.alliances=d.alliances||[];S.kvNameI=d.kvNameI||0;
+  S.villages=d.villages;S.map=d.map;S.kingdoms=d.kingdoms||[];S.alliances=d.alliances||[];S.kvNameI=d.kvNameI||0;S.nextAllianceId=d.nextAllianceId||0;
   S.won=!!d.won;S.wave=d.wave||0;S.wavesRepelled=d.wavesRepelled||0;
   S.cheats=Object.assign({god:false,trainMult:1,buildMult:1,noWaves:false},d.cheats||{});
   S.nextEnemyAt=(d.nextEnemyAt||now())+delta;
