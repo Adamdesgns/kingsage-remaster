@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>KingsAge Reforged — Prototype</title>
+<title>KingsAge Reforged — Big World</title>
 <style>
   :root{
     --bg:#0f0c08;--bg2:#171009;--panel:#20180f;--panel2:#2a2013;--line:#4a3925;--line2:#6f5636;
@@ -85,6 +85,8 @@
   .tile.forest{background:linear-gradient(145deg,#2f4720,#1d3013)}
   .tile.hill{background:linear-gradient(145deg,#5a4d2e,#3c3218)}
   .tile.water{background:linear-gradient(145deg,#26506b,#173547)}
+  .tile.mountain{background:linear-gradient(145deg,#6a6250,#3f3a2e);box-shadow:inset 0 0 0 1px rgba(0,0,0,.45)}
+  .tile.mountain::after{content:"⛰️";font-size:15px;opacity:.55}
   .tile.barb,.tile.home,.tile.rival,.tile.own{cursor:pointer}
   .tile.home{box-shadow:inset 0 0 0 2px var(--gold),0 0 14px rgba(240,192,87,.4)}
   .tile.own{box-shadow:inset 0 0 0 2px #83c85f,0 0 12px rgba(131,200,95,.4)}
@@ -244,6 +246,9 @@
 <script>
 "use strict";
 const SPEED=60,now=()=>Date.now(),ROUND_MS=850;
+const W=50; // world side length (tiles)
+const idx=(x,y)=>y*W+x, tileAt=(x,y)=>S.map[idx(x,y)];
+const BUILDABLE=t=>t==='plain'||t==='forest'||t==='hill';
 const fmt=n=>Math.floor(n).toLocaleString('en-US');
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function dur(sec){sec=Math.max(0,Math.ceil(sec));const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;
@@ -318,20 +323,52 @@ function nobleCount(v){let n=v.army.noble||0;for(const q of v.trainQ)if(q.key===
  for(const m of S.marches)if(m.owner==='me'&&m.fromVid===v.id&&m.you&&m.you!==m.units)n+=(m.you.noble||0);return n;}
 
 const barbNames=['Ashfen','Greymoor','Blackrook','Duncrag','Thornhold','Ravenmire','Kelbrook','Oxfell','Wychwood','Dunmore','Farholt','Redmarsh','Ironbrook','Coldharbor','Stonewick','Marlow','Netherby','Gorse End'];
-function terrainOf(x,y){const h=((x*73856093)^(y*19349663))>>>0;const r=(h%100)/100;
- if(r<0.10)return 'water';if(r<0.42)return 'forest';if(r<0.60)return 'hill';return 'plain';}
-function genMap(){const N=15;
- for(let y=0;y<N;y++)for(let x=0;x<N;x++)S.map.push({x,y,type:'empty',terrain:terrainOf(x,y),res:null,def:0,name:'',recon:null});
- const home=S.map[S.home.y*N+S.home.x];home.type='home';home.terrain='plain';home.vid=S.villages[0].id;
- const rc=[{x:1,y:1},{x:13,y:1},{x:1,y:13},{x:13,y:13}][Math.floor(rnd()*4)];
- const rt=S.map[rc.y*N+rc.x];rt.type='rival';rt.terrain='hill';rt.name='Warlord Kaas';
+/* ---- terrain generation: seeded value noise → continent ---- */
+function h2(ix,iy,gs){let h=(Math.imul(ix,374761393)+Math.imul(iy,668265263)+Math.imul(gs,974634127))>>>0;
+ h=(h^(h>>>13))>>>0;h=Math.imul(h,1274126177)>>>0;return ((h^(h>>>16))>>>0)/4294967295;}
+function vnoise(x,y,f,gs){const gx=x*f,gy=y*f,x0=Math.floor(gx),y0=Math.floor(gy),tx=gx-x0,ty=gy-y0;
+ const sx=tx*tx*(3-2*tx),sy=ty*ty*(3-2*ty);
+ const a=h2(x0,y0,gs),b=h2(x0+1,y0,gs),c=h2(x0,y0+1,gs),d=h2(x0+1,y0+1,gs);
+ return a+(b-a)*sx+(c-a)*sy+(a-b-c+d)*sx*sy;}
+function terrainGen(gs){const cx=(W-1)/2,cy=(W-1)/2,out=[];
+ for(let y=0;y<W;y++)for(let x=0;x<W;x++){
+  const hv=vnoise(x,y,1/12,gs)*0.7+vnoise(x,y,1/5,gs+7)*0.3
+    -Math.pow(Math.hypot(x-cx,y-cy)/(W*0.62),3)*0.9;
+  const m=vnoise(x,y,1/9,gs+31);
+  let t;if(hv<0.30)t='water';else if(hv<0.34)t='plain';
+  else if(hv>0.66)t='mountain';else if(hv>0.56)t='hill';
+  else t=m>0.55?'forest':'plain';
+  out.push(t);}
+ return out;}
+function openLandAround(x,y,r){let n=0; // buildable tiles within radius r
+ for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){const tx=x+dx,ty=y+dy;
+  if(tx<0||ty<0||tx>=W||ty>=W)continue;if(BUILDABLE(tileAt(tx,ty).terrain))n++;}return n;}
+function nearestBuildable(x0,y0,minOpen){let best=null,bd=1e9;
+ for(const t of S.map)if(BUILDABLE(t.terrain)&&t.type==='empty'&&(!minOpen||openLandAround(t.x,t.y,2)>=minOpen)){
+  const d=Math.hypot(t.x-x0,t.y-y0);if(d<bd){bd=d;best=t;}}
+ return best;}
+function genWorld(){
+ const gs=Math.floor(rnd()*1e9);S.map.length=0;
+ const terr=terrainGen(gs);
+ for(let y=0;y<W;y++)for(let x=0;x<W;x++)S.map.push({x,y,type:'empty',terrain:terr[idx(x,y)],res:null,def:0,name:'',recon:null});
+ // player capital: nearest buildable land to the continent's heart
+ const home=nearestBuildable(Math.floor(W/2),Math.floor(W/2),16)||nearestBuildable(Math.floor(W/2),Math.floor(W/2));
+ home.type='home';home.vid=S.villages[0].id;S.home={x:home.x,y:home.y};
+ S.villages[0].x=home.x;S.villages[0].y=home.y;
+ // Warlord Kaas: strong stronghold on buildable land, far from home
+ let rt=null,rd=0;
+ for(let i=0;i<300;i++){const x=Math.floor(rnd()*W),y=Math.floor(rnd()*W),t=tileAt(x,y);
+  if(t.type!=='empty'||!BUILDABLE(t.terrain))continue;
+  const d=Math.hypot(x-S.home.x,y-S.home.y);if(d>rd){rd=d;rt=t;}}
+ rt.type='rival';rt.name='Warlord Kaas';
  rt.def=460;rt.garrison=makeGarrison(rt.def);rt.loyalty=100;
  rt.res={wood:2600,stone:2300,iron:1900};rt.cap={wood:4000,stone:4000,iron:4000};rt.regen=3;S.rival=rt;
+ // barbarian camps scattered across the buildable world, tougher with distance
  let placed=0,guard=0;
- while(placed<15&&guard++<400){const x=Math.floor(rnd()*N),y=Math.floor(rnd()*N),t=S.map[y*N+x];
-  if(t.type!=='empty'||t.terrain==='water')continue;
+ while(placed<40&&guard++<4000){const x=Math.floor(rnd()*W),y=Math.floor(rnd()*W),t=tileAt(x,y);
+  if(t.type!=='empty'||!BUILDABLE(t.terrain))continue;
   const d=Math.hypot(x-S.home.x,y-S.home.y);if(d<2.2)continue;
-  t.type='barb';t.def=Math.round(20+d*d*2.2+rnd()*40);
+  t.type='barb';t.def=Math.round(20+d*14+rnd()*50);
   t.garrison=makeGarrison(t.def);t.loyalty=100;
   t.res={wood:Math.round(300+rnd()*900),stone:Math.round(250+rnd()*800),iron:Math.round(150+rnd()*600)};
   t.cap={wood:1600,stone:1400,iron:1100};t.name=barbNames[placed%barbNames.length];t.regen=1+rnd()*2;placed++;}
@@ -419,7 +456,7 @@ function openRaid(tile){
 }
 function fillAll(){const v=V();TORDER.forEach(k=>{const el=document.getElementById('raid-'+k);if(el&&k!=='scout')el.value=v.army[k];});}
 function closeModal(){const o=document.getElementById('raidOverlay');if(o)o.remove();}
-function sendRaid(x,y){const v=V(),tile=S.map[y*15+x];const units={};let total=0,slowest=0,carry=0;
+function sendRaid(x,y){const v=V(),tile=tileAt(x,y);const units={};let total=0,slowest=0,carry=0;
  for(const k of TORDER){const el=document.getElementById('raid-'+k);if(!el)continue;
   let q=clamp(parseInt(el.value,10)||0,0,v.army[k]);if(q>0){units[k]=q;total+=q;slowest=Math.max(slowest,T[k].speed);carry+=q*T[k].carry;}}
  if(total===0){toast('Select troops to send');return;}
@@ -429,13 +466,13 @@ function sendRaid(x,y){const v=V(),tile=S.map[y*15+x];const units={};let total=0
  log('info',`🐎 [${v.name}] army marching to ${tile.name} (${total} troops, ${dur(travel)}).`);
  closeModal();switchTab('map');render();
 }
-function sendScout(x,y){const v=V(),tile=S.map[y*15+x];let n=parseInt((document.getElementById('raid-scout')||{}).value,10)||0;
+function sendScout(x,y){const v=V(),tile=tileAt(x,y);let n=parseInt((document.getElementById('raid-scout')||{}).value,10)||0;
  if(n<1)n=Math.min(v.army.scout,2);n=clamp(n,0,v.army.scout);
  if(n<1){toast('No scouts available');return;}
  v.army.scout-=n;const dist=Math.hypot(x-v.x,y-v.y),travel=dist*T.scout.speed*60/SPEED;
  S.marches.push({id:marchId++,owner:'me',type:'scout',fromVid:v.id,fromX:v.x,fromY:v.y,tx:x,ty:y,name:tile.name,units:{scout:n},depart:now(),arrive:now()+travel*1000,travel,phase:'scout'});
  log('scout',`🔍 [${v.name}] ${n} scouts riding to ${tile.name} (${dur(travel)}).`);closeModal();switchTab('map');render();}
-function doScout(m){const tile=S.map[m.ty*15+m.tx];
+function doScout(m){const tile=tileAt(m.tx,m.ty);
  tile.recon={garrison:{...tile.garrison},loot:{wood:tile.res.wood,stone:tile.res.stone,iron:tile.res.iron}};
  const gl=Object.keys(tile.garrison).map(k=>`${BARB[k].name} ${tile.garrison[k]}`).join(', ');
  log('scout',`🔍 Report from ${tile.name}: ${gl||'no garrison'} · loyalty ${Math.round(tile.loyalty)} · loot 🪵${fmt(tile.res.wood)} 🪨${fmt(tile.res.stone)} ⚙️${fmt(tile.res.iron)}.`);
@@ -456,7 +493,7 @@ function spawnEnemyWave(){if(!S.rival)return;S.wave++;
  toast(`Incoming attack — ${dur(travel)}`);}
 
 /* ===================== BATTLE ENGINE ===================== */
-function enterBattle(m){const tile=S.map[m.ty*15+m.tx];
+function enterBattle(m){const tile=tileAt(m.tx,m.ty);
  m.phase='battle';m.mode='attack';m.you=m.units;m.youTbl=T;
  if(!tile.garrison)tile.garrison=makeGarrison(tile.def);
  m.foe=tile.garrison;m.foeTbl=BARB;                       // reference: battle depletes the real garrison
@@ -726,7 +763,7 @@ function renderArmy(){const v=V(),wrap=document.getElementById('armyList');
   html+=`<div class="t-row"><div class="t-ico">${t.ico}</div><div class="t-main"><div class="t-name">${t.name}</div>
    <div class="t-stats">⚔️${t.atk} 🛡️${t.def} · carry ${t.carry}</div></div><div class="t-have">${v.army[key]}</div></div>`;}
  wrap.innerHTML=html;}
-function renderMap(){const map=document.getElementById('map');map.style.gridTemplateColumns=`repeat(15,46px)`;
+function renderMap(){const map=document.getElementById('map');map.style.gridTemplateColumns=`repeat(${W},46px)`;
  let html='';for(const tile of S.map){
   if(tile.type==='home')html+=`<div class="tile plain home" title="Your capital">🏰<span class="co">${tile.x}|${tile.y}</span></div>`;
   else if(tile.type==='own')html+=`<div class="tile ${tile.terrain} own" data-vid="${tile.vid}" title="${tile.name}">🏯<span class="co">${tile.x}|${tile.y}</span></div>`;
@@ -736,7 +773,7 @@ function renderMap(){const map=document.getElementById('map');map.style.gridTemp
    html+=`<div class="tile ${tile.terrain} barb ${sel}" data-x="${tile.x}" data-y="${tile.y}"><span class="gar">${tile.recon?garrisonStrength(tile.garrison):'?'}</span>${tile.recon?'<span class="eye">🔍</span>':''}🏕️${loy<100?`<div class="loy"><i style="width:${loy}%"></i></div>`:''}<span class="co">${tile.x}|${tile.y}</span></div>`;}
   else html+=`<div class="tile ${tile.terrain}"></div>`;}
  map.innerHTML=html+'<div id="marchLayer"></div>';
- map.querySelectorAll('.tile.barb').forEach(el=>el.addEventListener('click',()=>{const x=+el.dataset.x,y=+el.dataset.y;selTile=S.map[y*15+x];renderMap();openRaid(selTile);}));
+ map.querySelectorAll('.tile.barb').forEach(el=>el.addEventListener('click',()=>{const x=+el.dataset.x,y=+el.dataset.y;selTile=tileAt(x,y);renderMap();openRaid(selTile);}));
  map.querySelectorAll('.tile.own').forEach(el=>el.addEventListener('click',()=>{const vid=+el.dataset.vid;openVillageMenu(villageById(vid));}));
  map.querySelectorAll('.tile.home').forEach(el=>el.addEventListener('click',()=>openVillageMenu(S.villages[0])));
  map.querySelectorAll('.tile.rival').forEach(el=>el.addEventListener('click',()=>{if(S.rival){selTile=S.rival;openRaid(S.rival);}}));}
@@ -825,7 +862,7 @@ function conquerNearest(){const v=V();let n=null,bd=1e9;
  conquer(n);renderMap();render();}
 
 /* ===================== SAVE / LOAD (localStorage, best-effort) ===================== */
-const SAVE_KEY='kingsage_reforged_save_v1';
+const SAVE_KEY='kingsage_reforged_save_v2'; // v1 saves (15×15 world) are incompatible and ignored
 function saveGame(silent){try{
   const data={savedAt:now(),active:S.active,home:S.home,seed:S.seed,marchId,nextVid,
    villages:S.villages,map:S.map,rivalXY:S.rival?{x:S.rival.x,y:S.rival.y}:null,
@@ -854,7 +891,7 @@ function autosave(){saveGame(true);}
 function boot(){
  let loaded=false;
  try{if(localStorage.getItem(SAVE_KEY)){/* build a base then overwrite */}}catch(e){}
- S.villages.push(makeVillage('Kingshold',7,7,true));genMap();
+ S.villages.push(makeVillage('Kingshold',0,0,true));genWorld();
  try{const raw=localStorage.getItem(SAVE_KEY);if(raw){applySave(JSON.parse(raw));loaded=true;}}catch(e){}
  if(!loaded){renderMap();log('info','⚜️ Welcome, my liege. Build an Academy, train Noblemen, and conquer camps to grow your realm.');}
  render();cheatBadge();
