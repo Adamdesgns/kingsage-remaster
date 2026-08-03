@@ -426,7 +426,7 @@ function tick(){
  for(const tile of S.map)if((tile.type==='barb'||tile.type==='kv')&&tile.res)for(const k in tile.res)tile.res[k]=clamp(tile.res[k]+(tile.regen||1)*dt,0,tile.cap[k]);
  // loyalty slowly recovers
  for(const tile of S.map)if((tile.type==='barb'||tile.type==='kv')&&tile.loyalty<100)tile.loyalty=clamp(tile.loyalty+dt*0.15,0,100);
- if(t>=S.nextEnemyAt){if(!S.cheats.noWaves)spawnEnemyWave();S.nextEnemyAt=t+(95+rnd()*55)*1000;}
+ aiTick(t);
  const battleBusy=activeBattle||S.marches.some(m=>m.phase==='battle');
  for(const m of S.marches){
    if(m.phase==='out'&&m.arrive<=t)enterBattle(m);
@@ -467,6 +467,7 @@ function train(k){const v=V();const inp=document.getElementById('qty-'+k);let q=
 
 /* ---- raid & scout ---- */
 function openRaid(tile){
+ if(tile.type==='kv')syncGarrison(tile);
  const v=V(),dist=Math.hypot(tile.x-v.x,tile.y-v.y);
  const ov=document.createElement('div');ov.className='overlay';ov.id='raidOverlay';
  let reconHtml;
@@ -512,6 +513,7 @@ function sendScout(x,y){const v=V(),tile=tileAt(x,y);let n=parseInt((document.ge
  S.marches.push({id:marchId++,owner:'me',type:'scout',fromVid:v.id,fromX:v.x,fromY:v.y,tx:x,ty:y,name:tile.name,units:{scout:n},depart:now(),arrive:now()+travel*1000,travel,phase:'scout'});
  log('scout',`🔍 [${v.name}] ${n} scouts riding to ${tile.name} (${dur(travel)}).`);closeModal();switchTab('map');render();}
 function doScout(m){const tile=tileAt(m.tx,m.ty);
+ if(tile.type==='kv')syncGarrison(tile);
  tile.recon={garrison:{...tile.garrison},loot:{wood:tile.res.wood,stone:tile.res.stone,iron:tile.res.iron}};
  const gl=Object.keys(tile.garrison).map(k=>`${tblFor(tile)[k].name} ${tile.garrison[k]}`).join(', ');
  log('scout',`🔍 Report from ${tile.name}: ${gl||'no garrison'} · loyalty ${Math.round(tile.loyalty)} · loot 🪵${fmt(tile.res.wood)} 🪨${fmt(tile.res.stone)} ⚙️${fmt(tile.res.iron)}.`);
@@ -530,10 +532,87 @@ function kingdomRaid(k,powerOverride){if(!k||!k.alive||k.id===0)return;S.wave++;
   sx:k.capital.x,sy:k.capital.y,tx:cap.x,ty:cap.y,depart:now(),arrive:now()+travel*1000,travel});
  log('alert',`⚔️ ${k.name} marches on ${cap.name} with ${totalUnits(units)} troops! Arrives in ${dur(travel)}.`);
  toast(`Incoming attack — ${dur(travel)}`);}
-function spawnEnemyWave(){kingdomRaid(S.kingdoms[1]);} // Kaas, until the AI drives raids
+function spawnEnemyWave(){kingdomRaid(S.kingdoms.find(k=>k.id>0&&k.alive));}
+
+/* ===================== LIVING WORLD (kingdom AI) ===================== */
+const GROW_PER_MIN=1.2,POW_CAP=600;
+function worldLog(msg){log('info','🌍 '+msg);}
+function syncGarrison(tile){ // garrison follows pow unless a live battle holds a reference to it
+ if(S.marches.some(m=>m.phase==='battle'&&m.tile===tile))return;
+ tile.garrison=garrisonFromPow(tile.pow);}
+function powFromGarrison(g){return Math.max(0,Math.round(totalUnits(g)));}
+function aiTick(t){if(t<(S.nextAiAt||0))return;
+ const dtMin=(t-(S.lastAiAt||t))/60000;S.nextAiAt=t+2000;S.lastAiAt=t;
+ for(const tile of S.map)if(tile.type==='kv'&&kingdomOf(tile.kid)&&kingdomOf(tile.kid).alive)
+  tile.pow=Math.min(POW_CAP,tile.pow+GROW_PER_MIN*dtMin);
+ for(const k of S.kingdoms){if(k.id===0||!k.alive)continue;
+  if(t<(k.nextActAt||0))continue;
+  k.nextActAt=t+(20+rnd()*40)*1000/(0.5+k.aggr);
+  aiAct(k,false);}
+ for(const k of S.kingdoms)for(const o in k.relations)if(k.relations[o]<0)k.relations[o]=Math.min(0,k.relations[o]+dtMin);
+}
+function aiAct(k,quiet){ // one decision for kingdom k: expand or raid
+ const myVs=villagesOf(k.id);if(!myVs.length){k.alive=false;return;}
+ const wantRaid=rnd()<k.aggr;
+ if(!wantRaid&&myVs.length<5){
+  const spots=[];
+  for(const v of myVs)for(let dy=-4;dy<=4;dy++)for(let dx=-4;dx<=4;dx++){
+   const x=v.x+dx,y=v.y+dy;if(x<0||y<0||x>=W||y>=W)continue;const s=tileAt(x,y);
+   if(s.type==='empty'&&BUILDABLE(s.terrain)&&Math.hypot(dx,dy)>=1.5&&Math.hypot(x-S.home.x,y-S.home.y)>3)spots.push(s);}
+  if(spots.length){const s=spots[Math.floor(rnd()*spots.length)];makeKv(s,k.id,30,false);
+   worldLog(`🏗️ ${k.name} founded ${s.name}.`);S.worldDirty=true;return;}}
+ aiRaid(k,quiet);}
+function aiRaid(k,quiet){
+ const myVs=villagesOf(k.id);const myPow=myVs.reduce((a,v)=>a+v.pow,0);
+ // candidate targets: other kingdoms' villages (and the player) within 8 of any of our villages
+ let best=null,bestScore=-1,targetPlayer=false;
+ for(const tgt of S.map){
+  if(tgt.type==='kv'&&tgt.kid!==k.id){
+   const ok=kingdomOf(tgt.kid);if(!ok||!ok.alive)continue;
+   if((k.relations[tgt.kid]||0)>40)continue;
+   if(k.allianceId!=null&&k.allianceId===ok.allianceId)continue;
+   const d=Math.min(...myVs.map(v=>Math.hypot(v.x-tgt.x,v.y-tgt.y)));if(d>8)continue;
+   const score=1/(tgt.pow+10)/(d+2);if(score>bestScore){bestScore=score;best=tgt;targetPlayer=false;}}}
+ // consider raiding the player: aggressive kingdoms near the player's capital
+ const t=now();
+ const dHome=Math.min(...myVs.map(v=>Math.hypot(v.x-S.home.x,v.y-S.home.y)));
+ if(!S.cheats.noWaves&&!quiet&&dHome<=12&&t-(S.lastPlayerRaidAt||0)>90000&&rnd()<k.aggr*0.6){
+  S.lastPlayerRaidAt=t;kingdomRaid(k);return;}
+ if(!best)return;
+ const defK=kingdomOf(best.kid);
+ const atkPow=Math.min(myPow*0.4,best.pow*1.6+30);
+ const r=aiResolve(atkPow,best.pow,best);
+ k.relations[best.kid]=(k.relations[best.kid]||0)-30;defK.relations[k.id]=(defK.relations[k.id]||0)-30;
+ // losses land on the target village and (abstractly) the attacker's nearest village
+ const src=myVs.sort((a,b)=>Math.hypot(a.x-best.x,a.y-best.y)-Math.hypot(b.x-best.x,b.y-best.y))[0];
+ src.pow=Math.max(5,src.pow-atkPow*r.atkLoss);
+ best.pow=Math.max(2,best.pow*(1-r.defLoss));syncGarrison(best);
+ if(r.win&&r.margin>1.8){ // captured
+  const wasCapital=best.capitalOf!=null;
+  best.kid=k.id;best.capitalOf=null;best.recon=null;S.worldDirty=true;
+  if(wasCapital){ // absorb the whole kingdom
+   for(const rest of villagesOf(defK.id)){rest.kid=k.id;rest.capitalOf=null;rest.recon=null;}
+   defK.alive=false;
+   worldLog(`👑 ${k.name} has absorbed the kingdom of ${defK.name}!`);
+  }else worldLog(`⚔️ ${k.name} seized ${best.name} from ${defK.name}.`);
+ }else if(!quiet&&rnd()<0.25)worldLog(`⚔️ ${k.name} raided ${best.name} (${defK.name}) and was ${r.win?'victorious':'repelled'}.`);}
+function aiResolve(aPow,dPow,defTile){
+ const luck=0.85+rnd()*0.3;
+ const hold=(defTile.capitalOf!=null?1.25:1)*(defTile.terrain==='forest'?1.15:1);
+ const Pa=aPow*luck,Pd=Math.max(1,dPow)*hold*(0.9+rnd()*0.2);
+ const win=Pa>Pd,ratio=Math.min(Pa,Pd)/Math.max(Pa,Pd);
+ return {win,atkLoss:win?ratio*0.5:0.7,defLoss:win?0.7:ratio*0.5,margin:Pa/Pd};}
+function ffWorld(minutes){ // sandbox: simulate the living world quickly (no raids on the player)
+ const steps=Math.ceil(minutes*2);
+ for(let s=0;s<steps;s++){
+  for(const tile of S.map)if(tile.type==='kv'&&kingdomOf(tile.kid)&&kingdomOf(tile.kid).alive)
+   tile.pow=Math.min(POW_CAP,tile.pow+GROW_PER_MIN*0.5);
+  for(const k of S.kingdoms)if(k.id>0&&k.alive&&rnd()<0.5*(0.5+k.aggr))aiAct(k,true);}
+ S.worldDirty=true;toast(`World fast-forwarded ${minutes} min`);render();}
 
 /* ===================== BATTLE ENGINE ===================== */
 function enterBattle(m){const tile=tileAt(m.tx,m.ty);
+ if(tile.type==='kv')syncGarrison(tile);
  m.phase='battle';m.mode='attack';m.you=m.units;m.youTbl=T;
  if(!tile.garrison)tile.garrison=makeGarrison(tile.def);
  m.foe=tile.garrison;m.foeTbl=tblFor(tile);               // reference: battle depletes the real garrison
@@ -677,6 +756,7 @@ function renderRealm(){const wrap=document.getElementById('realm');if(!wrap)retu
 /* ---- battle UI ---- */
 function openBattle(m){activeBattle=m;buildBattleDOM(m);renderBattle();switchTab('map');}
 function closeBattle(){const m=activeBattle;if(!m)return;m.resolvedShown=true;
+ if(m.mode==='attack'&&m.tile&&m.tile.type==='kv')m.tile.pow=powFromGarrison(m.tile.garrison);
  if(m.mode==='attack'&&(m.result==='win'||m.result==='retreat'||m.result==='conquer'))m.phase='back';else m.done=true;
  activeBattle=null;document.getElementById('battleRoot').innerHTML='';render();}
 function figs(units,tbl,side){
@@ -918,6 +998,8 @@ function cheatHTML(){const c=S.cheats;
    <button class="btn sm" onclick="revealAll()">🔍 Reveal all camps</button>
    <button class="btn sm" onclick="spawnWaveNow()">⚔️ Spawn enemy wave</button>
    <button class="btn sm" onclick="conquerNearest()">👑 Conquer nearest camp</button>
+   <button class="btn sm" onclick="ffWorld(10)">🌍 Fast-forward world 10m</button>
+   <button class="btn sm" onclick="ffWorld(60)">🌍 Fast-forward world 1h</button>
   </div>
   <div class="pop" style="margin-bottom:4px"><b>Save / resume</b> <span style="color:var(--muted)">(this device)</span></div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
@@ -960,6 +1042,8 @@ function applySave(d){const delta=now()-(d.savedAt||now());
   S.won=!!d.won;S.wave=d.wave||0;S.wavesRepelled=d.wavesRepelled||0;
   S.cheats=Object.assign({god:false,trainMult:1,buildMult:1,noWaves:false},d.cheats||{});
   S.nextEnemyAt=(d.nextEnemyAt||now())+delta;
+  for(const k of S.kingdoms)if(k.nextActAt)k.nextActAt+=delta;
+  S.nextAiAt=0;S.lastAiAt=now();S.lastPlayerRaidAt=now(); // grace period after loading
   for(const v of S.villages){for(const j of v.buildQ)if(j.ends)j.ends+=delta;for(const j of v.trainQ)if(j.ends)j.ends+=delta;}
   S.marches=(d.marches||[]).map(m=>{if(m.depart)m.depart+=delta;if(m.arrive)m.arrive+=delta;if(m.retreat)m.retreat+=delta;return m;});
   logs.length=0;(d.logs||[]).forEach(l=>logs.push(l));
@@ -977,7 +1061,7 @@ function boot(){
  render();cheatBadge();
  setInterval(()=>{tick();},250);
  setInterval(autosave,15000);
- let lastCount=S.villages.length;setInterval(()=>{if(S.villages.length!==lastCount){lastCount=S.villages.length;renderMap();}},400);}
+ let lastCount=S.villages.length;setInterval(()=>{if(S.villages.length!==lastCount||S.worldDirty){lastCount=S.villages.length;S.worldDirty=false;renderMap();}},400);}
 boot();
 </script>
 </body>
