@@ -314,6 +314,7 @@ function makeVillage(name,x,y,capital){
   army:newArmy(),buildQ:[],trainQ:[]};
 }
 const S={villages:[],active:0,marches:[],map:[],kingdoms:[],alliances:[],home:{x:7,y:7},won:false,wavesRepelled:0,wave:0,nextEnemyAt:now()+75000,lastTick:now(),seed:0x2b1c3f,
+ worldNum:1,worldName:'',worldStart:now(),legends:[],
  cheats:{god:false,trainMult:1,buildMult:1,noWaves:false}};
 let selTile=null,marchId=1,activeBattle=null;
 const rnd=()=>{S.seed=(S.seed*1103515245+12345)&0x7fffffff;return S.seed/0x7fffffff;};
@@ -370,7 +371,9 @@ function nearestBuildable(x0,y0,minOpen){let best=null,bd=1e9;
  for(const t of S.map)if(BUILDABLE(t.terrain)&&t.type==='empty'&&(!minOpen||openLandAround(t.x,t.y,2)>=minOpen)){
   const d=Math.hypot(t.x-x0,t.y-y0);if(d<bd){bd=d;best=t;}}
  return best;}
+const WFLAVOR=['Dawnlands','Emberfall','Mistmarch','Wolfwater','Stormreach','Thornfield','Ashenvale','Brightholm','Duskmoor','Frosthollow'];
 function genWorld(){
+ S.worldStart=now();S.worldName=`W${S.worldNum} — ${WFLAVOR[(S.worldNum-1)%WFLAVOR.length]}`;
  const gs=Math.floor(rnd()*1e9);S.map.length=0;
  const terr=terrainGen(gs);
  for(let y=0;y<W;y++)for(let x=0;x<W;x++)S.map.push({x,y,type:'empty',terrain:terr[idx(x,y)],res:null,def:0,name:'',recon:null});
@@ -427,7 +430,7 @@ function tick(){
  for(const tile of S.map)if((tile.type==='barb'||tile.type==='kv')&&tile.res)for(const k in tile.res)tile.res[k]=clamp(tile.res[k]+(tile.regen||1)*dt,0,tile.cap[k]);
  // loyalty slowly recovers
  for(const tile of S.map)if((tile.type==='barb'||tile.type==='kv')&&tile.loyalty<100)tile.loyalty=clamp(tile.loyalty+dt*0.15,0,100);
- aiTick(t);
+ aiTick(t);checkVictory();
  const battleBusy=activeBattle||S.marches.some(m=>m.phase==='battle');
  for(const m of S.marches){
    if(m.phase==='out'&&m.arrive<=t)enterBattle(m);
@@ -685,6 +688,41 @@ function playerBreakAlliance(){const al=allianceOf(0);if(!al)return;
  log('alert',`💔 You have left ${name}. Your former allies will not forget.`);toast(`Left ${name}`);
  S.worldDirty=true;closeModal();}
 
+/* ---- standings, victory, the world cycle ---- */
+function territoryCounts(){ // land tiles claimed by the nearest village within 3 tiles
+ const owners=[]; // {kid,x,y}
+ for(const v of S.villages)owners.push({kid:0,x:v.x,y:v.y});
+ for(const t of S.map)if(t.type==='kv')owners.push({kid:t.kid,x:t.x,y:t.y});
+ const counts={},R=3;let land=0;
+ for(const t of S.map){if(t.terrain==='water')continue;land++;
+  let best=null,bd=1e9;
+  for(const o of owners){const d=Math.max(Math.abs(o.x-t.x),Math.abs(o.y-t.y));
+   if(d<=R&&d<bd){bd=d;best=o.kid;}}
+  if(best!=null)counts[best]=(counts[best]||0)+1;}
+ counts._land=land;return counts;}
+function standings(){const tc=territoryCounts(),land=tc._land||1;
+ return S.kingdoms.map(k=>({kid:k.id,name:k.name,color:k.color,alive:k.id===0||k.alive,
+  pct:Math.round((tc[k.id]||0)/land*1000)/10}))
+  .sort((a,b)=>b.pct-a.pct);}
+function gameDays(){return Math.max(1,Math.round((now()-S.worldStart)/1000*SPEED/86400));}
+function checkVictory(){if(S.won)return;
+ const t=now();if(t<(S.nextVicAt||0))return;S.nextVicAt=t+5000;
+ const myPct=(standings().find(s=>s.kid===0)||{}).pct||0;S.myPct=myPct;
+ const allDead=S.kingdoms.every(k=>k.id===0||!k.alive);
+ if(myPct>=40||allDead){S.won=true;setTimeout(showVictory,600);}}
+function winNow(){S.won=true;showVictory();} // sandbox
+function newWorld(){
+ S.legends.push({world:S.worldNum,name:S.worldName,days:gameDays(),points:realmPoints(),
+  pct:S.myPct||((standings().find(s=>s.kid===0)||{}).pct||0),villages:S.villages.length,raidsRepelled:S.wavesRepelled});
+ S.worldNum++;S.seed=(now()^(S.worldNum*7919))&0x7fffffff;
+ S.villages.length=0;S.marches.length=0;S.map.length=0;S.kingdoms.length=0;S.alliances=[];
+ S.active=0;S.won=false;S.wave=0;S.wavesRepelled=0;S.myPct=0;S.nextVicAt=0;S.kvNameI=0;S.nextAllianceId=0;
+ nextVid=1;marchId=1;logs.length=0;activeBattle=null;selTile=null;mapCentered=false;
+ S.villages.push(makeVillage('Kingshold',0,0,true));genWorld();
+ document.getElementById('battleRoot').innerHTML='';
+ log('info',`⚜️ A new world dawns: ${S.worldName}. Carve out your legend once more.`);
+ renderMap();render();saveGame(true);switchTab('village');toast(`Welcome to ${S.worldName}`);}
+
 function ffWorld(minutes){ // sandbox: simulate the living world quickly (no raids on the player)
  const steps=Math.ceil(minutes*2);
  for(let s=0;s<steps;s++){
@@ -821,22 +859,34 @@ function realmPoints(){let p=S.villages.length*100;
  for(const v of S.villages){for(const k of BORDER)p+=v.b[k]*12;for(const k in v.army)p+=v.army[k]*3;}
  return Math.round(p);}
 function showVictory(){const root=document.getElementById('battleRoot');
- root.innerHTML=`<div class="victory"><div class="vcrown">👑</div><h2>THE REALM IS UNITED</h2>
-  <p>Warlord Kaas is defeated and his stronghold flies your banner. The continent is yours, my liege.</p>
-  <div class="vstats"><div class="vstat"><b>${S.villages.length}</b><span>villages</span></div>
+ const pct=S.myPct||((standings().find(s=>s.kid===0)||{}).pct||0);
+ root.innerHTML=`<div class="victory"><div class="vcrown">👑</div><h2>${S.worldName.toUpperCase()} IS YOURS</h2>
+  <p>Your banner commands the continent. The rival kingdoms bend the knee — this world's story is written, and it names you its ruler.</p>
+  <div class="vstats"><div class="vstat"><b>${pct}%</b><span>of the world</span></div>
+   <div class="vstat"><b>${gameDays()}</b><span>days to victory</span></div>
+   <div class="vstat"><b>${S.villages.length}</b><span>villages</span></div>
    <div class="vstat"><b>${realmPoints()}</b><span>realm points</span></div>
    <div class="vstat"><b>${S.wavesRepelled}</b><span>raids repelled</span></div></div>
-  <button class="btn gold" style="padding:13px 26px" onclick="document.getElementById('battleRoot').innerHTML=''">Continue your reign</button></div>`;}
+  <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+   <button class="btn" style="padding:13px 22px" onclick="document.getElementById('battleRoot').innerHTML=''">Keep painting the map</button>
+   <button class="btn gold" style="padding:13px 22px" onclick="newWorld()">🌍 Found a New World</button></div></div>`;}
+let nextStandingsAt=0,standingsCache=[];
 function renderRealm(){const wrap=document.getElementById('realm');if(!wrap)return;
  let totalTroops=0;for(const v of S.villages)for(const k in v.army)totalTroops+=v.army[k];
- const living=S.kingdoms.filter(k=>k.id>0&&k.alive).length;
- wrap.innerHTML=`<div class="realm-row"><span>Realm points</span><b>${realmPoints()}</b></div>
-  <div class="realm-row"><span>Villages</span><b>${S.villages.length}</b></div>
-  <div class="realm-row"><span>Total troops</span><b>${totalTroops}</b></div>
+ const t=now();if(t>nextStandingsAt){nextStandingsAt=t+5000;standingsCache=standings();}
+ const rows=standingsCache.filter(s=>s.alive||s.pct>0).map((s,i)=>
+  `<div class="realm-row"><span>${i+1}. <b style="color:${s.color}">${s.kid===0?'👑 You':s.name}</b>${!s.alive?' 💀':''}${allianceOf(s.kid)?` <span class="pop">(${allianceOf(s.kid).name})</span>`:''}</span><b>${s.pct}%</b></div>`).join('');
+ const myPct=(standingsCache.find(s=>s.kid===0)||{}).pct||0;
+ wrap.innerHTML=`<div class="realm-row"><span>World</span><b>${S.worldName}</b> </div>
+  <div class="realm-row"><span>Realm points</span><b>${realmPoints()}</b></div>
+  <div class="realm-row"><span>Villages · Troops</span><b>${S.villages.length} · ${totalTroops}</b></div>
   <div class="realm-row"><span>Raids repelled</span><b>${S.wavesRepelled}</b></div>
-  <div class="realm-row"><span>Rival kingdoms</span><b>${living}</b></div>
-  ${S.alliances.map(a=>`<div class="realm-row"><span>🤝 ${a.name}</span><span>${a.members.map(m=>{const km=kingdomOf(m);return `<b style="color:${km.color}">${km.name}</b>`;}).join(' · ')}</span></div>`).join('')}
-  ${S.won?'<div class="realm-row" style="border:none"><span>Status</span><b style="color:var(--gold)">👑 Realm united</b></div>':'<div class="realm-row" style="border:none"><span>Goal</span><span class="pop">Dominate the continent — topple rival capitals</span></div>'}`;}
+  ${S.won?'<div class="realm-row"><span>Status</span><b style="color:var(--gold)">👑 World conquered</b></div>'
+   :`<div class="realm-row"><span>Goal</span><span class="pop">Control <b>40%</b> of the land — you hold <b style="color:var(--gold)">${myPct}%</b></span></div>`}
+  <div style="margin:10px 0 4px;font-size:13px;color:var(--gold)">🏆 Standings</div>${rows}
+  ${S.alliances.length?`<div style="margin:10px 0 4px;font-size:13px;color:var(--gold)">🤝 Alliances</div>`+S.alliances.map(a=>`<div class="realm-row"><span>${a.name}</span><span>${a.members.map(m=>{const km=kingdomOf(m);return `<b style="color:${km.color}">${km.name}</b>`;}).join(' · ')}</span></div>`).join(''):''}
+  <div style="margin:10px 0 4px;font-size:13px;color:var(--gold)">📜 Hall of Legends</div>
+  ${S.legends.length?S.legends.map(l=>`<div class="realm-row"><span>👑 ${l.name}</span><span class="pop">won in ${l.days} days · ${l.pct}% · ${l.points} pts</span></div>`).join(''):'<div class="pop">No worlds conquered yet. This one awaits.</div>'}`;}
 
 /* ---- battle UI ---- */
 function openBattle(m){activeBattle=m;buildBattleDOM(m);renderBattle();switchTab('map');}
@@ -1086,6 +1136,7 @@ function cheatHTML(){const c=S.cheats;
    <button class="btn sm" onclick="conquerNearest()">👑 Conquer nearest camp</button>
    <button class="btn sm" onclick="ffWorld(10)">🌍 Fast-forward world 10m</button>
    <button class="btn sm" onclick="ffWorld(60)">🌍 Fast-forward world 1h</button>
+   <button class="btn sm" onclick="winNow()">👑 Trigger victory screen</button>
   </div>
   <div class="pop" style="margin-bottom:4px"><b>Save / resume</b> <span style="color:var(--muted)">(this device)</span></div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
@@ -1115,6 +1166,7 @@ function saveGame(silent){try{
   const data={savedAt:now(),active:S.active,home:S.home,seed:S.seed,marchId,nextVid,
    villages:S.villages,map:S.map,kingdoms:S.kingdoms,alliances:S.alliances,kvNameI:S.kvNameI,nextAllianceId:S.nextAllianceId||0,
    won:S.won,wave:S.wave,wavesRepelled:S.wavesRepelled,nextEnemyAt:S.nextEnemyAt,
+   worldNum:S.worldNum,worldName:S.worldName,worldStart:S.worldStart,legends:S.legends,
    marches:S.marches.filter(m=>m.phase!=='battle'),cheats:S.cheats,logs:logs.slice(0,40)};
   localStorage.setItem(SAVE_KEY,JSON.stringify(data));if(!silent)toast('Game saved');return true;
  }catch(e){if(!silent)toast('Save unavailable here (open the file directly)');return false;}}
@@ -1126,6 +1178,7 @@ function applySave(d){const delta=now()-(d.savedAt||now());
   S.active=d.active||0;S.home=d.home;S.seed=d.seed;marchId=d.marchId||1;nextVid=d.nextVid||1;
   S.villages=d.villages;S.map=d.map;S.kingdoms=d.kingdoms||[];S.alliances=d.alliances||[];S.kvNameI=d.kvNameI||0;S.nextAllianceId=d.nextAllianceId||0;
   S.won=!!d.won;S.wave=d.wave||0;S.wavesRepelled=d.wavesRepelled||0;
+  S.worldNum=d.worldNum||1;S.worldName=d.worldName||'W1';S.worldStart=(d.worldStart||now())+delta;S.legends=d.legends||[];
   S.cheats=Object.assign({god:false,trainMult:1,buildMult:1,noWaves:false},d.cheats||{});
   S.nextEnemyAt=(d.nextEnemyAt||now())+delta;
   for(const k of S.kingdoms)if(k.nextActAt)k.nextActAt+=delta;
