@@ -78,9 +78,15 @@
   .t-have{font-size:12px;color:var(--gold);font-weight:bold;text-align:right;min-width:34px}
   .qty{width:56px;background:#0b0805;border:1px solid var(--line2);color:var(--ink);border-radius:8px;padding:7px;font-size:13px;text-align:center;font-family:inherit}
   .qty:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 2px rgba(240,192,87,.2)}
-  #mapWrap{overflow:auto;border:1px solid var(--line2);border-radius:14px;background:radial-gradient(circle at 50% 40%,#1b2414,#0c0f08);-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
-  #map{position:relative;display:grid;gap:3px;padding:12px;width:max-content}
-  .tile{width:46px;height:46px;border-radius:8px;display:grid;place-items:center;font-size:19px;position:relative;user-select:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}
+  #mapArea{position:relative}
+  #mapWrap{overflow:auto;height:min(62vh,520px);border:1px solid var(--line2);border-radius:14px;background:radial-gradient(circle at 50% 40%,#0f1a24,#0a1118);-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
+  #map{--tile:30px;position:relative;display:grid;gap:3px;padding:12px;width:max-content}
+  .tile{width:var(--tile);height:var(--tile);border-radius:calc(var(--tile)*0.17);display:grid;place-items:center;font-size:calc(var(--tile)*0.42);position:relative;user-select:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}
+  #map.z0 .co,#map.z0 .gar,#map.z0 .eye,#map.z0 .loy,#map:not(.z2) .co{display:none}
+  #mapCtrls{position:absolute;top:8px;right:8px;z-index:8;display:flex;flex-direction:column;gap:6px}
+  #mapCtrls button{width:38px;height:38px;border-radius:10px;border:1px solid var(--line2);background:rgba(24,18,10,.88);color:var(--gold);font-size:17px;font-weight:bold;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+  #mapCtrls button:active{transform:scale(.94)}
+  #minimap{position:absolute;bottom:8px;left:8px;z-index:8;border:1px solid var(--line2);border-radius:8px;background:#0a0d12;opacity:.92;box-shadow:0 3px 14px rgba(0,0,0,.6);cursor:pointer}
   .tile.plain{background:linear-gradient(145deg,#3f5027,#2c3a1a)}
   .tile.forest{background:linear-gradient(145deg,#2f4720,#1d3013)}
   .tile.hill{background:linear-gradient(145deg,#5a4d2e,#3c3218)}
@@ -212,7 +218,9 @@
     </section>
     <section id="tab-map" class="hidden">
       <div class="card"><h2>🗺️ The Continent <span class="pop" style="margin-left:auto">Tap 🏕️ camp · 🏯 village · 🏴 rival</span></h2>
-        <div id="mapWrap"><div id="map"><div id="marchLayer"></div></div></div></div>
+        <div id="mapArea"><div id="mapWrap"><div id="map"><div id="marchLayer"></div></div></div>
+          <div id="mapCtrls"><button onclick="setZoom(ZOOM+1)" title="Zoom in">➕</button><button onclick="setZoom(ZOOM-1)" title="Zoom out">➖</button><button onclick="centerMapOn(S.home.x,S.home.y)" title="Your capital">🏰</button></div>
+          <canvas id="minimap" width="140" height="140"></canvas></div></div>
       <div class="card"><h2>🐎 Marching &amp; Incoming</h2><div id="marchList"><div class="pop">No armies on the march.</div></div></div>
     </section>
     <section id="tab-log" class="hidden">
@@ -763,7 +771,32 @@ function renderArmy(){const v=V(),wrap=document.getElementById('armyList');
   html+=`<div class="t-row"><div class="t-ico">${t.ico}</div><div class="t-main"><div class="t-name">${t.name}</div>
    <div class="t-stats">⚔️${t.atk} 🛡️${t.def} · carry ${t.carry}</div></div><div class="t-have">${v.army[key]}</div></div>`;}
  wrap.innerHTML=html;}
-function renderMap(){const map=document.getElementById('map');map.style.gridTemplateColumns=`repeat(${W},46px)`;
+/* ---- viewport: zoom, centering, mini-map ---- */
+let ZOOM=1;
+const TILE=()=>[16,30,46][ZOOM];
+const MAP_PAD=12,MAP_GAP=3;
+const tilePx=n=>MAP_PAD+n*(TILE()+MAP_GAP)+TILE()/2; // world coord -> px center inside #map
+function setZoom(z){z=clamp(z,0,2);if(z===ZOOM)return;
+ const wrap=document.getElementById('mapWrap');
+ // keep the world point at viewport center fixed across the zoom change
+ const cx=(wrap.scrollLeft+wrap.clientWidth/2-MAP_PAD)/(TILE()+MAP_GAP),
+       cy=(wrap.scrollTop +wrap.clientHeight/2-MAP_PAD)/(TILE()+MAP_GAP);
+ ZOOM=z;renderMap();centerMapOn(cx,cy);}
+function centerMapOn(x,y){const wrap=document.getElementById('mapWrap');
+ wrap.scrollLeft=tilePx(x)-wrap.clientWidth/2;wrap.scrollTop=tilePx(y)-wrap.clientHeight/2;renderMinimap();}
+const MM_COL={water:'#16344a',plain:'#3d4f27',forest:'#25401b',hill:'#4a4026',mountain:'#615b4a'};
+function renderMinimap(){const cv=document.getElementById('minimap');if(!cv)return;const g=cv.getContext('2d'),s=cv.width/W;
+ for(const t of S.map){g.fillStyle=MM_COL[t.terrain]||'#222';g.fillRect(t.x*s,t.y*s,s+0.5,s+0.5);}
+ for(const t of S.map){let c=null;
+  if(t.type==='home')c='#f0c057';else if(t.type==='own')c='#83c85f';
+  else if(t.type==='rival')c='#e0392a';else if(t.type==='barb')c='#8a5a3a';
+  if(c){g.fillStyle=c;g.fillRect(t.x*s-1,t.y*s-1,s+2,s+2);}}
+ const wrap=document.getElementById('mapWrap');if(wrap&&wrap.clientWidth){const span=TILE()+MAP_GAP;
+  g.strokeStyle='rgba(255,255,255,.85)';g.lineWidth=1;
+  g.strokeRect((wrap.scrollLeft-MAP_PAD)/span*s,(wrap.scrollTop-MAP_PAD)/span*s,wrap.clientWidth/span*s,wrap.clientHeight/span*s);}}
+function renderMap(){const map=document.getElementById('map');
+ map.style.gridTemplateColumns=`repeat(${W},${TILE()}px)`;map.style.setProperty('--tile',TILE()+'px');
+ map.classList.toggle('z0',ZOOM===0);map.classList.toggle('z2',ZOOM===2);
  let html='';for(const tile of S.map){
   if(tile.type==='home')html+=`<div class="tile plain home" title="Your capital">🏰<span class="co">${tile.x}|${tile.y}</span></div>`;
   else if(tile.type==='own')html+=`<div class="tile ${tile.terrain} own" data-vid="${tile.vid}" title="${tile.name}">🏯<span class="co">${tile.x}|${tile.y}</span></div>`;
@@ -776,7 +809,13 @@ function renderMap(){const map=document.getElementById('map');map.style.gridTemp
  map.querySelectorAll('.tile.barb').forEach(el=>el.addEventListener('click',()=>{const x=+el.dataset.x,y=+el.dataset.y;selTile=tileAt(x,y);renderMap();openRaid(selTile);}));
  map.querySelectorAll('.tile.own').forEach(el=>el.addEventListener('click',()=>{const vid=+el.dataset.vid;openVillageMenu(villageById(vid));}));
  map.querySelectorAll('.tile.home').forEach(el=>el.addEventListener('click',()=>openVillageMenu(S.villages[0])));
- map.querySelectorAll('.tile.rival').forEach(el=>el.addEventListener('click',()=>{if(S.rival){selTile=S.rival;openRaid(S.rival);}}));}
+ map.querySelectorAll('.tile.rival').forEach(el=>el.addEventListener('click',()=>{if(S.rival){selTile=S.rival;openRaid(S.rival);}}));
+ renderMinimap();}
+// minimap tap-to-jump + viewport rect tracking (bound once)
+document.getElementById('minimap').addEventListener('click',e=>{const r=e.target.getBoundingClientRect();
+ centerMapOn((e.clientX-r.left)/r.width*W,(e.clientY-r.top)/r.height*W);});
+(()=>{let raf=0;document.getElementById('mapWrap').addEventListener('scroll',()=>{if(raf)return;
+ raf=requestAnimationFrame(()=>{raf=0;renderMinimap();});},{passive:true});})();
 function renderMarchTokens(){const layer=document.getElementById('marchLayer');if(!layer)return;let html='';
  for(const m of S.marches){let x,y,cls,ico;
   if(m.phase==='out'||m.phase==='scout'||m.phase==='support'){const p=clamp((now()-m.depart)/(m.arrive-m.depart),0,1);x=m.fromX+(m.tx-m.fromX)*p;y=m.fromY+(m.ty-m.fromY)*p;
@@ -784,7 +823,8 @@ function renderMarchTokens(){const layer=document.getElementById('marchLayer');i
   else if(m.phase==='scoutback'||m.phase==='back'){const p=clamp(1-(m.retreat-now())/(m.travel*1000),0,1);x=m.tx+(m.fromX-m.tx)*p;y=m.ty+(m.fromY-m.ty)*p;cls=m.phase==='scoutback'?'scout':'back';ico=m.phase==='scoutback'?'🔍':'🐎';}
   else if(m.phase==='incoming'){const p=clamp((now()-m.depart)/(m.arrive-m.depart),0,1);x=m.sx+(m.tx-m.sx)*p;y=m.sy+(m.ty-m.sy)*p;cls='incoming';ico='🏴';}
   else{x=m.tx;y=m.ty;cls='fight';ico='🔥';}
-  html+=`<div class="mtoken ${cls}" style="left:${35+x*49}px;top:${35+y*49}px">${ico}</div>`;}
+  const sz=TILE()>=30?26:18;
+  html+=`<div class="mtoken ${cls}" style="left:${tilePx(x)}px;top:${tilePx(y)}px;width:${sz}px;height:${sz}px;margin:${-sz/2}px 0 0 ${-sz/2}px;font-size:${sz/2}px">${ico}</div>`;}
  layer.innerHTML=html;}
 function renderMarches(){const wrap=document.getElementById('marchList');
  if(!S.marches.length){wrap.innerHTML='<div class="pop">No armies on the march.</div>';return;}
@@ -808,8 +848,10 @@ function renderAlert(){const strip=document.getElementById('alertStrip');
  const inc=S.marches.filter(m=>m.phase==='incoming').sort((a,b)=>a.arrive-b.arrive)[0];
  if(inc&&!activeBattle){strip.style.display='flex';document.getElementById('alertCd').textContent=dur((inc.arrive-now())/1000);}else strip.style.display='none';}
 
+let mapCentered=false;
 function switchTab(name){document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
- ['village','army','map','log'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==name));}
+ ['village','army','map','log'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==name));
+ if(name==='map'){if(!mapCentered){mapCentered=true;centerMapOn(S.home.x,S.home.y);}else renderMinimap();}}
 document.getElementById('tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)switchTab(b.dataset.tab);});
 
 /* ===================== SANDBOX / CHEATS ===================== */
