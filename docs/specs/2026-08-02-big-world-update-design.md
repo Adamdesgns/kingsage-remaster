@@ -110,9 +110,12 @@ mobile builder, not a menu app.
   village scene. (Boom Beach maps to what Phase 1 builds: marching out from your base
   across a big world map.)
 - **Game-feel polish everywhere:** juicy buttons, animated numbers, transitions.
-- **Mechanics line:** adopt CoC's *presentation and layout-defense*, NOT its
-  shields/gems/timers monetization loop — army marches, raids, loyalty conquest stay
-  the KingsAge identity.
+- **Mechanics line:** adopt CoC/Boom Beach's *great mechanics* — layout-defense,
+  watchable staged attacks, satisfying progression — but explicitly **NOT random
+  matchmaking**: every target is found on the world map. Opponents are persistent
+  kingdoms at fixed locations you scout, pick, and can return to. Also skip the
+  shields/gems/timers monetization loop. Army marches, raids, and loyalty conquest
+  stay the KingsAge identity.
 - **Possible 3D future:** because all rules live in `S` and the DOM is a projection of
   it, the renderer can later be swapped (e.g. WebGL/3D) without rewriting game logic.
   Keep that separation strict.
