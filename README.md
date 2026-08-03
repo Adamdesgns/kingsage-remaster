@@ -11,23 +11,31 @@ Open [`index.html`](index.html) directly in any modern browser (desktop or mobil
 build step, no server, no dependencies. Your progress **auto-saves** to the device via
 `localStorage`, so you can pick up where you left off.
 
-## What's in the prototype
+## What's in the prototype (Phase 1 — Big World)
 
-- **Village management** — upgrade Headquarters, resource buildings (Timber Camp, Clay
-  Quarry, Iron Mine), Farm (population cap), Warehouse (storage), Barracks, Rampart, and
-  Academy, each with its own cost curve and construction queue.
-- **Army** — recruit eight unit types (Spearman, Swordsman, Axeman, Archer, Scout, Light
-  Cavalry, Battering Ram, Nobleman), gated by Barracks/Academy level and population.
-- **World map** — a 15×15 continent of barbarian camps, terrain, and a rival stronghold.
-  **Scout** camps to reveal garrisons, **raid** them for loot, and **watch the animated
-  battle** play out round by round (retreat to save survivors).
-- **Conquest** — build an Academy, train **Noblemen**, and grind a camp's **loyalty** to
-  zero on a winning attack to annex it as a **second village**. Manage and **reinforce**
-  your villages across the map.
-- **Enemy waves** — **Warlord Kaas** periodically marches on your capital. Scout, defend,
-  and eventually **conquer his stronghold** to end the raids and **win the realm**.
-- **Sandbox / cheats** — a bottom-right 🛠️ button opens God mode (∞ resources), 100×
-  build/train speed, and instant tools to stress-test every mechanic.
+- **A living 50×50 continent** — generated terrain that reads like real geography: ocean
+  coasts, mountain ranges, forests, and plains. Drag to pan, zoom three levels, jump
+  anywhere from the tappable mini-map.
+- **14 AI kingdoms that actually play** — they grow, found villages, raid each other,
+  capture territory, and absorb weaker realms. Borders shift on the mini-map whether you
+  act or not. **Warlord Kaas** starts hostile and hunts your capital.
+- **Map-based targeting, never matchmaking** — every opponent is a persistent kingdom at
+  a fixed place on the map. Scout the exact village you want, judge its garrison, and hit
+  it. Grudges are geographic.
+- **Alliances** — threatened kingdoms forge pacts; you can propose your own through the
+  Diplomacy panel. Allies never raid each other and lend defensive strength nearby.
+- **Terrain matters** — forests slow marches and shelter defenders (+15% defense);
+  mountains and water shape march routes.
+- **Village management & armies** — the full build/recruit loop: nine buildings with cost
+  curves, eight unit types, population and storage caps, watchable round-by-round battles
+  with retreat.
+- **Conquest** — train **Noblemen** to grind loyalty and annex villages. Topple a
+  kingdom's **capital** and the whole realm shatters.
+- **Win the world, then found the next** — control **40% of the land** (or fell every
+  rival) to conquer the world; then generate a fresh continent and build your record in
+  the **Hall of Legends**.
+- **Sandbox / cheats** — a bottom-right 🛠️ button opens God mode, speed multipliers,
+  world fast-forward, and instant tools to stress-test every mechanic.
 
 ## Continuing the project
 
@@ -36,8 +44,14 @@ AI agent) picking up the work: architecture, the `S` state model, config/tuning 
 a function map, how each system works, conventions/gotchas, and the roadmap toward an
 eventual multiplayer backend.
 
+Current design lives in
+[`docs/specs/2026-08-02-big-world-update-design.md`](docs/specs/2026-08-02-big-world-update-design.md)
+(Phase 1: the living world — shipped; Phase 2: Clash-of-Clans-style visual village — next),
+with the build plan in [`docs/plans/2026-08-02-big-world-phase1.md`](docs/plans/2026-08-02-big-world-phase1.md).
+
 > Note: the handoff references two companion docs — `KingsAge_Reforged_Plan.md` and
-> `KingsAge_Reforged_Backend_Spec.md` — that are not yet in this repo.
+> `KingsAge_Reforged_Backend_Spec.md` — that were lost with the original chat session.
+> The backend spec will be rewritten before multiplayer work begins.
 
 ## Status
 

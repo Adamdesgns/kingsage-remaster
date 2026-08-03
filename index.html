@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>KingsAge Reforged — Big World</title>
+<title>KingsAge Reforged</title>
 <style>
   :root{
     --bg:#0f0c08;--bg2:#171009;--panel:#20180f;--panel2:#2a2013;--line:#4a3925;--line2:#6f5636;
@@ -228,14 +228,15 @@
       <div class="card"><h2>📜 Reports</h2><div id="log"></div></div>
       <div class="card"><h2>ℹ️ About this prototype</h2>
         <div class="pop" style="line-height:1.55">
-          A mobile-first, no-reload feel-test of KingsAge. Time runs at <b>60×</b>. Build and recruit, <b>scout</b> a camp,
-          raid it and <b>watch the battle</b> (retreat to save survivors). Build an <b>Academy</b>, train <b>Noblemen</b>,
-          and send them on a winning attack to grind a camp's <b>loyalty</b> to zero — it then joins your realm as a
-          <b>second village</b>. Tap your own villages on the map to <b>reinforce</b> them with troops from another village.
-          Meanwhile <b>Warlord Kaas</b> raids your capital — scout, clear, and finally <b>conquer his stronghold</b> to end the
-          raids and <b>win</b>. Tap the <b>🛠️ sandbox button</b> (bottom-right) for God mode (∞ resources), 100× training/build
-          speed, and instant tools to stress-test everything. Your game <b>auto-saves</b> on this device, so you can pick up where
-          you left off.
+          A mobile-first feel-test of KingsAge, running at <b>60×</b> speed. You share a <b>living continent</b>
+          with 14 AI kingdoms that build, expand, forge <b>alliances</b>, and wage war on each other — and on you.
+          <b>Scout</b> and <b>raid</b> camps and rival villages you pick <b>on the map</b> (drag to pan, pinch or ➕/➖ to zoom,
+          tap the mini-map to jump). Forests slow marches and shelter defenders; mountains and open water shape every route.
+          Train <b>Noblemen</b> at the Academy to grind loyalty and <b>conquer</b> villages; topple a kingdom's <b>capital</b>
+          and the whole realm shatters. Use <b>Diplomacy</b> to ally with neighbors — allies never raid each other and lend
+          defensive strength. Control <b>40% of the land</b> to win the world, then <b>found a new world</b> and build your
+          legend in the <b>Hall of Legends</b>. Tap the <b>🛠️ sandbox button</b> for God mode, speed multipliers, world
+          fast-forward, and instant tools. Your game <b>auto-saves</b> on this device.
         </div></div>
     </section>
   </main>
@@ -364,6 +365,10 @@ function terrainGen(gs){const cx=(W-1)/2,cy=(W-1)/2,out=[];
   else t=m>0.55?'forest':'plain';
   out.push(t);}
  return out;}
+const TERRAIN_SPEED={plain:1,forest:1.25,hill:1.5,water:2.2,mountain:2.8};
+function travelFactor(x0,y0,x1,y1){ // average terrain drag sampled along the march line
+ let s=0;for(let i=0;i<=8;i++){const x=clamp(Math.round(x0+(x1-x0)*i/8),0,W-1),y=clamp(Math.round(y0+(y1-y0)*i/8),0,W-1);
+  s+=TERRAIN_SPEED[tileAt(x,y).terrain]||1;}return s/9;}
 function openLandAround(x,y,r){let n=0; // buildable tiles within radius r
  for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){const tx=x+dx,ty=y+dy;
   if(tx<0||ty<0||tx>=W||ty>=W)continue;if(BUILDABLE(tileAt(tx,ty).terrain))n++;}return n;}
@@ -528,7 +533,7 @@ function sendRaid(x,y){const v=V(),tile=tileAt(x,y);const units={};let total=0,s
   let q=clamp(parseInt(el.value,10)||0,0,v.army[k]);if(q>0){units[k]=q;total+=q;slowest=Math.max(slowest,T[k].speed);carry+=q*T[k].carry;}}
  if(total===0){toast('Select troops to send');return;}
  for(const k in units)v.army[k]-=units[k];
- const dist=Math.hypot(x-v.x,y-v.y),travel=dist*slowest*60/SPEED;
+ const dist=Math.hypot(x-v.x,y-v.y),travel=dist*slowest*60/SPEED*travelFactor(v.x,v.y,x,y);
  S.marches.push({id:marchId++,owner:'me',type:'raid',fromVid:v.id,fromX:v.x,fromY:v.y,tx:x,ty:y,name:tile.name,units,carry,depart:now(),arrive:now()+travel*1000,travel,phase:'out'});
  log('info',`🐎 [${v.name}] army marching to ${tile.name} (${total} troops, ${dur(travel)}).`);
  closeModal();switchTab('map');render();
@@ -536,7 +541,7 @@ function sendRaid(x,y){const v=V(),tile=tileAt(x,y);const units={};let total=0,s
 function sendScout(x,y){const v=V(),tile=tileAt(x,y);let n=parseInt((document.getElementById('raid-scout')||{}).value,10)||0;
  if(n<1)n=Math.min(v.army.scout,2);n=clamp(n,0,v.army.scout);
  if(n<1){toast('No scouts available');return;}
- v.army.scout-=n;const dist=Math.hypot(x-v.x,y-v.y),travel=dist*T.scout.speed*60/SPEED;
+ v.army.scout-=n;const dist=Math.hypot(x-v.x,y-v.y),travel=dist*T.scout.speed*60/SPEED*travelFactor(v.x,v.y,x,y);
  S.marches.push({id:marchId++,owner:'me',type:'scout',fromVid:v.id,fromX:v.x,fromY:v.y,tx:x,ty:y,name:tile.name,units:{scout:n},depart:now(),arrive:now()+travel*1000,travel,phase:'scout'});
  log('scout',`🔍 [${v.name}] ${n} scouts riding to ${tile.name} (${dur(travel)}).`);closeModal();switchTab('map');render();}
 function doScout(m){const tile=tileAt(m.tx,m.ty);
@@ -554,7 +559,7 @@ function kingdomRaid(k,powerOverride){if(!k||!k.alive||k.id===0||areAllied(0,k.i
  for(const kk in units)if(units[kk]<=0)delete units[kk];
  let carry=0;for(const kk in units)carry+=units[kk]*T[kk].carry;
  const cap=capital(),dist=Math.hypot(k.capital.x-cap.x,k.capital.y-cap.y);let slow=0;for(const kk in units)slow=Math.max(slow,T[kk].speed);
- const travel=dist*slow*60/SPEED;
+ const travel=dist*slow*60/SPEED*travelFactor(k.capital.x,k.capital.y,cap.x,cap.y);
  S.marches.push({id:marchId++,owner:'enemy',type:'raid',phase:'incoming',enemyName:k.name,units,carry,targetVid:cap.id,
   sx:k.capital.x,sy:k.capital.y,tx:cap.x,ty:cap.y,depart:now(),arrive:now()+travel*1000,travel});
  log('alert',`⚔️ ${k.name} marches on ${cap.name} with ${totalUnits(units)} troops! Arrives in ${dur(travel)}.`);
@@ -738,8 +743,8 @@ function enterBattle(m){const tile=tileAt(m.tx,m.ty);
  if(!tile.garrison)tile.garrison=makeGarrison(tile.def);
  m.foe=tile.garrison;m.foeTbl=tblFor(tile);               // reference: battle depletes the real garrison
  m.startYou={...m.you};m.startFoe={...m.foe};m.round=0;m.nextRound=now()+700;m.outcomeReady=false;m.result=null;
- m.tile=tile;m.morale=1;m.fx={dmgA:0,dmgD:0,key:0};
- log('info',`⚔️ Army reached ${m.name}. Battle begins!`);}
+ m.tile=tile;m.morale=1;m.forest=tile.terrain==='forest';m.fx={dmgA:0,dmgD:0,key:0};
+ log('info',`⚔️ Army reached ${m.name}. Battle begins!${m.forest?' The garrison holds the treeline. 🌲':''}`);}
 function startDefense(m){const v=villageById(m.targetVid);
  m.phase='battle';m.mode='defense';m.defV=v;m.you=v.army;m.youTbl=T;m.foe=m.units;m.foeTbl=T;
  m.startYou={...v.army};m.startFoe={...m.units};m.round=0;m.nextRound=now()+700;m.outcomeReady=false;m.result=null;
@@ -747,6 +752,7 @@ function startDefense(m){const v=villageById(m.targetVid);
  const defPts=Object.values(v.b).reduce((a,l)=>a+l*10,0)+totalUnits(v.army)*5;
  const atkPts=Object.keys(m.foe).reduce((a,k)=>a+m.foe[k]*(T[k].atk+T[k].def)/2,0)||1;
  m.morale=clamp(defPts/atkPts,0.3,1);m.wall=v.b.wall;
+ m.forest=tileAt(v.x,v.y).terrain==='forest';
  m.allySup=allyNear(0,v.x,v.y,6);
  log('alert',`🛡️ ${m.enemyName} attacks ${v.name}! Garrison of ${totalUnits(v.army)} defends.${m.allySup?' 🤝 Nearby allies lend their strength!':''}`);}
 const sideOffense=(u,t)=>{let o=0;for(const k in u)o+=u[k]*t[k].atk;return o;};
@@ -760,7 +766,7 @@ function battleRound(m){m.round++;
  const atkMorale=m.mode==='defense'?m.morale:1;
  const wallMult=(m.mode==='defense'?1+0.08*(m.wall||0):1)*(m.mode==='defense'&&m.allySup?1.25:1);
  const Pa=(sideOffense(atk.u,atk.t)+sideDefense(atk.u,atk.t)*0.3)*atkMorale*luckA;
- const Pd=(sideDefense(def.u,def.t)*wallMult+sideOffense(def.u,def.t)*0.3)*luckD;
+ const Pd=(sideDefense(def.u,def.t)*wallMult+sideOffense(def.u,def.t)*0.3)*luckD*(m.forest?1.15:1);
  const tot=Pa+Pd||1,esc=1+m.round*0.12;
  const dK=killFraction(def.u,clamp(Pa/tot*0.7*esc,0,1)),aK=killFraction(atk.u,clamp(Pd/tot*0.7*esc,0,1));
  m.lastLuck=Math.round((luckA-1)*100);
@@ -847,7 +853,7 @@ function sendSupport(toId){const src=V(),target=villageById(toId);const units={}
   let q=clamp(parseInt(el.value,10)||0,0,src.army[k]);if(q>0){units[k]=q;total+=q;slowest=Math.max(slowest,T[k].speed);}}
  if(total===0){toast('Select troops to send');return;}
  for(const k in units)src.army[k]-=units[k];
- const dist=Math.hypot(target.x-src.x,target.y-src.y),travel=dist*slowest*60/SPEED;
+ const dist=Math.hypot(target.x-src.x,target.y-src.y),travel=dist*slowest*60/SPEED*travelFactor(src.x,src.y,target.x,target.y);
  S.marches.push({id:marchId++,owner:'me',type:'support',fromVid:src.id,fromX:src.x,fromY:src.y,toVid:toId,tx:target.x,ty:target.y,name:target.name,units,depart:now(),arrive:now()+travel*1000,travel,phase:'support'});
  log('info',`🛡️ [${src.name}] ${total} troops reinforcing ${target.name} (${dur(travel)}).`);
  closeModal();switchTab('map');render();}
@@ -922,6 +928,7 @@ function renderBattle(){const m=activeBattle;if(!m)return;const root=document.ge
  const luck=m.lastLuck!=null?`${m.lastLuck>=0?'+':''}${m.lastLuck}%`:'—';
  let meta=m.outcomeReady?`Round ${m.round} · over`:`Round ${m.round} · luck <span class="luck" style="color:${m.lastLuck>=0?'var(--green)':'var(--red)'}">${luck}</span>`;
  if(def)meta+=` · morale <b style="color:var(--gold)">${Math.round(m.morale*100)}%</b>${m.allySup?' · <b style="color:var(--green)">🤝 ally support</b>':''}`;
+ if(m.forest)meta+=` · <b style="color:var(--green)">🌲 forest</b>`;
  else if((m.you.noble||0)>0)meta+=` · 👑 ${m.you.noble} noble${m.you.noble>1?'s':''}`;
  document.getElementById('bMeta').innerHTML=meta;
  document.getElementById('lblA').textContent=def?'Your defenders':'Your army';
