@@ -127,8 +127,8 @@ depart, arrive, travel, phase:
 - **Actions:** `canAfford`, `pay`, `queuedLevel`, `upgrade(k)`, `train(k)`.
 - **Raiding/scouting:** `openRaid(tile)`, `fillAll`, `closeModal`, `sendRaid(x,y)`, `sendScout(x,y)`, `doScout(m)`, `returnScouts(m)`.
 - **Enemy:** `spawnEnemyWave()`.
-- **Battle engine (shared attack+defense):** `enterBattle(m)` (your raid arrives), `startDefense(m)` (enemy raid arrives), `sideOffense`, `sideDefense`, `killFraction`, `battleRound(m)`, `goodEnd(m)`, `badEnd(m)`, `doRetreat()`, `conquer(tile)`, `returnArmy(m)`.
-- **Battle UI:** `openBattle`, `closeBattle`, `figs`, `soldier` (SVG), `buildBattleDOM`, `renderBattle`, `rosterRows`, `floatNum`.
+- **Battle engine (shared attack+defense):** `enterBattle(m)` (your raid arrives), `startDefense(m)` (enemy raid arrives), `initBattleControl`, `stepBattleControl`, `battleReadyForRound`, `sideOffense`, `sideDefense`, `killFraction`, `battleRound(m)`, `goodEnd(m)`, `badEnd(m)`, `doRetreat()`, `finishRetreat`, `conquer(tile)`, `returnArmy(m)`.
+- **Battle UI:** `openBattle`, `closeBattle`, `soldier` (existing SVG figure), `buildBattleDOM`, `renderBattle`, `renderBattleControl`, `selectBattleSquad`, `commandBattleAt`, `rosterRows`, `floatNum`.
 - **Reinforcements:** `openVillageMenu(v)`, `openReinforce(toId)`, `fillSup`, `sendSupport(toId)`, `doSupport(m)`.
 - **Score/victory:** `realmPoints()`, `showVictory()`, `renderRealm()`.
 - **Render (rebuild DOM from `S`):** `render()` calls `renderVillageBar, renderRes, renderBuildings, renderBuildQueue, renderTroops, renderTrainQueue, renderArmy, renderMarches, renderMarchTokens, renderLog, renderBadges, renderAlert, renderRealm`. `setActive(i)` switches village. `renderMap()` is called on demand (map is not rebuilt every tick; march tokens are moved via `renderMarchTokens`).
@@ -144,13 +144,14 @@ depart, arrive, travel, phase:
 - **Marches:** created by `sendRaid/sendScout/sendSupport`/`spawnEnemyWave`. `tick()` transitions them by phase and arrival time. Travel time = `distance * slowestUnit.speed * 60 / SPEED`.
 - **Combat (`battleRound`)** is round-based, deterministic-ish via `rnd()`. Attacker offense vs defender defense, scaled by **morale** (defense only; protects the weaker side) and **luck** (±, per round), with **rampart** multiplying defender defense. Casualties are a fraction of each side per round; ends when a side hits 0 or (attack only) the player retreats.
 - **Attack vs defense modes:** the same engine runs both. `you`/`foe` generalize the two sides; `mode` picks who is attacker/defender for morale/wall. Your raid: `enterBattle`. Enemy raid on you: `startDefense` (your `army` defends; retreat disabled).
-- **Battle scene** is a full-screen overlay (`buildBattleDOM`/`renderBattle`): tug-of-war strength bar, SVG soldier ranks that thin out, floating casualty numbers, live rosters, and Retreat (attack only).
+- **Battle scene** is a full-screen playable overlay. Attacking troops are grouped into Vanguard, Archers, and Riders; the player selects a squad and taps the field to move its rally point. Soldiers fight automatically once squads reach engagement range. Coordinated contact, ranged spacing, and cavalry flanks can add a capped command bonus. Defense remains automatic and watchable.
+- **Retreat** is a real withdrawal, not an instant result. Every surviving squad runs toward the home edge; enemies can keep inflicting casualties while contact is active. A retreat ordered before contact escapes cleanly. The army only starts its world-map return after `finishRetreat()`.
 - **Scouting:** send scouts → `doScout` snapshots the camp's garrison+loot into `tile.recon` (fog-of-war reveals it), scouts return.
 - **Conquest:** camps have persistent `garrison` (depletes when beaten) and `loyalty`. A won attack containing surviving **noblemen** drops loyalty ~20–35 each; ≤0 → `conquer(tile)` turns it into a new owned village. **Warlord Kaas's stronghold** is a stronger camp; conquering it stops enemy waves and triggers `showVictory()` (win condition).
 - **Multi-village:** `S.villages[]` + `S.active`; village chips in the header (`renderVillageBar`) switch active. Each village builds/trains/defends independently. Raids launch from the active village. Enemy waves target the capital.
 - **Reinforcements:** tap an owned village on the map → `openVillageMenu` → send troops (`sendSupport`) that merge into its garrison on arrival.
-- **Sandbox (🛠️ button, `S.cheats`):** God mode (∞ resources via `res=1e9` each tick, no pop cap, free `pay`/`canAfford`), `trainMult`/`buildMult` (divide durations), no-waves toggle, and instant tools. This is the user's testing surface — keep it working when you change systems.
-- **Save/load:** `localStorage` (`kingsage_reforged_save_v1`), autosaves every 15s, wrapped in try/catch (fails silently in sandboxed previews; works when the file is opened directly). `applySave` rebases all timestamps by elapsed real time and re-links `S.rival` to the saved map tile. **Battle-phase marches are excluded from saves.**
+- **Sandbox (🛠️ button, `S.cheats`):** God mode (∞ resources via `res=1e9` each tick, no pop cap, free `pay`/`canAfford`), `trainMult`/`buildMult` (divide durations), no-waves toggle, instant tools, and **Preview squad battle** for reaching the army scene without waiting on a world march. This is the testing surface — keep it working when systems change.
+- **Save/load:** `localStorage` (`kingsage_reforged_save_v2`), autosaves every 15s, wrapped in try/catch. `applySave` rebases timestamps by elapsed real time. **Battle-phase marches are excluded from saves**, so `battleControl` remains intentionally transient.
 
 ---
 
@@ -162,7 +163,7 @@ depart, arrive, travel, phase:
 - **`renderMap()` is NOT called every tick** (perf) — only on structural changes (village count, selection, conquest). Moving army dots is `renderMarchTokens()` inside `render()`. If you add map state that must animate, update it in `renderMarchTokens` or call `renderMap()` explicitly.
 - **Mobile first.** Test at 390px. Touch targets, the bottom nav (`env(safe-area-inset-bottom)`), and the fixed alert/FAB positions matter.
 - **Determinism:** `rnd()` is a seeded LCG off `S.seed`. `Date.now()` is used for wall-clock timers (fine on the client; the server spec replaces this with authoritative time).
-- **Known limitation — retreat:** in this single-player build, retreat is a live mid-battle button. The backend spec redesigns it as a "commit window" recall because networked combat resolves server-side (see spec §5.5). Don't port the live-button behavior to a server.
+- **Known limitation — multiplayer retreat:** the single-player build can run a live withdrawal because combat is local. A future authoritative server needs a deterministic command/commit-window equivalent; do not port client timing as server authority.
 - **Save portability:** progress is per-browser (localStorage). No cross-device sync — that needs the backend.
 
 ---
@@ -192,7 +193,7 @@ It's a single static file, so any static host works; there is nothing to build.
 
 Ordered by value. Pick up wherever the user directs.
 
-1. **Prototype polish (client, quick wins):** in-game tutorial/first-hour quest chain, sound, richer map (bigger world, zoom), an AI that actually defends camps and expands, balance passes using the sandbox.
+1. **Battle-scene polish:** playtest squad steering and retreat by hand, tune command bonuses and withdrawal losses, then add sound, impact effects, obstacles, target priorities, and siege-building objectives.
 2. **Persistence upgrade:** export/import save as a code/file for cross-device (still client-only).
 3. **Multiplayer backend (the big one):** implement from `KingsAge_Reforged_Backend_Spec.md`. Start at **M0/M1** (auth + one world + lazy-economy service). The spec's §13 migration table maps every current client function to its server equivalent. Two non-negotiables from the spec: the server is the only authority, and the world advances via a durable queue of scheduled, deterministic commands.
 
@@ -200,4 +201,4 @@ Ordered by value. Pick up wherever the user directs.
 
 ## 12. What "done" looked like at handoff
 
-The game is feature-complete for single-player and tested (no console errors, mobile viewport): economy, build/train queues, scouting with fog-of-war, watchable attack **and** defense battles with retreat, loyalty-based conquest, multiple villages with switching, reinforcements between villages, a rival lord that raids you, a win condition (defeat Warlord Kaas), realm score, a sandbox cheat panel (God mode + 100× speeds + instant tools), and localStorage save/resume. The multiplayer server is spec'd but not built. Continue from here.
+The game is feature-complete for its current single-player scope and tested at a 390×844 mobile viewport: economy, build/train queues, scouting with fog-of-war, steerable attacking squads, automatic defense battles, withdrawal under fire, loyalty-based conquest, multiple villages, reinforcements, living rival kingdoms, dominance victory, world cycling, sandbox tools, and localStorage save/resume. The real multiplayer backend still needs a new spec before it is built.

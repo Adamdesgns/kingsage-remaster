@@ -27,8 +27,9 @@ build step, no server, no dependencies. Your progress **auto-saves** to the devi
 - **Terrain matters** — forests slow marches and shelter defenders (+15% defense);
   mountains and water shape march routes.
 - **Village management & armies** — the full build/recruit loop: nine buildings with cost
-  curves, eight unit types, population and storage caps, watchable round-by-round battles
-  with retreat.
+  curves, eight unit types, population and storage caps, and playable army scenes. Select
+  Vanguard, Archers, or Riders, tap the battlefield to steer that squad, and sound a
+  retreat that must physically escape under enemy pressure.
 - **Conquest** — train **Noblemen** to grind loyalty and annex villages. Topple a
   kingdom's **capital** and the whole realm shatters.
 - **Win the world, then found the next** — control **40% of the land** (or fell every
@@ -55,4 +56,5 @@ with the build plan in [`docs/plans/2026-08-02-big-world-phase1.md`](docs/plans/
 
 ## Status
 
-Prototype only — mechanics and balancing are exploratory and subject to change.
+**Phase 2A — Steerable Army Battles** is implemented locally. The game remains a
+prototype; mechanics and balancing are exploratory and subject to change.
