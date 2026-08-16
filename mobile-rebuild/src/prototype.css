@@ -369,6 +369,9 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
 
 .battle-screen,
 .battlefield { position: absolute; inset: 0; overflow: hidden; }
+.real-combat-screen { position: absolute; inset: 0; overflow: hidden; background: #172f31; color: var(--paper); }
+.phaser-stage { position: absolute; z-index: 0; inset: 0; overflow: hidden; background: #172f31; touch-action: none; }
+.phaser-stage canvas { display: block; width: 100% !important; height: 100% !important; }
 .battlefield {
   background-color: #172f31;
   background-position: center;
@@ -376,6 +379,76 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
   cursor: crosshair;
   touch-action: manipulation;
 }
+
+.live-battle-hud { z-index: 30; pointer-events: none; }
+.live-battle-hud button { pointer-events: auto; }
+.combat-status {
+  position: absolute;
+  z-index: 29;
+  top: 101px;
+  right: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: 72px 86px 1fr;
+  min-height: 43px;
+  border-bottom: 1px solid rgba(242, 189, 103, 0.38);
+  background: rgba(5, 16, 21, 0.9);
+  pointer-events: none;
+}
+.combat-status > div { display: grid; padding: 6px 9px; align-content: center; border-right: 1px solid rgba(120, 222, 211, 0.15); }
+.combat-status span { color: #83a1a4; font-size: 7px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; }
+.combat-status strong { color: #fff8e9; font-size: 13px; }
+.combat-status .gate-health { grid-template-columns: 1fr auto; gap: 0 8px; }
+.gate-health i { grid-column: 1 / -1; overflow: hidden; height: 4px; margin-top: 3px; border-radius: 4px; background: #41251f; }
+.gate-health b { display: block; height: 100%; border-radius: inherit; background: var(--copper-500); transition: width 220ms linear; }
+.live-plan-ribbon { z-index: 28; top: 151px; max-width: 210px; pointer-events: none; }
+.combat-event {
+  position: absolute;
+  z-index: 31;
+  left: 50%;
+  bottom: 145px;
+  display: flex;
+  width: max-content;
+  max-width: calc(100% - 26px);
+  min-height: 34px;
+  padding: 8px 12px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(255, 248, 233, 0.5);
+  border-radius: 5px;
+  background: rgba(5, 17, 22, 0.9);
+  color: #fff8e9;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.combat-event svg { flex: 0 0 auto; color: var(--teal-300); }
+.live-command-bar { z-index: 32; }
+.withdrawal-banner {
+  position: absolute;
+  z-index: 40;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: calc(100% - 54px);
+  padding: 19px;
+  place-items: center;
+  gap: 6px;
+  border: 1px solid #c56857;
+  border-radius: 7px;
+  background: rgba(44, 21, 19, 0.95);
+  color: #ffd3ca;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+.withdrawal-banner svg { width: 24px; height: 24px; }
+.withdrawal-banner strong { font-size: 16px; text-transform: uppercase; }
+.withdrawal-banner span { color: #d6aaa1; font-size: 10px; }
+.real-victory { z-index: 50; }
 
 .battle-hud {
   position: absolute;

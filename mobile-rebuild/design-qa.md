@@ -8,6 +8,9 @@
 - Verified implementation state: `qa/battle-outer-wall.png` (274 × 592, cropped from the template-owned iPhone preview)
 - Side-by-side comparison input: `qa/reference-comparison.png` (1147 × 1260)
 - Battle art: `public/art/battle-1-outer-wall.png`, `battle-2-lower-ward.png`, and `battle-3-citadel.png`
+- Live combat state: `qa/live-outer-wall.png` (393 × 852, exact CSS-pixel capture of the template-owned iPhone screen)
+- Live combat comparison input: `qa/live-battle-reference-comparison.png` (826 × 930)
+- Live combat art: `public/art/outer-wall-empty.png`, `outer-wall-breached.png`, `unit-vanguard.png`, `unit-archer.png`, `unit-rider.png`, and `unit-defender.png`
 
 ## Visual comparison
 
@@ -22,6 +25,8 @@ Intentional differences from the source mock:
 - The command bar uses generated original KingSage troop portraits and live troop counts.
 - Planning choices affect command strength, orders required, army composition, and losses between scenes.
 - Scouting is a new required state before planning; it reuses the real Outer Wall battlefield rather than presenting a separate abstract map.
+- The finished Outer Wall scene is a real-time Phaser simulation rather than a short staged transition: 40 player troops fight a 46-defender garrison, including two reinforcement waves.
+- Every live unit has individual health, movement, target selection, attack timing, damage, death, and crowd separation. Archers and towers fire visible projectiles; melee units lunge; the gate has 2,000 HP and changes to a breached scene when destroyed.
 
 No broken crops, placeholder art, horizontal overflow, unreadable labels, or missing primary controls were found in the final mobile state.
 
@@ -33,14 +38,15 @@ No broken crops, placeholder art, horizontal overflow, unreadable labels, or mis
 - Reopened the plan and launched Battle 1; the selected lane, Dawn timing, and Flanking Strike appeared in the live order ribbon.
 - Changed time of attack from Dawn to Night; the selected state updated and command strength changed from High to Steady.
 - Began the assault from the planning screen.
-- Selected Vanguard directly on the battlefield.
-- Tapped a battlefield destination; the formation moved and progress advanced from 28% to 52%.
-- Completed the Outer Wall objective and advanced to Battle 2, Lower Ward.
+- Selected a squad directly on the battlefield and from the persistent command bar.
+- Tapped a battlefield destination; only the selected squad redirected while the remaining army continued fighting.
+- Ran the full enlarged fight to victory in 38 seconds: all 46 defenders cleared, the gate destroyed, and 25 of 40 player troops survived.
 - Opened and resumed the pause menu.
-- Used Retreat and confirmed return to the planning screen.
+- Used Retreat and confirmed the live units withdrew before returning to the planning screen.
 - Browser console warnings/errors: 0.
 - `npm run build`: passed.
 - Protected mobile runtime integrity check: passed (28 files).
+- Build warning: Phaser currently ships in the initial bundle, producing Vite's chunk-size warning; this is a performance follow-up, not a functional failure.
 
 ## QA history
 
@@ -49,5 +55,8 @@ No broken crops, placeholder art, horizontal overflow, unreadable labels, or mis
 3. Rebuilt and repeated the primary mobile interaction path with no current runtime errors; the only captured console error was a transient Vite hot-reload mismatch while the PlanningScreen signature changed, cleared by a full reload.
 4. Captured the final selected-formation state and compared it with the visual source in one side-by-side image.
 5. Added scouting, captured the completed 4/4 state, and compared it beside the selected direction at the same portrait gameplay scale.
+6. Replaced the staged battle transition with a live Phaser combat scene and original transparent troop assets.
+7. Increased the opening assault from 28 troops/34 total defenders to 40 troops/46 total defenders after the first exact-size comparison showed the force still read too small.
+8. Rebuilt, captured the exact 393 × 852 live phone state, compared it beside the selected direction, and completed a fresh 38-second victory run with no browser errors.
 
 final result: passed

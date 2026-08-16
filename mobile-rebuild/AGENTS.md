@@ -10,6 +10,9 @@
 - During a scene, the player taps the actual troop formation on the battlefield to select it, then taps the ground or objective to set that group's next move.
 - Individual soldiers fight automatically; control stays at the formation and battle-plan level.
 - Preserve the selected Option 3 direction: close colorful siege diorama, large readable troops, building damage, and a bottom army/retreat command bar.
+- Battle scenes must be live simulations, not timed still-image transitions. Each soldier needs individual movement, targeting, health, attack timing, damage, death, and collision separation; ranged attacks, tower fire, visible impacts, reinforcements, and destructible objectives must resolve from the simulation state.
+- Use Phaser for the live combat layer inside the protected mobile runtime. Keep React responsible for scouting, planning, HUD, squad selection, pause, retreat, victory, and campaign flow.
+- Target roughly 30–60 seconds for a successful scene. The Outer Wall baseline is 40 player troops versus 46 total defenders, with direct squad selection, tap-to-move orders, automatic fighting, retreat, a destructible 2,000-HP gate, and real casualties.
 
 In ChatGPT Work Mode, run `sites-preview start "$PWD"`, open `http://terminal.local:4173/` in the cloud browser, and verify the rendered app and its primary interactions. Keep that preview open and tell the user to inspect it in the cloud browser; do not present the local URL as a user-facing chat link. In Codex Desktop, run the local server yourself, open the preview in the in-app browser, and provide the clickable local URL. Do not deploy to Sites unless the user explicitly asks to share, publish, or deploy. Do not give the user server-start instructions when you can run it.
 
