@@ -7,7 +7,18 @@ import {
   GAME_CONTRACT_VERSION,
   TROOPS,
   TROOP_ORDER,
+  addArmies,
+  armyCasualties,
   armyPopulation,
+  armyUnitCount,
+  battlePlanScore,
+  distanceBetween,
+  emptyArmy,
+  isValidArmy,
+  marchDurationSeconds,
+  resolveBattle,
+  retreatSurvivors,
+  subtractArmy,
   buildingCost,
   buildingDurationSeconds,
   buildingRequirementProblem,
@@ -25,11 +36,15 @@ import {
   type Army,
   type BuildingLevels,
   type BuildingType,
+  type BattleOutcome,
+  type BattleSessionState,
   type CommandEnvelope,
   type GameCommand,
   type KingdomState,
+  type MarchState,
   type PlayerArenaStanding,
   type ResourceStock,
+  type ScoutReportState,
   type TroopType,
   type VillageState,
   type WorldState,
@@ -87,7 +102,7 @@ export type VillageEconomy = {
 
 export type KingdomNotification = {
   id: string;
-  kind: "construction" | "recruitment" | "research";
+  kind: "construction" | "recruitment" | "research" | "scout" | "battle" | "march";
   message: string;
   createdAt: string;
 };
@@ -114,6 +129,9 @@ export type SharedWorldSnapshot = {
   constructionJobs: ConstructionJob[];
   recruitmentJobs: RecruitmentJob[];
   researchJobs: ResearchJob[];
+  marches: MarchState[];
+  scoutReports: ScoutReportState[];
+  battleSessions: BattleSessionState[];
   notifications: KingdomNotification[];
   chatMessages: WorldChatMessage[];
 };
@@ -136,6 +154,9 @@ export type CommandResult =
         constructionJob?: ConstructionJob;
         recruitmentJob?: RecruitmentJob;
         researchJob?: ResearchJob;
+        march?: MarchState;
+        scoutReport?: ScoutReportState;
+        battle?: BattleSessionState;
       };
     }
   | {
@@ -152,6 +173,8 @@ type StoreOptions = {
   buildDurationMs?: number;
   recruitDurationMs?: number;
   researchDurationMs?: number;
+  marchDurationMs?: number;
+  returnDurationMs?: number;
   now?: () => Date;
 };
 
@@ -213,6 +236,8 @@ export class SharedWorldStore {
   readonly buildDurationMs: number;
   readonly recruitDurationMs?: number;
   readonly researchDurationMs?: number;
+  readonly marchDurationMs?: number;
+  readonly returnDurationMs?: number;
   readonly now: () => Date;
   private readonly listeners = new Set<(event: StoredWorldEvent) => void>();
 
@@ -221,6 +246,8 @@ export class SharedWorldStore {
     this.buildDurationMs = options.buildDurationMs ?? 0;
     this.recruitDurationMs = options.recruitDurationMs;
     this.researchDurationMs = options.researchDurationMs;
+    this.marchDurationMs = options.marchDurationMs;
+    this.returnDurationMs = options.returnDurationMs;
     this.now = options.now ?? (() => new Date());
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.migrate();
@@ -244,7 +271,7 @@ export class SharedWorldStore {
   }
 
   private migrate(): void {
-    for (const [version, filename] of [[2, "0002_gate_b_local_sqlite.sql"], [3, "0003_gate_c_economy.sql"]] as const) {
+    for (const [version, filename] of [[2, "0002_gate_b_local_sqlite.sql"], [3, "0003_gate_c_economy.sql"], [4, "0004_gate_d_warfare.sql"]] as const) {
       const migrationPath = fileURLToPath(new URL(`../db/migrations/${filename}`, import.meta.url));
       this.db.exec(readFileSync(migrationPath, "utf8"));
       this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)").run(version, this.now().toISOString());
@@ -425,14 +452,25 @@ export class SharedWorldStore {
     const kingdomRow = this.db.prepare("SELECT * FROM local_kingdoms WHERE id = ?").get(player.kingdomId) as DbRow | undefined;
     if (!kingdomRow) throw new StoreError("KINGDOM_NOT_FOUND", "The player's kingdom no longer exists.", 404);
     const worldId = String(kingdomRow.world_id);
-    const world = this.readWorld(worldId);
-    const kingdom = world.kingdoms.find((candidate) => candidate.id === player.kingdomId);
+    const fullWorld = this.readWorld(worldId);
+    const kingdom = fullWorld.kingdoms.find((candidate) => candidate.id === player.kingdomId);
     if (!kingdom) throw new StoreError("KINGDOM_NOT_FOUND", "The player's kingdom is missing from its world.", 404);
+    const world: WorldState = {
+      ...fullWorld,
+      villages: fullWorld.villages.map((village) => village.kingdomId === player.kingdomId ? village : {
+        ...village,
+        resources: { wood: 0, stone: 0, iron: 0 },
+        buildings: Object.fromEntries(BUILDING_TYPES.map((building) => [building, 0])) as BuildingLevels,
+        army: emptyArmy(),
+      }),
+    };
     const jobs = (this.db.prepare(`
       SELECT id, village_id, building, target_level, started_at, completes_at
-      FROM local_construction_jobs WHERE world_id = ? AND status = 'queued'
+      FROM local_construction_jobs
+      WHERE world_id = ? AND status = 'queued'
+        AND village_id IN (SELECT id FROM local_villages WHERE kingdom_id = ?)
       ORDER BY completes_at
-    `).all(worldId) as DbRow[]).map((row) => ({
+    `).all(worldId, player.kingdomId) as DbRow[]).map((row) => ({
       id: String(row.id),
       villageId: String(row.village_id),
       building: String(row.building) as BuildingType,
@@ -468,10 +506,13 @@ export class SharedWorldStore {
         tier: arenaTier(kingdom.warVictoryPoints),
       },
       world,
-      villageEconomy: world.villages.map((village) => this.readVillageEconomy(village)),
+      villageEconomy: fullWorld.villages.filter((village) => village.kingdomId === player.kingdomId).map((village) => this.readVillageEconomy(village)),
       constructionJobs: jobs,
-      recruitmentJobs: this.readRecruitmentJobs(worldId),
-      researchJobs: this.readResearchJobs(worldId),
+      recruitmentJobs: this.readRecruitmentJobs(worldId).filter((job) => fullWorld.villages.some((village) => village.id === job.villageId && village.kingdomId === player.kingdomId)),
+      researchJobs: this.readResearchJobs(worldId).filter((job) => job.kingdomId === player.kingdomId),
+      marches: this.readMarches(player.kingdomId),
+      scoutReports: this.readScoutReports(player.kingdomId),
+      battleSessions: this.readBattleSessions(player.kingdomId),
       notifications: (this.db.prepare(`
         SELECT id, kind, message, created_at FROM local_kingdom_notifications
         WHERE kingdom_id = ? ORDER BY created_at DESC, id DESC LIMIT 12
@@ -520,7 +561,7 @@ export class SharedWorldStore {
     if (envelope.worldId !== this.worldIdForKingdom(player.kingdomId)) {
       return this.storeRejected(player, envelope, "FORBIDDEN", "The player does not belong to that world.");
     }
-    if (!["village.build.queue", "village.recruit.queue", "kingdom.research.queue", "chat.send"].includes(envelope.command.type)) {
+    if (!["village.build.queue", "village.recruit.queue", "kingdom.research.queue", "march.launch", "battle.open", "battle.order", "battle.retreat", "battle.resolve", "chat.send"].includes(envelope.command.type)) {
       return this.storeRejected(player, envelope, "INVALID_COMMAND", "This world command is not active yet.");
     }
 
@@ -566,6 +607,12 @@ export class SharedWorldStore {
         const worldVersion = this.incrementWorldVersion(envelope.worldId);
         published.push(this.insertEvent(envelope.worldId, worldVersion, "chat.message", { message }));
         result = { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion } };
+        this.insertCommand(player, envelope, result);
+        return;
+      }
+
+      if (["march.launch", "battle.open", "battle.order", "battle.retreat", "battle.resolve"].includes(envelope.command.type)) {
+        result = this.applyWarCommand(player, envelope, currentVersion, published);
         this.insertCommand(player, envelope, result);
         return;
       }
@@ -649,6 +696,173 @@ export class SharedWorldStore {
     });
     this.publish(published);
     return result;
+  }
+
+  private applyWarCommand(
+    player: SessionPlayer,
+    envelope: CommandEnvelope,
+    currentVersion: number,
+    published: StoredWorldEvent[],
+  ): CommandResult {
+    const command = envelope.command;
+    if (command.type === "march.launch") {
+      const { fromVillageId, targetVillageId, kind, army } = command.payload;
+      if (!isValidArmy(army) || armyUnitCount(army) < 1 || !["scout", "attack"].includes(kind)) {
+        return this.reject(envelope.commandId, "INVALID_ARMY", "Send a valid scout or attack formation with at least one troop.", currentVersion);
+      }
+      if (kind === "scout" && (army.scout < 1 || TROOP_TYPES.some((troop) => troop !== "scout" && army[troop] > 0))) {
+        return this.reject(envelope.commandId, "INVALID_ARMY", "Scouting marches may contain scouts only.", currentVersion);
+      }
+      if (kind === "attack" && TROOP_TYPES.every((troop) => TROOPS[troop].attack === 0 || army[troop] === 0)) {
+        return this.reject(envelope.commandId, "INVALID_ARMY", "An attack needs at least one combat troop.", currentVersion);
+      }
+      if (kind === "attack" && !this.db.prepare("SELECT 1 FROM local_scout_reports WHERE kingdom_id = ? AND target_village_id = ? LIMIT 1").get(player.kingdomId, targetVillageId)) {
+        return this.reject(envelope.commandId, "SCOUT_REQUIRED", "Scout this village before committing an attack march.", currentVersion);
+      }
+      const from = this.ownedVillageRow(player, envelope.worldId, fromVillageId);
+      const target = this.db.prepare("SELECT * FROM local_villages WHERE id = ? AND world_id = ?").get(targetVillageId, envelope.worldId) as DbRow | undefined;
+      if (!from) return this.reject(envelope.commandId, "FORBIDDEN", "The player does not own the departure village.", currentVersion);
+      if (!target || String(target.kingdom_id) === player.kingdomId || targetVillageId === fromVillageId) {
+        return this.reject(envelope.commandId, "INVALID_TARGET", "Choose a foreign village in this world.", currentVersion);
+      }
+      const remaining = subtractArmy(parseJson<Army>(from.army_json), army);
+      if (!remaining) return this.reject(envelope.commandId, "INSUFFICIENT_TROOPS", "Those troops are not available in the departure village.", currentVersion);
+      const departedAt = this.now();
+      const distance = distanceBetween({ x: Number(from.x), y: Number(from.y) }, { x: Number(target.x), y: Number(target.y) });
+      const durationMs = this.marchDurationMs ?? marchDurationSeconds(distance, kind) * 1000;
+      const march: MarchState = {
+        id: `march-${randomUUID()}`,
+        worldId: envelope.worldId,
+        kingdomId: player.kingdomId,
+        fromVillageId,
+        targetVillageId,
+        kind,
+        status: "outbound",
+        army,
+        loot: { wood: 0, stone: 0, iron: 0 },
+        departedAt: departedAt.toISOString(),
+        arrivesAt: new Date(departedAt.getTime() + durationMs).toISOString(),
+        battleId: null,
+      };
+      this.db.prepare("UPDATE local_villages SET army_json = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(JSON.stringify(remaining), fromVillageId);
+      this.db.prepare(`
+        INSERT INTO local_marches(id, world_id, kingdom_id, from_village_id, target_village_id, kind, status, army_json, loot_json, departed_at, arrives_at, battle_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      `).run(march.id, march.worldId, march.kingdomId, march.fromVillageId, march.targetVillageId, march.kind, march.status, JSON.stringify(march.army), JSON.stringify(march.loot), march.departedAt, march.arrivesAt);
+      const worldVersion = this.incrementWorldVersion(envelope.worldId);
+      published.push(this.insertEvent(envelope.worldId, worldVersion, "march.changed", { march, village: this.readVillage(fromVillageId) }));
+      return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, march } };
+    }
+
+    if (command.type === "battle.open") {
+      const marchRow = this.db.prepare(`
+        SELECT m.*, v.state_version AS defender_version, v.kingdom_id AS defender_kingdom_id,
+          v.army_json AS defender_army_json, v.resources_json AS defender_resources_json,
+          v.buildings_json AS defender_buildings_json
+        FROM local_marches m JOIN local_villages v ON v.id = m.target_village_id
+        WHERE m.id = ? AND m.world_id = ? AND m.kingdom_id = ?
+      `).get(command.payload.marchId, envelope.worldId, player.kingdomId) as DbRow | undefined;
+      if (!marchRow || String(marchRow.kind) !== "attack" || String(marchRow.status) !== "awaiting_battle") {
+        return this.reject(envelope.commandId, "MARCH_NOT_READY", "That attack has not reached the target or already entered battle.", currentVersion);
+      }
+      if (!this.db.prepare(`
+        SELECT 1 FROM local_scout_reports
+        WHERE kingdom_id = ? AND target_village_id = ? AND target_village_version = ? LIMIT 1
+      `).get(player.kingdomId, String(marchRow.target_village_id), command.payload.targetVillageVersion)) {
+        return this.reject(envelope.commandId, "STALE_SCOUT_REPORT", "The defender changed after your report. Scout again before opening battle.", currentVersion);
+      }
+      const plan = command.payload.plan;
+      if (!["West Ridge", "Main Breach", "East Woods"].includes(plan.entry)
+        || !["Vanguard Heavy", "Balanced Army", "Cavalry Wing"].includes(plan.troops)
+        || !["Dawn", "Midday", "Night"].includes(plan.time)
+        || !["Siege Push", "Flanking Strike", "Full Assault"].includes(plan.style)) {
+        return this.reject(envelope.commandId, "INVALID_PLAN", "The attack plan contains an unknown order.", currentVersion);
+      }
+      const attackerKingdom = this.db.prepare("SELECT troop_levels_json FROM local_kingdoms WHERE id = ?").get(player.kingdomId) as DbRow;
+      const defenderKingdom = this.db.prepare("SELECT troop_levels_json FROM local_kingdoms WHERE id = ?").get(String(marchRow.defender_kingdom_id)) as DbRow;
+      const defenderBuildings = parseJson<BuildingLevels>(marchRow.defender_buildings_json);
+      const openedAt = this.now().toISOString();
+      const battleId = `battle-${randomUUID()}`;
+      const seed = createHash("sha256").update(`${envelope.worldId}:${command.payload.marchId}:${openedAt}`).digest("hex").slice(0, 24);
+      this.db.prepare(`
+        INSERT INTO local_battle_sessions(
+          id, march_id, world_id, attacker_kingdom_id, defender_kingdom_id, attacker_village_id, defender_village_id,
+          defender_village_version, status, plan_json, seed, attacker_army_json, defender_army_json,
+          attacker_levels_json, defender_levels_json, defender_wall_level, defender_resources_json, outcome_json, opened_at, resolved_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
+      `).run(
+        battleId, command.payload.marchId, envelope.worldId, player.kingdomId, String(marchRow.defender_kingdom_id),
+        String(marchRow.from_village_id), String(marchRow.target_village_id), Number(marchRow.defender_version), JSON.stringify(plan), seed,
+        String(marchRow.army_json), String(marchRow.defender_army_json), String(attackerKingdom.troop_levels_json),
+        String(defenderKingdom.troop_levels_json), defenderBuildings.wall, String(marchRow.defender_resources_json), openedAt,
+      );
+      this.db.prepare("UPDATE local_marches SET battle_id = ? WHERE id = ?").run(battleId, command.payload.marchId);
+      const worldVersion = this.incrementWorldVersion(envelope.worldId);
+      const battle = this.readBattle(battleId)!;
+      published.push(this.insertEvent(envelope.worldId, worldVersion, "battle.started", { battle }));
+      return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, battle } };
+    }
+
+    if (command.type === "battle.order") {
+      const battle = this.db.prepare("SELECT status, attacker_kingdom_id FROM local_battle_sessions WHERE id = ? AND world_id = ?")
+        .get(command.payload.battleId, envelope.worldId) as DbRow | undefined;
+      const nextSequence = Number((this.db.prepare("SELECT COUNT(*) AS count FROM local_battle_orders WHERE battle_id = ?").get(command.payload.battleId) as DbRow).count) + 1;
+      if (!battle || String(battle.attacker_kingdom_id) !== player.kingdomId || String(battle.status) !== "open") {
+        return this.reject(envelope.commandId, "BATTLE_CLOSED", "That battle is not accepting field orders.", currentVersion);
+      }
+      const { sequence, squad, x, y, atMs } = command.payload;
+      if (sequence !== nextSequence || !["vanguard", "archers", "riders"].includes(squad)
+        || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > 5000 || y > 5000
+        || !Number.isInteger(atMs) || atMs < 0 || atMs > 600_000) {
+        return this.reject(envelope.commandId, "INVALID_ORDER", `The next valid battle order is sequence ${nextSequence}.`, currentVersion);
+      }
+      this.db.prepare("INSERT INTO local_battle_orders(battle_id, sequence, squad, x, y, at_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(command.payload.battleId, sequence, squad, x, y, atMs, this.now().toISOString());
+      return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion: currentVersion } };
+    }
+
+    if (command.type === "battle.retreat") {
+      const row = this.battleResolutionRow(command.payload.battleId, envelope.worldId, player.kingdomId);
+      if (!row || String(row.status) !== "open") return this.reject(envelope.commandId, "BATTLE_CLOSED", "That battle can no longer retreat.", currentVersion);
+      const acceptedOrders = Number(row.order_count);
+      if (command.payload.sequence !== acceptedOrders + 1 || !Number.isInteger(command.payload.atMs) || command.payload.atMs < 0 || command.payload.atMs > 600_000) {
+        return this.reject(envelope.commandId, "INVALID_ORDER", `The retreat must use sequence ${acceptedOrders + 1}.`, currentVersion);
+      }
+      const attacker = parseJson<Army>(row.attacker_army_json);
+      const defender = parseJson<Army>(row.defender_army_json);
+      const survivors = retreatSurvivors(attacker, command.payload.atMs, acceptedOrders, String(row.seed));
+      const outcome = {
+        winner: "defender" as const,
+        attackerSurvivors: survivors,
+        defenderSurvivors: defender,
+        attackerCasualties: armyCasualties(attacker, survivors),
+        defenderCasualties: emptyArmy(),
+        loot: { wood: 0, stone: 0, iron: 0 },
+        planScore: battlePlanScore(parseJson(row.plan_json)),
+        orderBonus: Math.min(0.12, acceptedOrders * 0.02),
+      };
+      return this.finishBattle(envelope, row, outcome, "retreated", published);
+    }
+
+    if (command.type === "battle.resolve") {
+      const row = this.battleResolutionRow(command.payload.battleId, envelope.worldId, player.kingdomId);
+      if (!row || String(row.status) !== "open") return this.reject(envelope.commandId, "BATTLE_CLOSED", "That battle has already ended.", currentVersion);
+      const outcome = resolveBattle({
+        attacker: parseJson(row.attacker_army_json),
+        defender: parseJson(row.defender_army_json),
+        attackerLevels: parseJson(row.attacker_levels_json),
+        defenderLevels: parseJson(row.defender_levels_json),
+        defenderWallLevel: Number(row.defender_wall_level),
+        defenderResources: parseJson(row.defender_resources_json),
+        plan: parseJson(row.plan_json),
+        acceptedOrders: Number(row.order_count),
+        seed: String(row.seed),
+      });
+      return this.finishBattle(envelope, row, outcome, "resolved", published);
+    }
+
+    return this.reject(envelope.commandId, "INVALID_COMMAND", "That warfare command is not active.", currentVersion);
   }
 
   private queueRecruitment(
@@ -744,6 +958,67 @@ export class SharedWorldStore {
     return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, researchJob: job } };
   }
 
+  private battleResolutionRow(battleId: string, worldId: string, kingdomId: string): DbRow | undefined {
+    return this.db.prepare(`
+      SELECT b.*, m.from_village_id, m.target_village_id, v.state_version AS current_defender_version,
+        (SELECT COUNT(*) FROM local_battle_orders o WHERE o.battle_id = b.id) AS order_count
+      FROM local_battle_sessions b
+      JOIN local_marches m ON m.id = b.march_id
+      JOIN local_villages v ON v.id = b.defender_village_id
+      WHERE b.id = ? AND b.world_id = ? AND b.attacker_kingdom_id = ?
+    `).get(battleId, worldId, kingdomId) as DbRow | undefined;
+  }
+
+  private finishBattle(
+    envelope: CommandEnvelope,
+    row: DbRow,
+    outcome: BattleOutcome,
+    status: "resolved" | "retreated",
+    published: StoredWorldEvent[],
+  ): CommandResult {
+    const resolvedAt = this.now();
+    const loot = outcome.loot;
+    if (status === "resolved") {
+      const currentDefender = this.db.prepare("SELECT army_json, resources_json FROM local_villages WHERE id = ?")
+        .get(String(row.defender_village_id)) as DbRow;
+      const defenderArmy = parseJson<Army>(currentDefender.army_json);
+      for (const troop of TROOP_TYPES) defenderArmy[troop] = Math.max(0, defenderArmy[troop] - outcome.defenderCasualties[troop]);
+      const defenderResources = parseJson<ResourceStock>(currentDefender.resources_json);
+      for (const kind of RESOURCE_KINDS) defenderResources[kind] = Math.max(0, defenderResources[kind] - loot[kind]);
+      this.db.prepare("UPDATE local_villages SET army_json = ?, resources_json = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(JSON.stringify(defenderArmy), JSON.stringify(defenderResources), String(row.defender_village_id));
+      if (outcome.winner === "attacker") {
+        const points = Math.max(10, armyUnitCount(outcome.defenderCasualties) * 3);
+        this.db.prepare("UPDATE local_kingdoms SET war_victory_points = war_victory_points + ? WHERE id = ?")
+          .run(points, String(row.attacker_kingdom_id));
+      }
+    }
+    const from = this.db.prepare("SELECT x, y FROM local_villages WHERE id = ?").get(String(row.attacker_village_id)) as DbRow;
+    const target = this.db.prepare("SELECT x, y FROM local_villages WHERE id = ?").get(String(row.defender_village_id)) as DbRow;
+    const distance = distanceBetween({ x: Number(from.x), y: Number(from.y) }, { x: Number(target.x), y: Number(target.y) });
+    const returnMs = this.returnDurationMs ?? marchDurationSeconds(distance, "return") * 1000;
+    const arrivesAt = new Date(resolvedAt.getTime() + returnMs).toISOString();
+    this.db.prepare("UPDATE local_battle_sessions SET status = ?, outcome_json = ?, resolved_at = ? WHERE id = ?")
+      .run(status, JSON.stringify(outcome), resolvedAt.toISOString(), String(row.id));
+    this.db.prepare("UPDATE local_marches SET status = 'returning', kind = 'return', army_json = ?, loot_json = ?, arrives_at = ? WHERE id = ?")
+      .run(JSON.stringify(outcome.attackerSurvivors), JSON.stringify(loot), arrivesAt, String(row.march_id));
+    const attackerMessage = status === "retreated"
+      ? `${armyUnitCount(outcome.attackerSurvivors)} troops withdrew and are returning home.`
+      : outcome.winner === "attacker"
+        ? `Victory. ${armyUnitCount(outcome.attackerSurvivors)} survivors are returning with ${loot.wood + loot.stone + loot.iron} resources.`
+        : `Defeat. ${armyUnitCount(outcome.attackerSurvivors)} survivors are returning home.`;
+    const defenderMessage = status === "retreated"
+      ? "The attacking army withdrew from your walls."
+      : outcome.winner === "attacker" ? "Your village defenses were defeated." : "Your garrison held the village.";
+    this.insertNotification(envelope.worldId, String(row.attacker_kingdom_id), "battle", attackerMessage, resolvedAt.toISOString());
+    this.insertNotification(envelope.worldId, String(row.defender_kingdom_id), "battle", defenderMessage, resolvedAt.toISOString());
+    const worldVersion = this.incrementWorldVersion(envelope.worldId);
+    const battle = this.readBattle(String(row.id))!;
+    const march = this.readMarch(String(row.march_id))!;
+    published.push(this.insertEvent(envelope.worldId, worldVersion, status === "retreated" ? "battle.retreated" : "battle.resolved", { battle, march }));
+    return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, battle, march } };
+  }
+
   materializeDueJobs(): StoredWorldEvent[] {
     const now = this.now();
     const due = [
@@ -805,11 +1080,93 @@ export class SharedWorldStore {
           message,
         }));
       }
+      this.materializeDueMarches(now, published);
       const villages = this.db.prepare("SELECT id FROM local_villages").all() as DbRow[];
       for (const village of villages) this.accrueVillage(String(village.id), now);
     });
     this.publish(published);
     return published;
+  }
+
+  private materializeDueMarches(now: Date, published: StoredWorldEvent[]): void {
+    const due = this.db.prepare(`
+      SELECT * FROM local_marches
+      WHERE status IN ('outbound', 'returning') AND arrives_at <= ?
+      ORDER BY arrives_at, id
+    `).all(now.toISOString()) as DbRow[];
+    for (const row of due) {
+      const marchId = String(row.id);
+      const worldId = String(row.world_id);
+      const kingdomId = String(row.kingdom_id);
+      const status = String(row.status);
+      const kind = String(row.kind);
+      if (status === "returning") {
+        const village = this.db.prepare("SELECT army_json, resources_json FROM local_villages WHERE id = ?").get(String(row.from_village_id)) as DbRow;
+        const army = addArmies(parseJson(village.army_json), parseJson(row.army_json));
+        const resources = parseJson<ResourceStock>(village.resources_json);
+        const loot = parseJson<ResourceStock>(row.loot_json);
+        for (const resource of RESOURCE_KINDS) resources[resource] += loot[resource];
+        this.db.prepare("UPDATE local_villages SET army_json = ?, resources_json = ?, state_version = state_version + 1 WHERE id = ?")
+          .run(JSON.stringify(army), JSON.stringify(resources), String(row.from_village_id));
+        this.db.prepare("UPDATE local_marches SET status = 'complete' WHERE id = ?").run(marchId);
+        const message = `${armyUnitCount(parseJson(row.army_json))} troops returned to ${this.readVillage(String(row.from_village_id)).name}.`;
+        this.insertNotification(worldId, kingdomId, "march", message, String(row.arrives_at));
+        const worldVersion = this.incrementWorldVersion(worldId);
+        published.push(this.insertEvent(worldId, worldVersion, "march.completed", { march: this.readMarch(marchId), village: this.readVillage(String(row.from_village_id)), message }));
+        continue;
+      }
+
+      if (kind === "attack") {
+        this.db.prepare("UPDATE local_marches SET status = 'awaiting_battle' WHERE id = ?").run(marchId);
+        const worldVersion = this.incrementWorldVersion(worldId);
+        const march = this.readMarch(marchId)!;
+        published.push(this.insertEvent(worldId, worldVersion, "march.arrived", { march }));
+        continue;
+      }
+
+      if (kind === "scout") {
+        const target = this.db.prepare(`
+          SELECT v.*, k.name AS kingdom_name, e.layout_json
+          FROM local_villages v
+          JOIN local_kingdoms k ON k.id = v.kingdom_id
+          JOIN local_village_economy e ON e.village_id = v.id
+          WHERE v.id = ?
+        `).get(String(row.target_village_id)) as DbRow;
+        const report: ScoutReportState = {
+          id: `scout-report-${randomUUID()}`,
+          marchId,
+          worldId,
+          kingdomId,
+          targetVillageId: String(row.target_village_id),
+          targetVillageVersion: Number(target.state_version),
+          targetVillageName: String(target.name),
+          targetKingdomName: String(target.kingdom_name),
+          observedArmy: parseJson(target.army_json),
+          observedResources: parseJson(target.resources_json),
+          observedBuildings: parseJson(target.buildings_json),
+          layout: parseJson(target.layout_json),
+          createdAt: String(row.arrives_at),
+        };
+        this.db.prepare(`
+          INSERT INTO local_scout_reports(
+            id, march_id, world_id, kingdom_id, target_village_id, target_village_version, target_village_name,
+            target_kingdom_name, observed_army_json, observed_resources_json, observed_buildings_json, layout_json, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          report.id, report.marchId, report.worldId, report.kingdomId, report.targetVillageId, report.targetVillageVersion,
+          report.targetVillageName, report.targetKingdomName, JSON.stringify(report.observedArmy), JSON.stringify(report.observedResources),
+          JSON.stringify(report.observedBuildings), JSON.stringify(report.layout), report.createdAt,
+        );
+        const from = this.db.prepare("SELECT x, y FROM local_villages WHERE id = ?").get(String(row.from_village_id)) as DbRow;
+        const distance = distanceBetween({ x: Number(from.x), y: Number(from.y) }, { x: Number(target.x), y: Number(target.y) });
+        const returnMs = this.returnDurationMs ?? marchDurationSeconds(distance, "return") * 1000;
+        this.db.prepare("UPDATE local_marches SET status = 'returning', arrives_at = ? WHERE id = ?")
+          .run(new Date(now.getTime() + returnMs).toISOString(), marchId);
+        this.insertNotification(worldId, kingdomId, "scout", `Scout report ready: ${report.targetVillageName}.`, report.createdAt);
+        const worldVersion = this.incrementWorldVersion(worldId);
+        published.push(this.insertEvent(worldId, worldVersion, "scout.report.ready", { report, march: this.readMarch(marchId) }));
+      }
+    }
   }
 
   private accrueVillage(villageId: string, target: Date): void {
@@ -898,6 +1255,87 @@ export class SharedWorldStore {
       startedAt: String(row.started_at),
       completesAt: String(row.completes_at),
     }));
+  }
+
+  private mapMarch(row: DbRow): MarchState {
+    return {
+      id: String(row.id),
+      worldId: String(row.world_id),
+      kingdomId: String(row.kingdom_id),
+      fromVillageId: String(row.from_village_id),
+      targetVillageId: String(row.target_village_id),
+      kind: String(row.kind) as MarchState["kind"],
+      status: String(row.status) as MarchState["status"],
+      army: parseJson(row.army_json),
+      loot: parseJson(row.loot_json),
+      departedAt: String(row.departed_at),
+      arrivesAt: String(row.arrives_at),
+      battleId: row.battle_id ? String(row.battle_id) : null,
+    };
+  }
+
+  private readMarch(marchId: string): MarchState | null {
+    const row = this.db.prepare("SELECT * FROM local_marches WHERE id = ?").get(marchId) as DbRow | undefined;
+    return row ? this.mapMarch(row) : null;
+  }
+
+  private readMarches(kingdomId: string): MarchState[] {
+    return (this.db.prepare("SELECT * FROM local_marches WHERE kingdom_id = ? ORDER BY departed_at DESC, id DESC LIMIT 30")
+      .all(kingdomId) as DbRow[]).map((row) => this.mapMarch(row));
+  }
+
+  private mapScoutReport(row: DbRow): ScoutReportState {
+    return {
+      id: String(row.id),
+      marchId: String(row.march_id),
+      worldId: String(row.world_id),
+      kingdomId: String(row.kingdom_id),
+      targetVillageId: String(row.target_village_id),
+      targetVillageVersion: Number(row.target_village_version),
+      targetVillageName: String(row.target_village_name),
+      targetKingdomName: String(row.target_kingdom_name),
+      observedArmy: parseJson(row.observed_army_json),
+      observedResources: parseJson(row.observed_resources_json),
+      observedBuildings: parseJson(row.observed_buildings_json),
+      layout: parseJson(row.layout_json),
+      createdAt: String(row.created_at),
+    };
+  }
+
+  private readScoutReports(kingdomId: string): ScoutReportState[] {
+    return (this.db.prepare("SELECT * FROM local_scout_reports WHERE kingdom_id = ? ORDER BY created_at DESC, id DESC LIMIT 20")
+      .all(kingdomId) as DbRow[]).map((row) => this.mapScoutReport(row));
+  }
+
+  private mapBattle(row: DbRow): BattleSessionState {
+    return {
+      id: String(row.id),
+      marchId: String(row.march_id),
+      worldId: String(row.world_id),
+      attackerKingdomId: String(row.attacker_kingdom_id),
+      defenderKingdomId: String(row.defender_kingdom_id),
+      attackerVillageId: String(row.attacker_village_id),
+      defenderVillageId: String(row.defender_village_id),
+      status: String(row.status) as BattleSessionState["status"],
+      plan: parseJson(row.plan_json),
+      seed: String(row.seed),
+      openedAt: String(row.opened_at),
+      resolvedAt: row.resolved_at ? String(row.resolved_at) : null,
+      outcome: row.outcome_json ? parseJson(row.outcome_json) : null,
+    };
+  }
+
+  private readBattle(battleId: string): BattleSessionState | null {
+    const row = this.db.prepare("SELECT * FROM local_battle_sessions WHERE id = ?").get(battleId) as DbRow | undefined;
+    return row ? this.mapBattle(row) : null;
+  }
+
+  private readBattleSessions(kingdomId: string): BattleSessionState[] {
+    return (this.db.prepare(`
+      SELECT * FROM local_battle_sessions
+      WHERE attacker_kingdom_id = ? OR defender_kingdom_id = ?
+      ORDER BY opened_at DESC, id DESC LIMIT 20
+    `).all(kingdomId, kingdomId) as DbRow[]).map((row) => this.mapBattle(row));
   }
 
   private ownedVillageRow(player: SessionPlayer, worldId: string, villageId: string): DbRow | undefined {

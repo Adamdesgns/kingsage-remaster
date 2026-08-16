@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Phaser from "phaser";
 import {
   ArrowRightIcon,
   CheckIcon,
+  Crosshair2Icon,
   Cross2Icon,
   ExitIcon,
   PauseIcon,
@@ -16,8 +17,16 @@ import {
   type TroopId,
 } from "./game/prototype-data";
 import { ScoutScreen } from "./game/CampaignSetup";
-import { SharedWorld } from "./game/SharedWorld";
+import { ApiError, SharedWorld, api, type WorldSnapshot } from "./game/SharedWorld";
 import { FlowStack, MobileScroll, useFlow, type FlowControls } from "./mobile";
+import {
+  TROOP_ORDER,
+  emptyArmy,
+  makeCommandEnvelope,
+  type BattleSessionState,
+  type GameCommand,
+  type ScoutReportState,
+} from "../../packages/game-core/src/index";
 
 type BattleReadout = {
   allied: number;
@@ -72,11 +81,17 @@ const battleUnitConfig: Record<TroopId | "defenders", {
   defenders: { texture: "unit-defender", width: 31, height: 34, hp: 92, speed: 20, range: 21, damage: 11, cooldown: 980 },
 };
 
-function RealTimeOuterWall({ plan, onWin, onRetreat }: { plan: Plan; onWin: (readout: BattleReadout) => void; onRetreat: () => void }) {
+function RealTimeOuterWall({ plan, onWin, onRetreat, onOrder }: {
+  plan: Plan;
+  onWin: (readout: BattleReadout) => void;
+  onRetreat: (readout: BattleReadout) => void;
+  onOrder?: (squad: TroopId, x: number, y: number, atMs: number) => void;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<BattleController | null>(null);
   const winRef = useRef(onWin);
   const retreatRef = useRef(onRetreat);
+  const orderRef = useRef(onOrder);
   const [selected, setSelected] = useState<TroopId | null>("vanguard");
   const [paused, setPaused] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
@@ -92,6 +107,9 @@ function RealTimeOuterWall({ plan, onWin, onRetreat }: { plan: Plan; onWin: (rea
 
   winRef.current = onWin;
   retreatRef.current = onRetreat;
+  orderRef.current = onOrder;
+  const readoutRef = useRef(readout);
+  readoutRef.current = readout;
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -282,6 +300,7 @@ function RealTimeOuterWall({ plan, onWin, onRetreat }: { plan: Plan; onWin: (rea
       const marker = scene.add.circle(x, y, 17, 0x1da3a2, 0.22).setStrokeStyle(2, 0xb9fff6, 1).setDepth(920);
       scene.tweens.add({ targets: marker, scale: 2.25, alpha: 0, duration: 780, onComplete: () => marker.destroy() });
       setReadout((current) => ({ ...current, event: `${troopDetails[squad].label} moving to your rally point` }));
+      orderRef.current?.(squad, x, y, Math.round(battleElapsed));
     };
 
     scene.preload = function preload() {
@@ -344,7 +363,7 @@ function RealTimeOuterWall({ plan, onWin, onRetreat }: { plan: Plan; onWin: (rea
           setWithdrawing(true);
           game.scene.resume("outer-wall-combat");
           setReadout((current) => ({ ...current, event: "Withdrawal ordered — squads are breaking contact" }));
-          this.time.delayedCall(4200, () => retreatRef.current());
+          this.time.delayedCall(4200, () => retreatRef.current(readoutRef.current));
         },
       };
     };
@@ -410,7 +429,7 @@ function RealTimeOuterWall({ plan, onWin, onRetreat }: { plan: Plan; onWin: (rea
         retreating = true;
         setWithdrawing(true);
         setReadout((current) => ({ ...current, event: "The assault has broken — retreat" }));
-        this.time.delayedCall(2500, () => retreatRef.current());
+        this.time.delayedCall(2500, () => retreatRef.current(readoutRef.current));
       }
 
       resolveCrowding([...allies, ...enemies].filter((unit) => !unit.dead));
@@ -526,6 +545,165 @@ function RealTimeOuterWall({ plan, onWin, onRetreat }: { plan: Plan; onWin: (rea
   );
 }
 
+type WorldCommandResponse = {
+  payload: {
+    worldVersion: number;
+    battle?: BattleSessionState;
+    march?: WorldSnapshot["marches"][number];
+  };
+};
+
+async function commitWorldCommand(snapshot: WorldSnapshot, command: GameCommand, expectedWorldVersion = snapshot.world.version) {
+  return api<WorldCommandResponse>("/api/world/commands", {
+    method: "POST",
+    body: JSON.stringify(makeCommandEnvelope({
+      commandId: crypto.randomUUID(),
+      worldId: snapshot.world.id,
+      actorPlayerId: snapshot.player.id,
+      expectedWorldVersion,
+      issuedAt: new Date().toISOString(),
+      command,
+    })),
+  });
+}
+
+function returnToWorld(flow: FlowControls) {
+  for (let index = 1; index < flow.stack.length; index += 1) flow.pop();
+}
+
+function PersistentBattleCampaign({ plan, battle, snapshot }: { plan: Plan; battle: BattleSessionState; snapshot: WorldSnapshot }) {
+  const flow = useFlow();
+  const [finalBattle, setFinalBattle] = useState<BattleSessionState | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [error, setError] = useState("");
+  const versionRef = useRef(snapshot.world.version);
+  const sequenceRef = useRef(1);
+  const orderQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const endingRef = useRef(false);
+
+  const fieldOrder = (squad: TroopId, x: number, y: number, atMs: number) => {
+    orderQueueRef.current = orderQueueRef.current.then(async () => {
+      const sequence = sequenceRef.current;
+      const result = await commitWorldCommand(snapshot, {
+        type: "battle.order",
+        payload: { battleId: battle.id, sequence, squad, x, y, atMs },
+      }, versionRef.current);
+      versionRef.current = result.payload.worldVersion;
+      sequenceRef.current += 1;
+    }).catch((problem) => setError(problem instanceof Error ? problem.message : "A field order did not reach the server."));
+  };
+
+  const finish = async (kind: "resolve" | "retreat", readout: BattleReadout) => {
+    if (endingRef.current) return;
+    endingRef.current = true;
+    setResolving(true);
+    setError("");
+    try {
+      await orderQueueRef.current;
+      const command: GameCommand = kind === "resolve"
+        ? { type: "battle.resolve", payload: { battleId: battle.id } }
+        : { type: "battle.retreat", payload: { battleId: battle.id, sequence: sequenceRef.current, atMs: Math.round(readout.seconds * 1000) } };
+      const result = await commitWorldCommand(snapshot, command, versionRef.current);
+      versionRef.current = result.payload.worldVersion;
+      if (!result.payload.battle) throw new Error("The server did not return the battle result.");
+      setFinalBattle(result.payload.battle);
+    } catch (problem) {
+      endingRef.current = false;
+      setError(problem instanceof Error ? problem.message : "The world could not resolve this battle.");
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const outcome = finalBattle?.outcome;
+  const survived = outcome ? Object.values(outcome.attackerSurvivors).reduce((sum, count) => sum + count, 0) : 0;
+  const lost = outcome ? Object.values(outcome.attackerCasualties).reduce((sum, count) => sum + count, 0) : 0;
+  const loot = outcome ? Object.values(outcome.loot).reduce((sum, amount) => sum + amount, 0) : 0;
+
+  return (
+    <>
+      <RealTimeOuterWall plan={plan} onOrder={fieldOrder} onWin={(readout) => void finish("resolve", readout)} onRetreat={(readout) => void finish("retreat", readout)} />
+      {resolving ? <div className="battle-server-status">The world is recording the result…</div> : null}
+      {error ? <div className="battle-server-status battle-server-error">{error}</div> : null}
+      {outcome ? (
+        <section className="scene-victory real-victory" data-defeat={outcome.winner === "defender"} aria-live="polite">
+          <div className="victory-mark">{outcome.winner === "attacker" ? <CheckIcon aria-hidden="true" /> : <ExitIcon aria-hidden="true" />}</div>
+          <span>Authoritative battle record</span>
+          <h2>{finalBattle?.status === "retreated" ? "Army withdrawn" : outcome.winner === "attacker" ? "Outer Wall breached" : "The defense held"}</h2>
+          <p>{survived} troops survived · {lost} lost · {loot} resources captured. Survivors are already marching home.</p>
+          <button type="button" onClick={() => returnToWorld(flow)}>Track the return march<ArrowRightIcon aria-hidden="true" /></button>
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+function AttackMarch({ plan, targetVillageId, report }: { plan: Plan; targetVillageId: string; report: ScoutReportState }) {
+  const flow = useFlow();
+  const [phase, setPhase] = useState("Forming the army…");
+  const [error, setError] = useState("");
+  const [battle, setBattle] = useState<BattleSessionState | null>(null);
+  const [battleSnapshot, setBattleSnapshot] = useState<WorldSnapshot | null>(null);
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    let cancelled = false;
+    const run = async () => {
+      try {
+        let snapshot = await api<WorldSnapshot>("/api/world/snapshot");
+        const home = snapshot.world.villages.find((village) => village.id === snapshot.kingdom.capitalVillageId)!;
+        const army = TROOP_ORDER.reduce((formation, troop) => {
+          formation[troop] = troop === "scout" ? 0 : home.army[troop];
+          return formation;
+        }, emptyArmy());
+        if (Object.values(army).reduce((sum, count) => sum + count, 0) < 1) throw new Error("No combat troops are home. Wait for a march or recruit an army first.");
+        setPhase(`Marching on ${report.targetVillageName}…`);
+        const launch = await commitWorldCommand(snapshot, {
+          type: "march.launch",
+          payload: { fromVillageId: home.id, targetVillageId, kind: "attack", army },
+        });
+        const marchId = launch.payload.march?.id;
+        if (!marchId) throw new Error("The server did not create the attack march.");
+        while (!cancelled) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1_000));
+          snapshot = await api<WorldSnapshot>("/api/world/snapshot");
+          const march = snapshot.marches.find((candidate) => candidate.id === marchId);
+          if (march?.status !== "awaiting_battle") continue;
+          setPhase("Army arrived. Opening the live battlefield…");
+          const opened = await commitWorldCommand(snapshot, {
+            type: "battle.open",
+            payload: { marchId, targetVillageVersion: report.targetVillageVersion, plan },
+          });
+          if (!opened.payload.battle) throw new Error("The server did not open the battlefield.");
+          const readySnapshot = await api<WorldSnapshot>("/api/world/snapshot");
+          if (!cancelled) {
+            setBattleSnapshot(readySnapshot);
+            setBattle(opened.payload.battle);
+          }
+          return;
+        }
+      } catch (problem) {
+        if (!cancelled) setError(problem instanceof Error ? problem.message : "The march could not reach the battlefield.");
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [plan, report, targetVillageId]);
+
+  if (battle && battleSnapshot) return <PersistentBattleCampaign plan={plan} battle={battle} snapshot={battleSnapshot} />;
+  return (
+    <main className="war-march-screen">
+      <div className="war-march-sigil"><Crosshair2Icon /></div>
+      <span>Live campaign · {report.targetKingdomName}</span>
+      <h1>{error ? "March halted" : phase}</h1>
+      <p>{error || "Troops have left the village. The destination and arrival time are now stored in the shared world."}</p>
+      {error ? <button type="button" onClick={() => flow.pop()}>Return to the plan</button> : <div className="war-march-progress"><i /><i /><i /></div>}
+    </main>
+  );
+}
+
 function BattleCampaign({ plan }: { plan: Plan }) {
   const flow = useFlow();
   const [victory, setVictory] = useState<BattleReadout | null>(null);
@@ -546,9 +724,72 @@ function BattleCampaign({ plan }: { plan: Plan }) {
   );
 }
 
-function CampaignEntry({ fromWorld = false }: { fromWorld?: boolean }) {
+function CampaignEntry({ fromWorld = false, targetVillageId }: { fromWorld?: boolean; targetVillageId?: string }) {
   const flow = useFlow();
-  return <ScoutScreen onExit={fromWorld ? () => flow.pop() : undefined} renderBattle={(plan) => <BattleCampaign plan={plan} />} />;
+  const [snapshot, setSnapshot] = useState<WorldSnapshot | null>(null);
+  const [error, setError] = useState("");
+  const [launching, setLaunching] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = await api<WorldSnapshot>("/api/world/snapshot");
+      setSnapshot(next);
+      setError("");
+    } catch (problem) {
+      setError(problem instanceof Error ? problem.message : "The shared world could not load scouting data.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!fromWorld) return;
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 1_000);
+    return () => window.clearInterval(timer);
+  }, [fromWorld, refresh]);
+
+  if (!fromWorld || !targetVillageId) return <ScoutScreen renderBattle={(plan) => <BattleCampaign plan={plan} />} />;
+  if (!snapshot) return <main className="world-loading"><div className="world-sigil">KS</div><span>{error || "Reading the war map…"}</span></main>;
+  const target = snapshot.world.villages.find((village) => village.id === targetVillageId);
+  if (!target) return <main className="world-offline"><h1>Target missing</h1><button type="button" onClick={() => flow.pop()}>Return to world</button></main>;
+  const targetKingdom = snapshot.world.kingdoms.find((kingdom) => kingdom.id === target.kingdomId)!;
+  const report = snapshot.scoutReports.find((candidate) => candidate.targetVillageId === targetVillageId);
+  if (report) {
+    return <ScoutScreen
+      authoritativeReport={report}
+      onExit={() => flow.pop()}
+      renderBattle={(plan) => <AttackMarch plan={plan} targetVillageId={targetVillageId} report={report} />}
+    />;
+  }
+  const home = snapshot.world.villages.find((village) => village.id === snapshot.kingdom.capitalVillageId)!;
+  const activeScout = snapshot.marches.find((march) => march.targetVillageId === targetVillageId && march.kind === "scout" && march.status !== "complete");
+  const launchScout = async () => {
+    setLaunching(true);
+    setError("");
+    try {
+      await commitWorldCommand(snapshot, {
+        type: "march.launch",
+        payload: { fromVillageId: home.id, targetVillageId, kind: "scout", army: { ...emptyArmy(), scout: 1 } },
+      });
+      await refresh();
+    } catch (problem) {
+      setError(problem instanceof ApiError ? problem.message : "The scout could not leave the village.");
+    } finally {
+      setLaunching(false);
+    }
+  };
+  return (
+    <main className="war-march-screen scout-deployment-screen">
+      <button type="button" className="scout-exit" onClick={() => flow.pop()} aria-label="Return to world"><ExitIcon /></button>
+      <div className="war-march-sigil"><TargetIcon /></div>
+      <span>Selected world target · {targetKingdom.name}</span>
+      <h1>Scout {target.name}</h1>
+      <p>{target.x}:{target.y} · Send one of your {home.army.scout} available scouts. The report will reveal the garrison, wall, resources and attack lanes before planning unlocks.</p>
+      {error ? <p className="world-form-error">{error}</p> : null}
+      {activeScout ? <><div className="war-march-progress"><i /><i /><i /></div><strong>Scout en route · report opens on arrival</strong></> : (
+        <button type="button" disabled={launching || home.army.scout < 1} onClick={() => void launchScout()}>{launching ? "Deploying…" : home.army.scout < 1 ? "Recruit scouts at the Stable" : "Deploy scout"}<ArrowRightIcon /></button>
+      )}
+    </main>
+  );
 }
 
 function CampaignWon({ plan }: { plan: Plan }) {
@@ -579,7 +820,7 @@ export default function Prototype() {
       return {
         id: "shared-world",
         render: (flow: FlowControls) => (
-          <SharedWorld onOpenWar={() => flow.push({ id: "world-war-scout", render: () => <CampaignEntry fromWorld /> })} />
+          <SharedWorld onOpenWar={(targetVillageId) => flow.push({ id: `world-war-${targetVillageId}`, render: () => <CampaignEntry fromWorld targetVillageId={targetVillageId} /> })} />
         ),
       };
     }

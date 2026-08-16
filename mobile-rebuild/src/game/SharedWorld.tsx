@@ -5,6 +5,7 @@ import {
   CheckCircledIcon,
   Crosshair2Icon,
   ExitIcon,
+  EyeOpenIcon,
   GlobeIcon,
   HomeIcon,
   ReloadIcon,
@@ -25,8 +26,11 @@ import {
   troopRequirementProblem,
   troopResearchCost,
   type BuildingType,
+  type BattleSessionState,
   type GameCommand,
   type KingdomState,
+  type MarchState,
+  type ScoutReportState,
   type TroopType,
   type VillageState,
   type WorldState,
@@ -57,7 +61,7 @@ type WorldChatMessage = {
   sentAt: string;
 };
 type WorldView = "world" | "village" | "army" | "chat";
-type WorldSnapshot = {
+export type WorldSnapshot = {
   snapshotVersion: number;
   serverTime: string;
   player: SessionPlayer;
@@ -68,11 +72,14 @@ type WorldSnapshot = {
   constructionJobs: ConstructionJob[];
   recruitmentJobs: RecruitmentJob[];
   researchJobs: ResearchJob[];
+  marches: MarchState[];
+  scoutReports: ScoutReportState[];
+  battleSessions: BattleSessionState[];
   notifications: KingdomNotification[];
   chatMessages: WorldChatMessage[];
 };
 
-class ApiError extends Error {
+export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
 
@@ -83,7 +90,7 @@ class ApiError extends Error {
   }
 }
 
-async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...options,
     credentials: "same-origin",
@@ -215,13 +222,14 @@ function WorldMap({ snapshot, selectedId, onSelect }: {
   );
 }
 
-function VillagePanel({ village, kingdom, isOwned, job, economy, onManage }: {
+function VillagePanel({ village, kingdom, isOwned, job, economy, onManage, onScout }: {
   village: VillageState;
   kingdom: KingdomState;
   isOwned: boolean;
   job?: ConstructionJob;
   economy?: VillageEconomy;
   onManage: () => void;
+  onScout: () => void;
 }) {
   return (
     <section className="world-village-panel">
@@ -229,16 +237,18 @@ function VillagePanel({ village, kingdom, isOwned, job, economy, onManage }: {
         <div><span>{kingdom.seatKind === "ai" ? "AI kingdom" : kingdom.name}</span><h2>{village.name}</h2></div>
         <strong>{village.x}:{village.y}</strong>
       </div>
-      <div className="resource-strip">
-        <span>Wood <strong>{compactNumber(village.resources.wood)}</strong><small>+{economy?.productionPerHour.wood ?? 0}/h</small></span>
-        <span>Stone <strong>{compactNumber(village.resources.stone)}</strong><small>+{economy?.productionPerHour.stone ?? 0}/h</small></span>
-        <span>Iron <strong>{compactNumber(village.resources.iron)}</strong><small>+{economy?.productionPerHour.iron ?? 0}/h</small></span>
-      </div>
-      <div className="village-facts">
-        <span>Storage <strong>{compactNumber(economy?.storageCapacity ?? 0)}</strong></span>
-        <span>Troops <strong>{Object.values(village.army).reduce((total, count) => total + count, 0)}</strong></span>
-        <span>People <strong>{economy ? `${economy.populationUsed}/${economy.populationCapacity}` : "—"}</strong></span>
-      </div>
+      {isOwned ? <>
+        <div className="resource-strip">
+          <span>Wood <strong>{compactNumber(village.resources.wood)}</strong><small>+{economy?.productionPerHour.wood ?? 0}/h</small></span>
+          <span>Stone <strong>{compactNumber(village.resources.stone)}</strong><small>+{economy?.productionPerHour.stone ?? 0}/h</small></span>
+          <span>Iron <strong>{compactNumber(village.resources.iron)}</strong><small>+{economy?.productionPerHour.iron ?? 0}/h</small></span>
+        </div>
+        <div className="village-facts">
+          <span>Storage <strong>{compactNumber(economy?.storageCapacity ?? 0)}</strong></span>
+          <span>Troops <strong>{Object.values(village.army).reduce((total, count) => total + count, 0)}</strong></span>
+          <span>People <strong>{economy ? `${economy.populationUsed}/${economy.populationCapacity}` : "—"}</strong></span>
+        </div>
+      </> : <div className="foreign-intel-hidden"><EyeOpenIcon />Garrison, wall and stored resources hidden until your scout arrives.</div>}
       {isOwned ? (
         job ? (
           <div className="construction-active"><ReloadIcon aria-hidden="true" /><span>{BUILDINGS[job.building as BuildingType].name} → level {job.targetLevel}</span><QueueClock endsAt={job.completesAt} /></div>
@@ -248,7 +258,9 @@ function VillagePanel({ village, kingdom, isOwned, job, economy, onManage }: {
           </button>
         )
       ) : (
-        <p className="foreign-village-note">This is a permanent world-map target. Scouting and attack marches connect here in Gate D.</p>
+        <button className="barracks-upgrade foreign-scout-button" type="button" onClick={onScout}>
+          <span>Scout this village</span><small>Send real scouts, inspect the defenses, then plan the march</small><Crosshair2Icon aria-hidden="true" />
+        </button>
       )}
     </section>
   );
@@ -323,11 +335,16 @@ function ArmyView({ snapshot, onOpenWar, onRecruit, onResearch, busy }: {
   const research = snapshot.researchJobs.find((job) => job.kingdomId === snapshot.kingdom.id);
   const [mode, setMode] = useState<"recruit" | "research">("recruit");
   const [quantity, setQuantity] = useState(5);
+  const activeMarches = snapshot.marches.filter((march) => march.status !== "complete");
   return (
     <MobileScroll className="world-section-scroll">
       <section className="world-section army-view">
         <div className="section-heading"><span>Army command</span><h1>{total} troops ready</h1><p>Recruit at home, improve a troop family for the whole kingdom, then take the army to war.</p></div>
         <div className="army-capacity"><span>Population committed</span><strong>{economy.populationUsed} / {economy.populationCapacity}</strong></div>
+        {activeMarches.length ? <section className="active-marches"><span>Armies on the road</span>{activeMarches.map((march) => {
+          const target = snapshot.world.villages.find((village) => village.id === march.targetVillageId);
+          return <article key={march.id}><Crosshair2Icon /><div><strong>{march.status === "returning" ? "Returning home" : march.status === "awaiting_battle" ? "Awaiting your command" : `${march.kind === "scout" ? "Scouting" : "Attacking"} ${target?.name ?? "target"}`}</strong><small>{Object.values(march.army).reduce((sum, count) => sum + count, 0)} troops · {march.status.replace("_", " ")}</small></div>{march.status === "awaiting_battle" ? <b>Ready</b> : <QueueClock endsAt={march.arrivesAt} />}</article>;
+        })}</section> : null}
         <div className="army-mode-tabs"><button type="button" data-active={mode === "recruit"} onClick={() => setMode("recruit")}>Recruit</button><button type="button" data-active={mode === "research"} onClick={() => setMode("research")}>Research</button></div>
 
         {mode === "recruit" ? <>
@@ -416,7 +433,7 @@ function WorldNavigation({ view, onChange, onOpenWar }: { view: WorldView; onCha
   );
 }
 
-export function SharedWorld({ onOpenWar }: { onOpenWar: () => void }) {
+export function SharedWorld({ onOpenWar }: { onOpenWar: (targetVillageId: string) => void }) {
   const [phase, setPhase] = useState<"loading" | "auth" | "world" | "offline">("loading");
   const [snapshot, setSnapshot] = useState<WorldSnapshot | null>(null);
   const [selectedId, setSelectedId] = useState("");
@@ -523,6 +540,8 @@ export function SharedWorld({ onOpenWar }: { onOpenWar: () => void }) {
   const selectedKingdom = snapshot.world.kingdoms.find((kingdom) => kingdom.id === selectedVillage.kingdomId)!;
   const selectedJob = snapshot.constructionJobs.find((job) => job.villageId === selectedVillage.id);
   const capitalJob = snapshot.constructionJobs.find((job) => job.villageId === snapshot.kingdom.capitalVillageId);
+  const firstForeignVillage = snapshot.world.villages.find((village) => village.kingdomId !== snapshot.kingdom.id)!;
+  const openSelectedWar = () => onOpenWar(selectedVillage.kingdomId === snapshot.kingdom.id ? firstForeignVillage.id : selectedVillage.id);
 
   return (
     <main className="shared-world-screen">
@@ -544,14 +563,15 @@ export function SharedWorld({ onOpenWar }: { onOpenWar: () => void }) {
             job={selectedJob}
             economy={snapshot.villageEconomy.find((entry) => entry.villageId === selectedVillage.id)}
             onManage={() => setView("village")}
+            onScout={openSelectedWar}
           />
         </>
       ) : null}
       {view === "village" ? <VillageView snapshot={snapshot} job={capitalJob} onBuild={queueBuilding} busy={busy} /> : null}
-      {view === "army" ? <ArmyView snapshot={snapshot} onOpenWar={onOpenWar} onRecruit={queueRecruitment} onResearch={queueResearch} busy={busy} /> : null}
+      {view === "army" ? <ArmyView snapshot={snapshot} onOpenWar={openSelectedWar} onRecruit={queueRecruitment} onResearch={queueResearch} busy={busy} /> : null}
       {view === "chat" ? <ChatView snapshot={snapshot} onSend={sendChat} busy={busy} /> : null}
       {notice ? <div className="world-live-notice" role="status">{notice}</div> : null}
-      <WorldNavigation view={view} onChange={setView} onOpenWar={onOpenWar} />
+      <WorldNavigation view={view} onChange={setView} onOpenWar={openSelectedWar} />
     </main>
   );
 }

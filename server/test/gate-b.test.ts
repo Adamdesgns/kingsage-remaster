@@ -62,7 +62,7 @@ test("kingdom names stay unique across human and AI seats", () => {
   }
 });
 
-test("an authoritative build command is idempotent and visible to the other account", () => {
+test("an authoritative build command is idempotent while foreign economy stays behind fog of war", () => {
   const temp = tempDatabase();
   const store = new SharedWorldStore(temp.path, { buildDurationMs: 60_000 });
   try {
@@ -87,8 +87,8 @@ test("an authoritative build command is idempotent and visible to the other acco
     const otherView = store.getSnapshot(second.player);
     const changedVillage = otherView.world.villages.find((candidate) => candidate.id === village.id)!;
     assert.equal(otherView.world.version, before.world.version + 1);
-    assert.equal(changedVillage.resources.wood, village.resources.wood - buildingCost("barracks", village.buildings.barracks).wood);
-    assert.equal(otherView.constructionJobs.length, 1);
+    assert.equal(changedVillage.resources.wood, 0);
+    assert.equal(otherView.constructionJobs.length, 0);
     assert.equal(store.readEvents(before.world.id, before.world.version).at(-1)?.type, "village.changed");
   } finally {
     store.close();

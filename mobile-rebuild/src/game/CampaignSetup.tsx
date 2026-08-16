@@ -11,6 +11,7 @@ import {
 } from "@radix-ui/react-icons";
 
 import { MobileScroll, useFlow } from "../mobile";
+import { TROOP_ORDER, TROOPS, type ScoutReportState } from "../../../packages/game-core/src/index";
 import {
   battleScenes,
   entryOptions,
@@ -28,9 +29,10 @@ import {
 type CampaignSetupProps = {
   renderBattle: (plan: Plan) => ReactNode;
   onExit?: () => void;
+  authoritativeReport?: ScoutReportState;
 };
 
-export function ScoutScreen({ renderBattle, onExit }: CampaignSetupProps) {
+export function ScoutScreen({ renderBattle, onExit, authoritativeReport }: CampaignSetupProps) {
   const flow = useFlow();
   const [discovered, setDiscovered] = useState<string[]>([]);
   const [activeIntel, setActiveIntel] = useState<(typeof scoutIntel)[number]["id"]>(scoutIntel[0].id);
@@ -55,8 +57,8 @@ export function ScoutScreen({ renderBattle, onExit }: CampaignSetupProps) {
         <header className="scout-header" data-has-exit={onExit ? "true" : "false"}>
           {onExit ? <button type="button" className="scout-exit" onClick={onExit} aria-label="Return to shared world"><ExitIcon /></button> : null}
           <div>
-            <span>Campaign 01 · Reconnaissance</span>
-            <h1>Scout the Outer Wall</h1>
+            <span>Live scout report · {authoritativeReport?.targetKingdomName ?? "Ironwatch"}</span>
+            <h1>{authoritativeReport?.targetVillageName ?? "Scout the Outer Wall"}</h1>
             <p>Inspect every marked defense before committing the army.</p>
           </div>
           <div className="scan-counter" aria-label={`${discovered.length} of ${scoutIntel.length} defenses identified`}>
@@ -89,7 +91,15 @@ export function ScoutScreen({ renderBattle, onExit }: CampaignSetupProps) {
           Tap each defense marker
         </div>
 
-        <section className="scout-dossier" aria-live="polite">
+          <section className="scout-dossier" aria-live="polite">
+          {authoritativeReport ? (
+            <div className="server-intel-strip">
+              <span>Wall <strong>Lv {authoritativeReport.observedBuildings.wall}</strong></span>
+              <span>Garrison <strong>{TROOP_ORDER.reduce((total, troop) => total + authoritativeReport.observedArmy[troop], 0)}</strong></span>
+              <span>Loot seen <strong>{Object.values(authoritativeReport.observedResources).reduce((total, amount) => total + amount, 0).toLocaleString()}</strong></span>
+              <small>{TROOP_ORDER.filter((troop) => authoritativeReport.observedArmy[troop] > 0).map((troop) => `${authoritativeReport.observedArmy[troop]} ${TROOPS[troop].plural}`).join(" · ")}</small>
+            </div>
+          ) : null}
           <div className="intel-readout" data-discovered={discovered.includes(selectedIntel.id) ? "true" : "false"}>
             <div className="intel-title">
               <span>{discovered.includes(selectedIntel.id) ? "Defense identified" : "Unconfirmed position"}</span>

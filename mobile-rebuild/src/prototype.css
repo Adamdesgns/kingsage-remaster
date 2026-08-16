@@ -147,6 +147,16 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
 .army-roster strong { min-width: 28px; color: var(--copper-300); font-size: 17px; text-align: right; }
 .army-roster em { min-width: 34px; color: var(--teal-300); font-size: 8px; font-style: normal; font-weight: 900; text-transform: uppercase; }
 .army-plan-button { display: flex; width: 100%; min-height: 48px; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; border: 0; background: var(--copper-300); color: #171108; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.foreign-scout-button { width: 100%; border: 1px solid rgba(242,189,103,.45); background: #153b3f; color: #fff3d6; }
+.foreign-intel-hidden { display: flex; min-height: 58px; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; border-block: 1px solid #233f45; color: #92a8aa; font-size: 8px; font-weight: 800; text-align: center; }
+.active-marches { display: grid; gap: 5px; margin-top: 8px; }
+.active-marches > span { color: #789396; font-size: 7px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.active-marches article { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 7px; padding: 8px; border: 1px solid rgba(120,222,211,.28); background: #102a31; }
+.active-marches article > svg { color: var(--teal-300); }
+.active-marches article div { display: grid; gap: 2px; }
+.active-marches article strong { color: #f5ead4; font-size: 8px; text-transform: uppercase; }
+.active-marches article small { color: #7f999b; font-size: 6px; }
+.active-marches article > strong, .active-marches article > b { color: var(--copper-300); font-size: 8px; }
 
 /* Gate C village economy, recruitment, and research */
 .gate-c-resources div { position: relative; padding: 8px; }
@@ -383,6 +393,30 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
   border-top: 1px solid rgba(242, 189, 103, 0.56);
   background: rgba(5, 16, 21, 0.97);
 }
+.server-intel-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 8px; padding: 8px; border: 1px solid rgba(242,189,103,.42); background: rgba(7,24,29,.94); }
+.server-intel-strip span { display: grid; gap: 2px; color: #7f999b; font-size: 6px; font-weight: 900; text-transform: uppercase; }
+.server-intel-strip strong { color: #f7d486; font-size: 11px; }
+.server-intel-strip small { grid-column: 1 / -1; color: #b7c7c5; font-size: 7px; line-height: 1.4; }
+
+.war-march-screen { display: grid; min-height: 100%; align-content: center; justify-items: center; gap: 13px; padding: 44px 24px calc(var(--mobile-safe-area-height) + 36px); background: radial-gradient(circle at 50% 32%, #174348 0, #0a2027 38%, #06151b 76%); color: #fff8e9; text-align: center; }
+.war-march-screen > span { color: var(--copper-300); font-size: 8px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.war-march-screen h1 { max-width: 330px; margin: 0; font: 900 27px/1.02 "Arial Black", Roboto, sans-serif; text-transform: uppercase; }
+.war-march-screen > p { max-width: 330px; margin: 0; color: #a9bdbe; font-size: 11px; line-height: 1.55; }
+.war-march-screen > button:not(.scout-exit) { display: flex; min-height: 46px; align-items: center; justify-content: center; gap: 8px; padding: 0 20px; border: 0; background: var(--copper-300); color: #171108; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.war-march-screen > button:disabled { opacity: .48; }
+.war-march-sigil { display: grid; width: 74px; height: 74px; place-items: center; border: 1px solid rgba(242,189,103,.6); border-radius: 50%; background: #12333a; box-shadow: 0 0 0 8px rgba(242,189,103,.08); color: var(--copper-300); }
+.war-march-sigil svg { width: 30px; height: 30px; }
+.war-march-progress { display: flex; gap: 9px; margin-top: 4px; }
+.war-march-progress i { width: 9px; height: 9px; border-radius: 50%; background: var(--copper-300); animation: march-pulse 1.15s infinite ease-in-out; }
+.war-march-progress i:nth-child(2) { animation-delay: .16s; }
+.war-march-progress i:nth-child(3) { animation-delay: .32s; }
+.scout-deployment-screen { position: relative; align-content: start; padding-top: 92px; }
+.scout-deployment-screen > .scout-exit { position: absolute; top: calc(32px + var(--mobile-safe-area-height)); left: 18px; }
+.scout-deployment-screen > strong { color: #d8e3df; font-size: 9px; text-transform: uppercase; }
+.battle-server-status { position: absolute; z-index: 80; top: 48%; left: 50%; width: max-content; max-width: 82%; padding: 10px 13px; border: 1px solid rgba(242,189,103,.45); background: rgba(6,21,27,.94); color: #ffe4ae; font-size: 9px; font-weight: 900; text-transform: uppercase; transform: translate(-50%, -50%); }
+.battle-server-error { border-color: #a95449; color: #ffd1c7; }
+.scene-victory[data-defeat="true"] .victory-mark { border-color: #b45e52; background: #3b1c1a; color: #ffd2ca; }
+@keyframes march-pulse { 0%, 100% { opacity: .28; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-6px); } }
 .intel-readout {
   min-height: 84px;
   padding: 10px 11px;

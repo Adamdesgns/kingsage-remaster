@@ -110,6 +110,66 @@ export type VillageState = {
 };
 
 export type MarchKind = "scout" | "attack" | "support" | "return";
+export type MarchStatus = "outbound" | "awaiting_battle" | "returning" | "complete";
+export type BattleStatus = "open" | "resolved" | "retreated";
+
+export type MarchState = {
+  id: MarchId;
+  worldId: WorldId;
+  kingdomId: KingdomId;
+  fromVillageId: VillageId;
+  targetVillageId: VillageId;
+  kind: MarchKind;
+  status: MarchStatus;
+  army: Army;
+  loot: ResourceStock;
+  departedAt: string;
+  arrivesAt: string;
+  battleId: BattleId | null;
+};
+
+export type ScoutReportState = {
+  id: string;
+  marchId: MarchId;
+  worldId: WorldId;
+  kingdomId: KingdomId;
+  targetVillageId: VillageId;
+  targetVillageVersion: number;
+  targetVillageName: string;
+  targetKingdomName: string;
+  observedArmy: Army;
+  observedResources: ResourceStock;
+  observedBuildings: BuildingLevels;
+  layout: Record<string, { x: number; y: number }>;
+  createdAt: string;
+};
+
+export type BattleOutcome = {
+  winner: "attacker" | "defender";
+  attackerSurvivors: Army;
+  defenderSurvivors: Army;
+  attackerCasualties: Army;
+  defenderCasualties: Army;
+  loot: ResourceStock;
+  planScore: number;
+  orderBonus: number;
+};
+
+export type BattleSessionState = {
+  id: BattleId;
+  marchId: MarchId;
+  worldId: WorldId;
+  attackerKingdomId: KingdomId;
+  defenderKingdomId: KingdomId;
+  attackerVillageId: VillageId;
+  defenderVillageId: VillageId;
+  status: BattleStatus;
+  plan: BattlePlan;
+  seed: string;
+  openedAt: string;
+  resolvedAt: string | null;
+  outcome: BattleOutcome | null;
+};
 
 export type GameCommand =
   | { type: "village.build.queue"; payload: { villageId: VillageId; building: BuildingType } }
@@ -119,6 +179,7 @@ export type GameCommand =
   | { type: "battle.open"; payload: { marchId: MarchId; targetVillageVersion: number; plan: BattlePlan } }
   | { type: "battle.order"; payload: { battleId: BattleId; sequence: number; squad: CommandSquadId; x: number; y: number; atMs: number } }
   | { type: "battle.retreat"; payload: { battleId: BattleId; sequence: number; atMs: number } }
+  | { type: "battle.resolve"; payload: { battleId: BattleId } }
   | { type: "alliance.create"; payload: { name: string } }
   | { type: "alliance.join"; payload: { allianceId: AllianceId } }
   | { type: "alliance.leave"; payload: { allianceId: AllianceId } }
