@@ -244,7 +244,7 @@ Art/content agents operate from asset briefs and write only to assigned asset fo
 | Date | Required proof | Status |
 |---|---|---|
 | Aug 18 | modular client + frozen commands/schema | **Passed locally Aug 16** — contracts, deterministic fixture, schema/protocol and extracted Scout/Plan modules; live server migration remains Gate B |
-| Aug 22 | two accounts in one persistent world | Not started |
+| Aug 22 | two accounts in one persistent world | **Passed locally Aug 16** — isolated accounts, permanent seats, shared ordered commands, chat/events and database restart recovery; hosting remains release-gated |
 | Aug 27 | server-owned visual village/economy | Not started |
 | Sep 1 | real player-to-player scout/march/battle | Not started |
 | Sep 5 | Outer Wall + Lower Ward + Citadel complete | Outer Wall complete |

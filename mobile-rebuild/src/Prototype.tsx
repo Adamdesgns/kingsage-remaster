@@ -16,6 +16,7 @@ import {
   type TroopId,
 } from "./game/prototype-data";
 import { ScoutScreen } from "./game/CampaignSetup";
+import { SharedWorld } from "./game/SharedWorld";
 import { FlowStack, MobileScroll, useFlow, type FlowControls } from "./mobile";
 
 type BattleReadout = {
@@ -545,8 +546,9 @@ function BattleCampaign({ plan }: { plan: Plan }) {
   );
 }
 
-function CampaignEntry() {
-  return <ScoutScreen renderBattle={(plan) => <BattleCampaign plan={plan} />} />;
+function CampaignEntry({ fromWorld = false }: { fromWorld?: boolean }) {
+  const flow = useFlow();
+  return <ScoutScreen onExit={fromWorld ? () => flow.pop() : undefined} renderBattle={(plan) => <BattleCampaign plan={plan} />} />;
 }
 
 function CampaignWon({ plan }: { plan: Plan }) {
@@ -571,7 +573,16 @@ function CampaignWon({ plan }: { plan: Plan }) {
 
 export default function Prototype() {
   const initial = useMemo(() => {
-    const directBattle = new URLSearchParams(window.location.search).get("battle") === "outer-wall";
+    const parameters = new URLSearchParams(window.location.search);
+    const directBattle = parameters.get("battle") === "outer-wall";
+    if (parameters.get("world") === "shared") {
+      return {
+        id: "shared-world",
+        render: (flow: FlowControls) => (
+          <SharedWorld onOpenWar={() => flow.push({ id: "world-war-scout", render: () => <CampaignEntry fromWorld /> })} />
+        ),
+      };
+    }
     if (directBattle) {
       const previewPlan: Plan = { entry: "West Ridge", troops: "Balanced Army", time: "Dawn", style: "Flanking Strike" };
       return { id: "outer-wall-preview", render: (_flow: FlowControls) => <BattleCampaign plan={previewPlan} /> };

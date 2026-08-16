@@ -63,3 +63,10 @@ discipline, eight acceptance gates, and a closed-alpha target of **2026-09-14**.
 
 **Phase 2A — Steerable Army Battles** is implemented locally. The game remains a
 prototype; mechanics and balancing are exploratory and subject to change.
+
+**Gate B — First Persistent Shared World** is also complete locally. The React/Phaser
+phone client now has account registration/login, permanent human and AI kingdom seats,
+durable server-owned state, timed Barracks construction, world chat, and connected
+World / Village / Army / War / Chat navigation. `npm run test:gate-b` verifies the
+shared contracts, protected mobile build, two-session isolation, idempotent commands,
+event delivery, and database restart recovery. Nothing has been pushed or deployed.

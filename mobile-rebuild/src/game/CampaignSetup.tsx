@@ -4,6 +4,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   Crosshair2Icon,
+  ExitIcon,
   EyeOpenIcon,
   ExclamationTriangleIcon,
   TargetIcon,
@@ -26,9 +27,10 @@ import {
 
 type CampaignSetupProps = {
   renderBattle: (plan: Plan) => ReactNode;
+  onExit?: () => void;
 };
 
-export function ScoutScreen({ renderBattle }: CampaignSetupProps) {
+export function ScoutScreen({ renderBattle, onExit }: CampaignSetupProps) {
   const flow = useFlow();
   const [discovered, setDiscovered] = useState<string[]>([]);
   const [activeIntel, setActiveIntel] = useState<(typeof scoutIntel)[number]["id"]>(scoutIntel[0].id);
@@ -50,7 +52,8 @@ export function ScoutScreen({ renderBattle }: CampaignSetupProps) {
         style={{ backgroundImage: `url(${battleScenes[0].image})` }}
         aria-label="Outer Wall scouting map"
       >
-        <header className="scout-header">
+        <header className="scout-header" data-has-exit={onExit ? "true" : "false"}>
+          {onExit ? <button type="button" className="scout-exit" onClick={onExit} aria-label="Return to shared world"><ExitIcon /></button> : null}
           <div>
             <span>Campaign 01 · Reconnaissance</span>
             <h1>Scout the Outer Wall</h1>
