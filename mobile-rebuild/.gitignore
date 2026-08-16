@@ -1,0 +1,7 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+.preview.pid
+preview*.log
+qa/battle-full.png
