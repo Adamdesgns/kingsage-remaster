@@ -4,6 +4,7 @@
 
 ### KingSage battle-campaign decision (Adam, 2026-08-15)
 
+- Every attack begins with scouting. Show the actual battlefield layout before the planning screen, let the player inspect marked defenses, reveal threat/counter intelligence, and choose an approach lane that carries into the plan.
 - The first attack is planned before combat: entry position, troop mix, time of attack, and attack style.
 - A campaign contains multiple large-army battle scenes that must all be won strategically.
 - During a scene, the player taps the actual troop formation on the battlefield to select it, then taps the ground or objective to set that group's next move.
