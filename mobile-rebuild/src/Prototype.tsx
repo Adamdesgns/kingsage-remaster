@@ -3,317 +3,20 @@ import Phaser from "phaser";
 import {
   ArrowRightIcon,
   CheckIcon,
-  ChevronRightIcon,
-  Crosshair2Icon,
   Cross2Icon,
-  EyeOpenIcon,
   ExitIcon,
-  ExclamationTriangleIcon,
   PauseIcon,
   ResumeIcon,
   TargetIcon,
 } from "@radix-ui/react-icons";
+import {
+  getPlanRating,
+  troopDetails,
+  type Plan,
+  type TroopId,
+} from "./game/prototype-data";
+import { ScoutScreen } from "./game/CampaignSetup";
 import { FlowStack, MobileScroll, useFlow, type FlowControls } from "./mobile";
-
-type TroopId = "vanguard" | "archers" | "riders";
-type Plan = { entry: string; troops: string; time: string; style: string };
-type ScoutReport = { recommendedEntry: string; discovered: string[] };
-type Formation = {
-  id: TroopId;
-  label: string;
-  count: number;
-  portrait: string;
-  x: number;
-  y: number;
-};
-
-const troopDetails: Record<TroopId, Omit<Formation, "x" | "y">> = {
-  vanguard: { id: "vanguard", label: "Vanguard", count: 120, portrait: "/art/vanguard-portrait.png" },
-  archers: { id: "archers", label: "Archers", count: 90, portrait: "/art/archers-portrait.png" },
-  riders: { id: "riders", label: "Riders", count: 48, portrait: "/art/riders-portrait.png" },
-};
-
-const battleScenes = [
-  {
-    name: "Outer Wall",
-    objective: "Break the gate",
-    image: "/art/battle-1-outer-wall.png",
-    enemy: "Ironwatch Garrison",
-    positions: { vanguard: [30, 54], archers: [18, 78], riders: [70, 68] },
-  },
-  {
-    name: "Lower Ward",
-    objective: "Take the crossroads",
-    image: "/art/battle-2-lower-ward.png",
-    enemy: "Ward Defenders",
-    positions: { vanguard: [31, 54], archers: [18, 79], riders: [67, 69] },
-  },
-  {
-    name: "Citadel Keep",
-    objective: "Capture the keep",
-    image: "/art/battle-3-citadel.png",
-    enemy: "The King’s Guard",
-    positions: { vanguard: [48, 55], archers: [20, 70], riders: [73, 73] },
-  },
-] as const;
-
-const entryOptions = ["West Ridge", "Main Breach", "East Woods"];
-const troopOptions = ["Vanguard Heavy", "Balanced Army", "Cavalry Wing"];
-const timeOptions = ["Dawn", "Midday", "Night"];
-const styleOptions = ["Siege Push", "Flanking Strike", "Full Assault"];
-
-const scoutIntel = [
-  {
-    id: "west-tower",
-    label: "West watchtower",
-    x: 22,
-    y: 25,
-    threat: "Medium",
-    detail: "Eight archers. Narrow firing angle leaves the ridge partly covered.",
-    counter: "Riders can cross the blind side quickly.",
-  },
-  {
-    id: "main-gate",
-    label: "Main gatehouse",
-    x: 52,
-    y: 35,
-    threat: "Severe",
-    detail: "Reinforced gate, boiling oil, and two overlapping tower positions.",
-    counter: "Needs a siege push and heavy Vanguard losses.",
-  },
-  {
-    id: "east-tower",
-    label: "East wall tower",
-    x: 79,
-    y: 28,
-    threat: "High",
-    detail: "Longbow unit overlooks the woods and the broken outer wall.",
-    counter: "Night cover reduces their range advantage.",
-  },
-  {
-    id: "reserve-yard",
-    label: "Reserve yard",
-    x: 71,
-    y: 48,
-    threat: "High",
-    detail: "Twenty-four defenders wait behind the breach to reinforce either flank.",
-    counter: "A dawn flank can pin them before they deploy.",
-  },
-] as const;
-
-const scoutLanes = [
-  { name: "West Ridge", risk: "Low", note: "Tower blind side" },
-  { name: "Main Breach", risk: "Severe", note: "Fastest, heavily defended" },
-  { name: "East Woods", risk: "Medium", note: "Cover, then open ground" },
-];
-
-function getPlanScore(plan: Plan) {
-  return Number(plan.entry === "West Ridge")
-    + Number(plan.troops === "Balanced Army")
-    + Number(plan.time === "Dawn")
-    + Number(plan.style === "Flanking Strike");
-}
-
-function getPlanRating(plan: Plan) {
-  const score = getPlanScore(plan);
-  if (score >= 4) return { label: "High", orders: 3, losses: 4 };
-  if (score >= 2) return { label: "Steady", orders: 4, losses: 7 };
-  return { label: "Risky", orders: 5, losses: 11 };
-}
-
-function getPlanSummary(plan: Plan) {
-  return `${plan.time} timing from the ${plan.entry.toLowerCase()} sets up a ${plan.style.toLowerCase()} with a ${plan.troops.toLowerCase()}.`;
-}
-
-function ScoutScreen() {
-  const flow = useFlow();
-  const [discovered, setDiscovered] = useState<string[]>([]);
-  const [activeIntel, setActiveIntel] = useState<(typeof scoutIntel)[number]["id"]>(scoutIntel[0].id);
-  const [recommendedEntry, setRecommendedEntry] = useState("West Ridge");
-  const selectedIntel = scoutIntel.find((intel) => intel.id === activeIntel) ?? scoutIntel[0];
-  const scanComplete = discovered.length === scoutIntel.length;
-
-  const inspect = (id: (typeof scoutIntel)[number]["id"]) => {
-    setActiveIntel(id);
-    setDiscovered((current) => current.includes(id) ? current : [...current, id]);
-  };
-
-  const report: ScoutReport = { recommendedEntry, discovered };
-
-  return (
-    <main className="scout-screen" data-testid="scout-screen">
-      <section
-        className="scout-map"
-        style={{ backgroundImage: `url(${battleScenes[0].image})` }}
-        aria-label="Outer Wall scouting map"
-      >
-        <header className="scout-header">
-          <div>
-            <span>Campaign 01 · Reconnaissance</span>
-            <h1>Scout the Outer Wall</h1>
-            <p>Inspect every marked defense before committing the army.</p>
-          </div>
-          <div className="scan-counter" aria-label={`${discovered.length} of ${scoutIntel.length} defenses identified`}>
-            <EyeOpenIcon aria-hidden="true" />
-            <strong>{discovered.length}/{scoutIntel.length}</strong>
-          </div>
-        </header>
-
-        {scoutIntel.map((intel, index) => {
-          const isDiscovered = discovered.includes(intel.id);
-          return (
-            <button
-              key={intel.id}
-              type="button"
-              className="intel-marker"
-              data-active={activeIntel === intel.id ? "true" : "false"}
-              data-discovered={isDiscovered ? "true" : "false"}
-              style={{ left: `${intel.x}%`, top: `${intel.y}%` }}
-              onClick={() => inspect(intel.id)}
-              aria-label={`Inspect ${intel.label}`}
-            >
-              {isDiscovered ? <CheckIcon aria-hidden="true" /> : <Crosshair2Icon aria-hidden="true" />}
-              <span>{index + 1}</span>
-            </button>
-          );
-        })}
-
-        <div className="scout-instruction">
-          <Crosshair2Icon aria-hidden="true" />
-          Tap each defense marker
-        </div>
-
-        <section className="scout-dossier" aria-live="polite">
-          <div className="intel-readout" data-discovered={discovered.includes(selectedIntel.id) ? "true" : "false"}>
-            <div className="intel-title">
-              <span>{discovered.includes(selectedIntel.id) ? "Defense identified" : "Unconfirmed position"}</span>
-              <strong>{discovered.includes(selectedIntel.id) ? selectedIntel.label : "Tap marker to investigate"}</strong>
-            </div>
-            {discovered.includes(selectedIntel.id) ? (
-              <>
-                <div className="threat-level"><ExclamationTriangleIcon aria-hidden="true" />{selectedIntel.threat} threat</div>
-                <p>{selectedIntel.detail} <b>{selectedIntel.counter}</b></p>
-              </>
-            ) : <p>Scouting reveals troop strength, firing lanes, and the best counter.</p>}
-          </div>
-
-          <fieldset className="lane-selector">
-            <legend>Choose the lane to take into planning</legend>
-            <div>
-              {scoutLanes.map((lane) => (
-                <button
-                  type="button"
-                  key={lane.name}
-                  data-selected={recommendedEntry === lane.name ? "true" : "false"}
-                  onClick={() => setRecommendedEntry(lane.name)}
-                  aria-pressed={recommendedEntry === lane.name}
-                >
-                  <span>{lane.name}</span><strong>{lane.risk}</strong><small>{lane.note}</small>
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          <button
-            type="button"
-            className="continue-to-plan"
-            disabled={!scanComplete}
-            onClick={() => flow.push({ id: "war-table", render: () => <PlanningScreen report={report} /> })}
-          >
-            {scanComplete ? "Open attack plan" : `Identify ${scoutIntel.length - discovered.length} more defenses`}
-            {scanComplete ? <ArrowRightIcon aria-hidden="true" /> : null}
-          </button>
-        </section>
-      </section>
-    </main>
-  );
-}
-
-function OptionRow({ label, options, value, onChange }: {
-  label: string;
-  options: string[];
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <fieldset className="plan-fieldset">
-      <legend>{label}</legend>
-      <div className="plan-option-row">
-        {options.map((option) => (
-          <button
-            key={option}
-            type="button"
-            className="plan-option"
-            data-selected={value === option ? "true" : "false"}
-            onClick={() => onChange(option)}
-            aria-pressed={value === option}
-          >
-            <span>{option}</span>
-            {value === option ? <CheckIcon aria-hidden="true" /> : null}
-          </button>
-        ))}
-      </div>
-    </fieldset>
-  );
-}
-
-function PlanningScreen({ report }: { report: ScoutReport }) {
-  const flow = useFlow();
-  const [entry, setEntry] = useState(report.recommendedEntry);
-  const [troops, setTroops] = useState("Balanced Army");
-  const [time, setTime] = useState("Dawn");
-  const [style, setStyle] = useState("Flanking Strike");
-  const plan: Plan = { entry, troops, time, style };
-  const rating = getPlanRating(plan);
-
-  return (
-    <MobileScroll className="planning-screen" data-testid="planning-screen">
-      <main className="planning-content">
-        <header className="campaign-header">
-          <div className="campaign-kicker">Scout report complete</div>
-          <h1>Plan the first strike</h1>
-          <p>The Outer Wall is mapped. Build the assault around the defenses and lane you identified.</p>
-        </header>
-
-        <section className="scout-report-summary" aria-label="Scouting intelligence">
-          <div><EyeOpenIcon aria-hidden="true" /><span>Intelligence</span><strong>{report.discovered.length} defenses mapped</strong></div>
-          <div><TargetIcon aria-hidden="true" /><span>Selected lane</span><strong>{report.recommendedEntry}</strong></div>
-          <button type="button" onClick={() => flow.pop()}>Review battlefield</button>
-        </section>
-
-        <section className="battle-route" aria-label="Battle route">
-          {battleScenes.map((scene, index) => (
-            <div className="route-stop" key={scene.name}>
-              <span>{index + 1}</span>
-              <div><strong>{scene.name}</strong><small>{scene.objective}</small></div>
-              {index < battleScenes.length - 1 ? <ChevronRightIcon aria-hidden="true" /> : null}
-            </div>
-          ))}
-        </section>
-
-        <section className="war-table" aria-label="Attack plan">
-          <OptionRow label="Entry position" options={entryOptions} value={entry} onChange={setEntry} />
-          <OptionRow label="Troop formation" options={troopOptions} value={troops} onChange={setTroops} />
-          <OptionRow label="Time of attack" options={timeOptions} value={time} onChange={setTime} />
-          <OptionRow label="Attack style" options={styleOptions} value={style} onChange={setStyle} />
-        </section>
-
-        <section className="plan-summary" aria-label="Planned assault summary">
-          <div><span>Command strength</span><strong>{rating.label}</strong></div>
-          <p>{getPlanSummary(plan)} Stronger plans need fewer field orders and cost fewer troops.</p>
-        </section>
-
-        <button
-          type="button"
-          className="launch-attack"
-          onClick={() => flow.push({ id: "battle-campaign", render: () => <BattleCampaign plan={plan} /> })}
-        >
-          Begin the assault <ArrowRightIcon aria-hidden="true" />
-        </button>
-      </main>
-    </MobileScroll>
-  );
-}
 
 type BattleReadout = {
   allied: number;
@@ -842,6 +545,10 @@ function BattleCampaign({ plan }: { plan: Plan }) {
   );
 }
 
+function CampaignEntry() {
+  return <ScoutScreen renderBattle={(plan) => <BattleCampaign plan={plan} />} />;
+}
+
 function CampaignWon({ plan }: { plan: Plan }) {
   const flow = useFlow();
   return (
@@ -856,7 +563,7 @@ function CampaignWon({ plan }: { plan: Plan }) {
           <div><dt>Army</dt><dd>{plan.troops}</dd></div>
           <div><dt>Attack</dt><dd>{plan.time} · {plan.style}</dd></div>
         </dl>
-        <button type="button" onClick={() => flow.replace({ id: "new-scout", render: () => <ScoutScreen /> })}>Scout another campaign</button>
+        <button type="button" onClick={() => flow.replace({ id: "new-scout", render: () => <CampaignEntry /> })}>Scout another campaign</button>
       </main>
     </MobileScroll>
   );
@@ -869,7 +576,7 @@ export default function Prototype() {
       const previewPlan: Plan = { entry: "West Ridge", troops: "Balanced Army", time: "Dawn", style: "Flanking Strike" };
       return { id: "outer-wall-preview", render: (_flow: FlowControls) => <BattleCampaign plan={previewPlan} /> };
     }
-    return { id: "scout", render: (_flow: FlowControls) => <ScoutScreen /> };
+    return { id: "scout", render: (_flow: FlowControls) => <CampaignEntry /> };
   }, []);
   return <FlowStack initial={initial} />;
 }

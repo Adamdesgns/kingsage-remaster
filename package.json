@@ -1,0 +1,10 @@
+{
+  "name": "kingsage-remaster",
+  "private": true,
+  "version": "0.2.0",
+  "scripts": {
+    "check:gate-a": "node scripts/check-gate-a.mjs",
+    "test:core": "npm --prefix packages/game-core test",
+    "test:gate-a": "npm run check:gate-a && npm run test:core && npm --prefix mobile-rebuild run build"
+  }
+}

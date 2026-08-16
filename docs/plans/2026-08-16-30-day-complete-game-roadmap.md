@@ -39,13 +39,16 @@ The 30-day target includes:
 - Permanent world-map positions; no random matchmaking.
 - Visual village with placement, upgrading, production and defenses.
 - Resource economy, queues, storage, population and research.
-- Eight troop types grouped into battlefield squads.
+- A real base-building ladder: every kingdom begins with a level-1 Barracks and basic infantry, then builds the Stable, Workshop, Smithy, Academy and Market to unlock stronger systems.
+- Eight troop types grouped into battlefield squads, each with kingdom-wide levels 1–10 earned through research.
 - Scouting, attack planning, marches, reinforcements and retreat.
 - Three complete real battle environments: Outer Wall, Lower Ward and Citadel.
 - Asynchronous attacks against a stored defender layout and garrison.
 - Alliances, alliance chat, support marches and diplomacy.
 - Village conquest, capital defeat, 40% world victory and world cycling.
 - Hall of Legends and player history across worlds.
+- War Victory Points from conquered villages, with world standings, seasonal global arena ranks and rank titles shown in chat.
+- Global, world and alliance chat with server-derived kingdom and arena identity.
 - Server-authoritative state, admin controls, backups, audit events and basic abuse protection.
 - Automated tests for economy, marches, combat results, conquest and world victory.
 - A closed alpha that can support at least 50 simultaneous human accounts in one world.
@@ -135,7 +138,8 @@ Art/content agents operate from asset briefs and write only to assigned asset fo
 - Build the visual village scene and placement grid.
 - Port all nine buildings, costs, prerequisites, production, storage and population.
 - Add construction and recruitment queues resolved from server time.
-- Add eight troop types, research and clear upgrade effects.
+- Add eight troop types, kingdom-wide troop levels 1–10, Smithy/Academy research queues and clear upgrade effects.
+- Preserve the KingSage/Warcraft progression rhythm: basic Barracks army first, then Stable cavalry, Workshop siege, Academy nobles and Market coordination.
 - Add village defenses and saved defense layouts.
 - Add player inventory/army views and notifications.
 - Add economy invariants: no negative resources, no duplicated troops, no double-completed queues.
@@ -175,7 +179,8 @@ Art/content agents operate from asset briefs and write only to assigned asset fo
 **Goal:** players need each other.
 
 - Create, join, leave and manage alliances.
-- Add alliance chat and world event feed.
+- Add global, world and alliance chat plus the world event feed.
+- Show server-derived War Victory rank/tier beside names in arena standings and chat.
 - Add support marches and ally defense.
 - Add diplomacy, non-aggression state and alliance standings.
 - Add map presence indicators without exposing private activity.
@@ -189,6 +194,7 @@ Art/content agents operate from asset briefs and write only to assigned asset fo
 **Goal:** the game has an ending that creates the next beginning.
 
 - Finish realm standings and territory calculation on the server.
+- Award deterministic War Victory Points for village/capital conquest, reduce weak-target rewards, prevent repeat scoring from traded villages and update the seasonal global arena.
 - Trigger victory at 40% control or all rival capitals fallen.
 - Freeze and archive completed worlds.
 - Record Hall of Legends results and player history.
@@ -222,11 +228,22 @@ Art/content agents operate from asset briefs and write only to assigned asset fo
 - End of day: one playable vertical path is verified on a phone-sized viewport; status, blockers and next commands are written to the repo and shared vault.
 - Failed gates stop downstream feature expansion until repaired. Cosmetic polish never blocks server correctness.
 
+## Compelling progression loop
+
+“Addictive” means the player always has a meaningful next decision, not that the game uses paid skips or punishing dark patterns.
+
+- **Minutes:** collect, place, queue, research and inspect the map.
+- **One session:** scout a target, adjust the plan, fight and bring survivors/loot home.
+- **One day:** finish buildings, unlock a troop family, improve troop levels and coordinate alliance support.
+- **One week:** conquer villages, climb War Victory standings and become strategically important to the world.
+- **One world:** win territory, defeat capitals, earn an arena result and enter the Hall of Legends.
+- **Across worlds:** permanent profile history, seasonal arena rank and new seeded maps keep the rivalry alive without erasing what the player accomplished.
+
 ## Scoreboard
 
 | Date | Required proof | Status |
 |---|---|---|
-| Aug 18 | modular client + frozen commands/schema | Not started |
+| Aug 18 | modular client + frozen commands/schema | **Passed locally Aug 16** — contracts, deterministic fixture, schema/protocol and extracted Scout/Plan modules; live server migration remains Gate B |
 | Aug 22 | two accounts in one persistent world | Not started |
 | Aug 27 | server-owned visual village/economy | Not started |
 | Sep 1 | real player-to-player scout/march/battle | Not started |
@@ -244,4 +261,3 @@ The kickoff task is:
 > Extract and freeze the shared game contracts, split the mobile prototype into owned modules, define the server schema/command protocol and create the deterministic two-player world fixture—without changing the verified Outer Wall behavior or the existing public game.
 
 Once Gate A passes, the six lanes can run continuously against stable boundaries.
-

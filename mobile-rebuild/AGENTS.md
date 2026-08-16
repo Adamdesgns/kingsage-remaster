@@ -15,6 +15,8 @@
 - Target roughly 30–60 seconds for a successful scene. The Outer Wall baseline is 40 player troops versus 46 total defenders, with direct squad selection, tap-to-move orders, automatic fighting, retreat, a destructible 2,000-HP gate, and real casualties.
 - The product target is a persistent online world populated by real people, not a campaign that ends at the battle prototype. Every human kingdom occupies a permanent world-map location; AI may fill empty alpha seats only when clearly labeled.
 - Use `docs/plans/2026-08-16-30-day-complete-game-roadmap.md` as the execution timeline toward the complete online v1. Keep world targeting geographic and persistent; never replace it with random matchmaking.
+- Troops have kingdom-wide levels 1–10. A new kingdom begins with a level-1 Barracks and basic infantry, then earns Stable cavalry, Workshop siege, Smithy/Academy research, nobles and Market coordination through the village-building loop.
+- Village and capital conquests award server-owned War Victory Points. Points drive world standings, seasonal global arena rank and visible chat titles; repeat captures by the same kingdom and attacks on much weaker realms must not become a farming exploit.
 
 In ChatGPT Work Mode, run `sites-preview start "$PWD"`, open `http://terminal.local:4173/` in the cloud browser, and verify the rendered app and its primary interactions. Keep that preview open and tell the user to inspect it in the cloud browser; do not present the local URL as a user-facing chat link. In Codex Desktop, run the local server yourself, open the preview in the in-app browser, and provide the clickable local URL. Do not deploy to Sites unless the user explicitly asks to share, publish, or deploy. Do not give the user server-start instructions when you can run it.
 
@@ -26,7 +28,7 @@ When implementing from a selected generated mock, treat that image as the source
 
 ## Editing Boundary
 
-- Build app-specific UI in `src/Prototype.tsx` and `src/prototype.css`.
+- Build the integration shell in `src/Prototype.tsx`, app-specific styling in `src/prototype.css`, and approved KingSage feature modules in `src/game/`. `src/game/` may import shared pure contracts from the repo-level `packages/game-core`; it must not replace or edit the protected mobile runtime.
 - Treat `src/App.tsx`, `src/main.tsx`, `src/styles.css`, `src/mobile/`, `public/assets/iphone/`, `public/assets/android/`, `public/assets/status/`, `vite.config.ts`, `worker/index.js`, and `scripts/prepare-sites-build.mjs` as protected runtime files. Do not edit, replace, remove, or recreate them unless the user explicitly asks to change the mobile runtime itself. For an explicit runtime change, update the affected lock hashes only after verifying the new runtime behavior.
 - Run `npm run check:runtime` before preview or handoff. If it fails, restore the protected runtime instead of weakening or bypassing the check.
 - `npm run build` preserves the mobile runtime and prepares the static Cloudflare Worker output required by Sites. Before a Sites handoff, confirm `dist/client/index.html`, `dist/server/index.js`, `dist/.openai/hosting.json`, and source `.openai/hosting.json` exist, then run `npm run test:sites`. Do not replace this project with a Vinext starter.
