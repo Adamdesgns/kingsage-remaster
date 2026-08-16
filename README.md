@@ -50,6 +50,11 @@ Current design lives in
 (Phase 1: the living world — shipped; Phase 2: Clash-of-Clans-style visual village — next),
 with the build plan in [`docs/plans/2026-08-02-big-world-phase1.md`](docs/plans/2026-08-02-big-world-phase1.md).
 
+The current path from these prototypes to a persistent world shared by real players is
+the [`30-Day Complete Online World Roadmap`](docs/plans/2026-08-16-30-day-complete-game-roadmap.md).
+It defines the complete-game v1 contract, six parallel agent lanes, daily integration
+discipline, eight acceptance gates, and a closed-alpha target of **2026-09-14**.
+
 > Note: the handoff references two companion docs — `KingsAge_Reforged_Plan.md` and
 > `KingsAge_Reforged_Backend_Spec.md` — that were lost with the original chat session.
 > The backend spec will be rewritten before multiplayer work begins.
