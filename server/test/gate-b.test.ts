@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { buildingCost } from "../../packages/game-core/src/economy.ts";
 import { makeCommandEnvelope } from "../../packages/game-core/src/contracts.ts";
 import { createWorldHttpServer } from "../src/http.ts";
 import { SharedWorldStore } from "../src/store.ts";
@@ -86,7 +87,7 @@ test("an authoritative build command is idempotent and visible to the other acco
     const otherView = store.getSnapshot(second.player);
     const changedVillage = otherView.world.villages.find((candidate) => candidate.id === village.id)!;
     assert.equal(otherView.world.version, before.world.version + 1);
-    assert.equal(changedVillage.resources.wood, village.resources.wood - 180);
+    assert.equal(changedVillage.resources.wood, village.resources.wood - buildingCost("barracks", village.buildings.barracks).wood);
     assert.equal(otherView.constructionJobs.length, 1);
     assert.equal(store.readEvents(before.world.id, before.world.version).at(-1)?.type, "village.changed");
   } finally {
@@ -146,7 +147,7 @@ test("sessions and world changes survive a complete database reconnect", () => {
     const restored = store.getSnapshot(restoredPlayer!);
     assert.equal(restored.world.version, before.world.version + 1);
     assert.equal(restored.constructionJobs[0]?.building, "barracks");
-    assert.equal(restored.world.villages.find((candidate) => candidate.id === village.id)?.resources.wood, village.resources.wood - 180);
+    assert.equal(restored.world.villages.find((candidate) => candidate.id === village.id)?.resources.wood, village.resources.wood - buildingCost("barracks", village.buildings.barracks).wood);
   } finally {
     store.close();
     rmSync(temp.directory, { recursive: true, force: true });

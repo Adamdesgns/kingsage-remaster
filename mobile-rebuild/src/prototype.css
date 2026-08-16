@@ -96,6 +96,7 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
 .resource-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: 9px; }
 .resource-strip span { display: grid; gap: 2px; padding: 6px 7px; background: #112c33; color: #789396; font-size: 7px; font-weight: 900; text-transform: uppercase; }
 .resource-strip strong { color: #f7ead1; font-size: 11px; }
+.resource-strip small { color: #62bcb4; font-size: 6px; font-weight: 800; }
 .village-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 7px; background: #31464a; }
 .village-facts span { display: grid; gap: 2px; padding: 6px 7px; background: #0d2229; color: #7f999b; font-size: 7px; text-transform: uppercase; }
 .village-facts strong { color: #dfe9e5; font-size: 9px; }
@@ -146,6 +147,96 @@ button { font: inherit; -webkit-tap-highlight-color: transparent; }
 .army-roster strong { min-width: 28px; color: var(--copper-300); font-size: 17px; text-align: right; }
 .army-roster em { min-width: 34px; color: var(--teal-300); font-size: 8px; font-style: normal; font-weight: 900; text-transform: uppercase; }
 .army-plan-button { display: flex; width: 100%; min-height: 48px; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; border: 0; background: var(--copper-300); color: #171108; font-size: 9px; font-weight: 900; text-transform: uppercase; }
+
+/* Gate C village economy, recruitment, and research */
+.gate-c-resources div { position: relative; padding: 8px; }
+.gate-c-resources span { letter-spacing: -.01em; }
+.gate-c-resources small { color: #647f82; font-size: 6px; }
+.village-population { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; margin-top: 7px; padding: 7px 9px; background: #102931; color: #91a7a8; font-size: 7px; font-weight: 900; text-transform: uppercase; }
+.village-population strong { color: #e8deca; font-size: 8px; }
+.village-population i { grid-column: 1 / -1; overflow: hidden; height: 4px; border-radius: 3px; background: #263c40; }
+.village-population b { display: block; height: 100%; border-radius: inherit; background: #6bb98b; }
+
+.village-scene { position: relative; overflow: hidden; height: 296px; margin-top: 9px; border: 1px solid #38534d; border-radius: 4px; background: radial-gradient(circle at 22% 26%, rgba(124,151,83,.5) 0 9%, transparent 10%), radial-gradient(circle at 74% 75%, rgba(105,139,78,.48) 0 12%, transparent 13%), repeating-linear-gradient(28deg, rgba(255,255,255,.02) 0 2px, transparent 2px 12px), #34523f; box-shadow: inset 0 0 45px rgba(8,25,25,.45); }
+.village-scene::before { position: absolute; inset: 0; background: linear-gradient(143deg, transparent 0 48%, rgba(104,148,157,.52) 49% 53%, transparent 54%), linear-gradient(28deg, transparent 0 47%, rgba(174,144,91,.34) 48% 53%, transparent 54%); content: ""; }
+.village-road { position: absolute; top: 48%; right: 7%; left: 4%; height: 18px; border-block: 1px solid rgba(218,186,122,.25); background: rgba(159,125,72,.24); transform: rotate(-15deg); }
+.village-river { position: absolute; top: -18%; left: 58%; width: 36px; height: 145%; background: linear-gradient(90deg, rgba(111,173,180,.28), rgba(126,191,197,.52), rgba(111,173,180,.28)); transform: rotate(31deg); }
+.village-building-node { position: absolute; z-index: 2; display: grid; width: 56px; min-height: 49px; padding: 4px 3px; place-items: center; border: 1px solid #dac385; border-radius: 5px; background: linear-gradient(#3d5960, #1b3037); color: #fff4db; box-shadow: 0 5px 10px rgba(0,0,0,.38); transform: translate(-50%, -50%); }
+.village-building-node i { display: grid; width: 21px; height: 20px; place-items: center; border-radius: 4px; background: #d69a4e; color: #19150e; font-size: 14px; font-style: normal; }
+.village-building-node span { max-width: 50px; overflow: hidden; font-size: 6px; font-weight: 900; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.village-building-node strong { color: #8edbd3; font-size: 6px; }
+.village-building-node[data-unbuilt="true"] { border-style: dashed; border-color: #6a807d; background: rgba(15,38,41,.72); opacity: .72; }
+.village-building-node[data-unbuilt="true"] i { background: #4e6262; color: #bbcac6; }
+.village-building-node[data-selected="true"] { z-index: 4; border-color: #fff0c5; box-shadow: 0 0 0 4px rgba(242,189,103,.32), 0 8px 14px rgba(0,0,0,.5); transform: translate(-50%, -50%) scale(1.08); }
+.village-building-node[data-building="hq"] { left: 48%; top: 38%; width: 65px; min-height: 56px; }
+.village-building-node[data-building="timber"] { left: 14%; top: 16%; }
+.village-building-node[data-building="quarry"] { left: 83%; top: 17%; }
+.village-building-node[data-building="iron"] { left: 87%; top: 67%; }
+.village-building-node[data-building="farm"] { left: 12%; top: 73%; }
+.village-building-node[data-building="warehouse"] { left: 59%; top: 78%; }
+.village-building-node[data-building="barracks"] { left: 24%; top: 42%; }
+.village-building-node[data-building="wall"] { left: 9%; top: 45%; }
+.village-building-node[data-building="smithy"] { left: 73%; top: 43%; }
+.village-building-node[data-building="stable"] { left: 34%; top: 75%; }
+.village-building-node[data-building="workshop"] { left: 64%; top: 14%; }
+.village-building-node[data-building="academy"] { left: 40%; top: 12%; }
+.village-building-node[data-building="market"] { left: 75%; top: 72%; }
+
+.building-inspector { margin-top: 9px; padding: 11px; border: 1px solid #3b5559; border-left: 3px solid var(--copper-300); background: #10262d; }
+.building-inspector[data-locked="true"] { border-left-color: #657174; }
+.building-inspector header { display: flex; align-items: start; justify-content: space-between; }
+.building-inspector header div { display: grid; gap: 2px; }
+.building-inspector header span { color: var(--copper-300); font-size: 7px; font-weight: 900; text-transform: uppercase; }
+.building-inspector h2 { margin: 0; color: #fff4df; font: 900 15px/1 "Arial Black", Roboto, sans-serif; text-transform: uppercase; }
+.building-inspector header > strong { color: #7fd0c9; font-size: 10px; }
+.building-inspector > p { margin: 7px 0; color: #a9bcba; font-size: 8px; line-height: 1.4; }
+.upgrade-cost { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 8px; }
+.upgrade-cost span { display: grid; gap: 2px; padding: 5px; background: #0a1b21; color: #668286; font-size: 6px; font-weight: 900; text-transform: uppercase; }
+.upgrade-cost b { color: #eadfc8; font-size: 8px; }
+.building-inspector .unlock-requirement { margin: 7px 0 0; padding: 6px 7px; border-left: 2px solid #b36a4e; background: #2e201c; color: #e2b4a2; }
+.commit-upgrade { display: flex; width: 100%; min-height: 39px; align-items: center; justify-content: center; gap: 7px; margin-top: 8px; border: 0; background: var(--copper-300); color: #171108; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.commit-upgrade:disabled { background: #304247; color: #718487; }
+.gate-c-queue { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin-top: 8px; padding: 8px; border: 1px solid #2d7371; background: #103d40; color: #d9f4ed; }
+.gate-c-queue > svg { color: #75d3cb; animation: world-spin 1.4s linear infinite; }
+.gate-c-queue span { display: grid; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.gate-c-queue small { color: #7fb3ae; font-size: 6px; font-weight: 500; text-transform: none; }
+.gate-c-queue > strong { color: #f0c776; font-size: 8px; }
+.village-notifications { margin-top: 9px; padding: 9px; border: 1px solid #2d484d; background: #0e2229; }
+.village-notifications > span { color: #729092; font-size: 7px; font-weight: 900; text-transform: uppercase; }
+.village-notifications p { margin: 5px 0 0; color: #c9d6d2; font-size: 8px; }
+
+.army-capacity { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding: 8px 9px; background: #102931; color: #829d9f; font-size: 7px; font-weight: 900; text-transform: uppercase; }
+.army-capacity strong { color: #f1d7a3; font-size: 10px; }
+.army-mode-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-top: 7px; padding: 3px; background: #0e2228; }
+.army-mode-tabs button { min-height: 34px; border: 0; background: transparent; color: #7f9799; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+.army-mode-tabs button[data-active="true"] { background: #1a5557; color: #fff0d2; }
+.recruit-quantity { display: grid; grid-template-columns: 1fr repeat(3, 42px); gap: 4px; align-items: center; margin-top: 7px; }
+.recruit-quantity span { color: #778f91; font-size: 7px; font-weight: 900; text-transform: uppercase; }
+.recruit-quantity button { min-height: 28px; border: 1px solid #324c50; background: #10272d; color: #9aafb0; font-size: 8px; font-weight: 900; }
+.recruit-quantity button[data-active="true"] { border-color: var(--copper-300); background: #4b311d; color: #f8d18a; }
+.gate-c-army-roster { gap: 5px; margin-top: 8px; }
+.gate-c-army-roster > article { display: grid; grid-template-columns: 25px 1fr auto auto; align-items: center; gap: 6px; padding: 7px; border: 1px solid #294247; background: #10262d; }
+.gate-c-army-roster > article[data-locked="true"] { opacity: .58; }
+.gate-c-army-roster > article > i { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; background: #233f45; color: #efc777; font-size: 14px; font-style: normal; }
+.gate-c-army-roster > article > span { display: grid; color: #f4ead5; font-size: 9px; font-weight: 900; }
+.gate-c-army-roster > article > span small { color: #80999b; font-size: 6px; font-weight: 500; }
+.gate-c-army-roster > article > strong { color: var(--copper-300); font-size: 14px; }
+.gate-c-army-roster > article > em { color: var(--teal-300); font-size: 7px; font-style: normal; font-weight: 900; text-transform: uppercase; }
+.gate-c-army-roster > article > div { grid-column: 2 / -1; display: flex; align-items: center; justify-content: space-between; }
+.gate-c-army-roster > article > div small { color: #8b9fa0; font-size: 6px; }
+.gate-c-army-roster > article button,
+.research-grid button { min-height: 25px; border: 0; background: var(--copper-300); color: #171108; font-size: 6px; font-weight: 900; text-transform: uppercase; }
+.gate-c-army-roster > article button:disabled,
+.research-grid button:disabled { background: #34464a; color: #718285; }
+.research-grid { display: grid; gap: 5px; margin-top: 8px; }
+.research-grid article { display: grid; grid-template-columns: 25px 1fr auto; align-items: center; gap: 7px; padding: 8px; border: 1px solid #294247; background: #10262d; }
+.research-grid article[data-locked="true"] { opacity: .58; }
+.research-grid article > i { color: #f0c472; font-size: 15px; font-style: normal; text-align: center; }
+.research-grid article > span { display: grid; color: #f2e7d0; font-size: 9px; font-weight: 900; }
+.research-grid article > span small { color: #7d9496; font-size: 6px; font-weight: 500; }
+.research-grid article > strong { color: #78d1c8; font-size: 8px; }
+.research-grid article > div { grid-column: 2 / -1; display: flex; align-items: center; justify-content: space-between; }
+.research-grid article > div small { color: #8b9fa0; font-size: 6px; }
 
 .world-chat-view { position: absolute; z-index: 6; top: 129px; right: 0; bottom: calc(58px + var(--mobile-safe-area-height)); left: 0; display: grid; grid-template-rows: auto 1fr auto; background: #0a1c23; }
 .world-chat-view > .section-heading { padding: 16px 12px 10px; border-bottom: 1px solid #284146; }

@@ -16,4 +16,6 @@ Gate B now includes an executable zero-dependency Node service in `src/`. It use
 
 The local service provides salted `scrypt` password hashes, opaque HTTP-only cookie sessions, permanent seat claims, a shared snapshot, ordered/idempotent build commands, server-time construction completion, replayable world events and an authenticated Server-Sent Events stream. It also serves the built mobile client from the same origin.
 
+Gate C adds the local `0003_gate_c_economy.sql` adapter and shared economy rules. The service now materializes offline production, warehouse caps, construction, recruitment, troop research and return notifications from server timestamps. Commands deduct resources and reserve population transactionally; completed jobs cannot be applied twice.
+
 After `npm --prefix mobile-rebuild run build`, run `npm run start:world` from the repository root. The shared-world entry is `http://127.0.0.1:4174/?world=shared`.

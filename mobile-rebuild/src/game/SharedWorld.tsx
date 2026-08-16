@@ -10,7 +10,27 @@ import {
   ReloadIcon,
   StackIcon,
 } from "@radix-ui/react-icons";
-import { makeCommandEnvelope, type KingdomState, type VillageState, type WorldState } from "../../../packages/game-core/src/contracts";
+import {
+  BUILDING_ORDER,
+  BUILDINGS,
+  TROOPS,
+  TROOP_ORDER,
+  buildingCost,
+  buildingDurationSeconds,
+  buildingRequirementProblem,
+  canAfford,
+  makeCommandEnvelope,
+  researchRequirementProblem,
+  troopCost,
+  troopRequirementProblem,
+  troopResearchCost,
+  type BuildingType,
+  type GameCommand,
+  type KingdomState,
+  type TroopType,
+  type VillageState,
+  type WorldState,
+} from "../../../packages/game-core/src/index";
 import { KeyboardInput, MobileScroll, useKeyboard, useKeyboardInsets } from "../mobile";
 
 type SessionPlayer = { id: string; username: string; kingdomId: string };
@@ -22,6 +42,10 @@ type ConstructionJob = {
   startedAt: string;
   completesAt: string;
 };
+type RecruitmentJob = { id: string; villageId: string; troop: TroopType; quantity: number; startedAt: string; completesAt: string };
+type ResearchJob = { id: string; kingdomId: string; villageId: string; troop: TroopType; targetLevel: number; startedAt: string; completesAt: string };
+type VillageEconomy = { villageId: string; productionPerHour: { wood: number; stone: number; iron: number }; storageCapacity: number; populationUsed: number; populationCapacity: number };
+type KingdomNotification = { id: string; kind: "construction" | "recruitment" | "research"; message: string; createdAt: string };
 type WorldChatMessage = {
   id: string;
   playerId: string;
@@ -35,11 +59,16 @@ type WorldChatMessage = {
 type WorldView = "world" | "village" | "army" | "chat";
 type WorldSnapshot = {
   snapshotVersion: number;
+  serverTime: string;
   player: SessionPlayer;
   kingdom: KingdomState;
   arena: { tier: string; warVictoryPoints: number };
   world: WorldState;
+  villageEconomy: VillageEconomy[];
   constructionJobs: ConstructionJob[];
+  recruitmentJobs: RecruitmentJob[];
+  researchJobs: ResearchJob[];
+  notifications: KingdomNotification[];
   chatMessages: WorldChatMessage[];
 };
 
@@ -66,6 +95,34 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new ApiError(error?.code ?? "REQUEST_FAILED", error?.message ?? "The shared world could not complete that request.", response.status);
   }
   return payload as T;
+}
+
+function compactNumber(value: number): string {
+  return Math.floor(value).toLocaleString("en-US");
+}
+
+function formatRemaining(endsAt: string, now: number): string {
+  const seconds = Math.max(0, Math.ceil((new Date(endsAt).getTime() - now) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  if (hours) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  if (minutes) return `${minutes}m ${String(remainder).padStart(2, "0")}s`;
+  return `${remainder}s`;
+}
+
+function useSecondClock(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
+}
+
+function QueueClock({ endsAt }: { endsAt: string }) {
+  const now = useSecondClock();
+  return <strong>{formatRemaining(endsAt, now)}</strong>;
 }
 
 function AuthGate({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {
@@ -158,20 +215,14 @@ function WorldMap({ snapshot, selectedId, onSelect }: {
   );
 }
 
-function VillagePanel({ village, kingdom, isOwned, job, onBuild, busy }: {
+function VillagePanel({ village, kingdom, isOwned, job, economy, onManage }: {
   village: VillageState;
   kingdom: KingdomState;
   isOwned: boolean;
   job?: ConstructionJob;
-  onBuild: () => void;
-  busy: boolean;
+  economy?: VillageEconomy;
+  onManage: () => void;
 }) {
-  const barracksScale = Math.pow(1.45, Math.max(0, village.buildings.barracks - 1));
-  const barracksCost = {
-    wood: Math.round(180 * barracksScale),
-    stone: Math.round(120 * barracksScale),
-    iron: Math.round(80 * barracksScale),
-  };
   return (
     <section className="world-village-panel">
       <div className="village-panel-heading">
@@ -179,21 +230,21 @@ function VillagePanel({ village, kingdom, isOwned, job, onBuild, busy }: {
         <strong>{village.x}:{village.y}</strong>
       </div>
       <div className="resource-strip">
-        <span>Wood <strong>{village.resources.wood}</strong></span>
-        <span>Stone <strong>{village.resources.stone}</strong></span>
-        <span>Iron <strong>{village.resources.iron}</strong></span>
+        <span>Wood <strong>{compactNumber(village.resources.wood)}</strong><small>+{economy?.productionPerHour.wood ?? 0}/h</small></span>
+        <span>Stone <strong>{compactNumber(village.resources.stone)}</strong><small>+{economy?.productionPerHour.stone ?? 0}/h</small></span>
+        <span>Iron <strong>{compactNumber(village.resources.iron)}</strong><small>+{economy?.productionPerHour.iron ?? 0}/h</small></span>
       </div>
       <div className="village-facts">
-        <span>Barracks <strong>Lv. {village.buildings.barracks}</strong></span>
+        <span>Storage <strong>{compactNumber(economy?.storageCapacity ?? 0)}</strong></span>
         <span>Troops <strong>{Object.values(village.army).reduce((total, count) => total + count, 0)}</strong></span>
-        <span>Seat <strong>{kingdom.seatKind === "ai" ? "AI" : "Human"}</strong></span>
+        <span>People <strong>{economy ? `${economy.populationUsed}/${economy.populationCapacity}` : "—"}</strong></span>
       </div>
       {isOwned ? (
         job ? (
-          <div className="construction-active"><ReloadIcon aria-hidden="true" /><span>Building {job.building} level {job.targetLevel}</span><strong>Server timed</strong></div>
+          <div className="construction-active"><ReloadIcon aria-hidden="true" /><span>{BUILDINGS[job.building as BuildingType].name} → level {job.targetLevel}</span><QueueClock endsAt={job.completesAt} /></div>
         ) : (
-          <button className="barracks-upgrade" type="button" onClick={onBuild} disabled={busy}>
-            <span>Upgrade Barracks</span><small>{barracksCost.wood} wood · {barracksCost.stone} stone · {barracksCost.iron} iron</small><ArrowRightIcon aria-hidden="true" />
+          <button className="barracks-upgrade" type="button" onClick={onManage}>
+            <span>Enter village</span><small>Build, recruit, research and prepare defenses</small><ArrowRightIcon aria-hidden="true" />
           </button>
         )
       ) : (
@@ -203,73 +254,111 @@ function VillagePanel({ village, kingdom, isOwned, job, onBuild, busy }: {
   );
 }
 
-const buildingLabels: Array<[keyof VillageState["buildings"], string]> = [
-  ["hq", "Headquarters"],
-  ["timber", "Timber Camp"],
-  ["quarry", "Stone Quarry"],
-  ["iron", "Iron Mine"],
-  ["farm", "Farm"],
-  ["warehouse", "Warehouse"],
-  ["barracks", "Barracks"],
-  ["wall", "Wall"],
-  ["stable", "Stable"],
-  ["workshop", "Workshop"],
-  ["smithy", "Smithy"],
-  ["academy", "Academy"],
-  ["market", "Market"],
-];
-
-const troopLabels: Array<[keyof VillageState["army"], string, string]> = [
-  ["spear", "Spearmen", "Front-line defense"],
-  ["sword", "Swordsmen", "Armored infantry"],
-  ["axe", "Axemen", "Heavy assault"],
-  ["archer", "Archers", "Ranged support"],
-  ["scout", "Scouts", "Reconnaissance"],
-  ["lightCavalry", "Light Cavalry", "Fast flanking"],
-  ["ram", "Rams", "Wall breaking"],
-  ["noble", "Noblemen", "Village conquest"],
-];
-
-function VillageView({ snapshot, job, onBuild, busy }: { snapshot: WorldSnapshot; job?: ConstructionJob; onBuild: () => void; busy: boolean }) {
+function VillageView({ snapshot, job, onBuild, busy }: { snapshot: WorldSnapshot; job?: ConstructionJob; onBuild: (building: BuildingType) => void; busy: boolean }) {
   const village = snapshot.world.villages.find((candidate) => candidate.id === snapshot.kingdom.capitalVillageId)!;
+  const economy = snapshot.villageEconomy.find((entry) => entry.villageId === village.id)!;
+  const [selected, setSelected] = useState<BuildingType>("hq");
+  const definition = BUILDINGS[selected];
+  const level = village.buildings[selected];
+  const cost = buildingCost(selected, level);
+  const problem = buildingRequirementProblem(selected, village.buildings);
+  const affordable = canAfford(village.resources, cost);
+  const duration = buildingDurationSeconds(selected, level, village.buildings.hq);
   return (
     <MobileScroll className="world-section-scroll">
       <section className="world-section village-view">
-        <div className="section-heading"><span>Capital village</span><h1>{village.name}</h1><p>Build the production base that feeds every march and battle.</p></div>
-        <div className="village-resource-cards">
-          <div><span>Wood</span><strong>{village.resources.wood}</strong></div>
-          <div><span>Stone</span><strong>{village.resources.stone}</strong></div>
-          <div><span>Iron</span><strong>{village.resources.iron}</strong></div>
+        <div className="section-heading"><span>Living capital</span><h1>{village.name}</h1><p>Tap a structure, study what it unlocks, then commit the next order.</p></div>
+        <div className="village-resource-cards gate-c-resources">
+          <div><span>Wood · +{economy.productionPerHour.wood}/h</span><strong>{compactNumber(village.resources.wood)}</strong><small>of {compactNumber(economy.storageCapacity)}</small></div>
+          <div><span>Stone · +{economy.productionPerHour.stone}/h</span><strong>{compactNumber(village.resources.stone)}</strong><small>of {compactNumber(economy.storageCapacity)}</small></div>
+          <div><span>Iron · +{economy.productionPerHour.iron}/h</span><strong>{compactNumber(village.resources.iron)}</strong><small>of {compactNumber(economy.storageCapacity)}</small></div>
         </div>
-        <div className="building-grid" aria-label="Village buildings">
-          {buildingLabels.map(([id, label]) => {
-            const level = village.buildings[id];
-            const locked = level === 0;
-            return <div key={id} data-locked={locked}><span>{label}</span><strong>{locked ? "Locked" : `Level ${level}`}</strong></div>;
+        <div className="village-population"><span>Village population</span><strong>{economy.populationUsed} / {economy.populationCapacity}</strong><i><b style={{ width: `${Math.min(100, economy.populationUsed / economy.populationCapacity * 100)}%` }} /></i></div>
+
+        <div className="village-scene" aria-label="Interactive village layout">
+          <div className="village-road" aria-hidden="true" />
+          <div className="village-river" aria-hidden="true" />
+          {BUILDING_ORDER.map((building) => {
+            const item = BUILDINGS[building];
+            const itemLevel = village.buildings[building];
+            return (
+              <button key={building} type="button" className="village-building-node" data-building={building} data-selected={selected === building} data-unbuilt={itemLevel === 0} onClick={() => setSelected(building)}>
+                <i aria-hidden="true">{item.icon}</i><span>{item.shortName}</span><strong>{itemLevel ? `Lv ${itemLevel}` : "+ Build"}</strong>
+              </button>
+            );
           })}
         </div>
-        <VillagePanel village={village} kingdom={snapshot.kingdom} isOwned job={job} onBuild={onBuild} busy={busy} />
+
+        <article className="building-inspector" data-locked={Boolean(problem)}>
+          <header><div><span>{definition.icon} {level ? `Level ${level}` : "Unbuilt"}</span><h2>{definition.name}</h2></div><strong>{level}/{definition.maxLevel}</strong></header>
+          <p>{definition.description}</p>
+          {job ? (
+            <div className="gate-c-queue"><ReloadIcon /><span>{BUILDINGS[job.building as BuildingType].name} → level {job.targetLevel}<small>Construction continues if you leave.</small></span><QueueClock endsAt={job.completesAt} /></div>
+          ) : (
+            <>
+              <div className="upgrade-cost"><span>Wood <b>{compactNumber(cost.wood)}</b></span><span>Stone <b>{compactNumber(cost.stone)}</b></span><span>Iron <b>{compactNumber(cost.iron)}</b></span><span>Time <b>{formatRemaining(new Date(Date.now() + duration * 1000).toISOString(), Date.now())}</b></span></div>
+              {problem ? <p className="unlock-requirement">{problem}</p> : !affordable ? <p className="unlock-requirement">Gather more resources to commit this order.</p> : null}
+              <button type="button" className="commit-upgrade" disabled={busy || Boolean(problem) || !affordable} onClick={() => onBuild(selected)}>{level ? `Upgrade to level ${level + 1}` : `Build ${definition.name}`}<ArrowRightIcon /></button>
+            </>
+          )}
+        </article>
+
+        {snapshot.notifications.length ? <section className="village-notifications"><span>Kingdom activity</span>{snapshot.notifications.slice(0, 3).map((notice) => <p key={notice.id}>{notice.message}</p>)}</section> : null}
       </section>
     </MobileScroll>
   );
 }
 
-function ArmyView({ snapshot, onOpenWar }: { snapshot: WorldSnapshot; onOpenWar: () => void }) {
+function ArmyView({ snapshot, onOpenWar, onRecruit, onResearch, busy }: {
+  snapshot: WorldSnapshot;
+  onOpenWar: () => void;
+  onRecruit: (troop: TroopType, quantity: number) => void;
+  onResearch: (troop: TroopType, targetLevel: number) => void;
+  busy: boolean;
+}) {
   const village = snapshot.world.villages.find((candidate) => candidate.id === snapshot.kingdom.capitalVillageId)!;
   const total = Object.values(village.army).reduce((sum, count) => sum + count, 0);
+  const economy = snapshot.villageEconomy.find((entry) => entry.villageId === village.id)!;
+  const recruitment = snapshot.recruitmentJobs.find((job) => job.villageId === village.id);
+  const research = snapshot.researchJobs.find((job) => job.kingdomId === snapshot.kingdom.id);
+  const [mode, setMode] = useState<"recruit" | "research">("recruit");
+  const [quantity, setQuantity] = useState(5);
   return (
     <MobileScroll className="world-section-scroll">
       <section className="world-section army-view">
-        <div className="section-heading"><span>Kingdom forces</span><h1>{total} troops ready</h1><p>Troop levels belong to your whole kingdom and carry into every battle.</p></div>
-        <div className="army-roster">
-          {troopLabels.map(([id, label, role]) => (
-            <div key={id} data-empty={village.army[id] === 0}>
-              <span>{label}<small>{role}</small></span>
-              <strong>{village.army[id]}</strong>
-              <em>Lv. {snapshot.kingdom.troopLevels[id]}</em>
-            </div>
-          ))}
-        </div>
+        <div className="section-heading"><span>Army command</span><h1>{total} troops ready</h1><p>Recruit at home, improve a troop family for the whole kingdom, then take the army to war.</p></div>
+        <div className="army-capacity"><span>Population committed</span><strong>{economy.populationUsed} / {economy.populationCapacity}</strong></div>
+        <div className="army-mode-tabs"><button type="button" data-active={mode === "recruit"} onClick={() => setMode("recruit")}>Recruit</button><button type="button" data-active={mode === "research"} onClick={() => setMode("research")}>Research</button></div>
+
+        {mode === "recruit" ? <>
+          <div className="recruit-quantity"><span>Order size</span>{[1, 5, 10].map((amount) => <button key={amount} type="button" data-active={quantity === amount} onClick={() => setQuantity(amount)}>×{amount}</button>)}</div>
+          {recruitment ? <div className="gate-c-queue"><ReloadIcon /><span>{recruitment.quantity} {TROOPS[recruitment.troop].plural}<small>Training at {BUILDINGS[TROOPS[recruitment.troop].recruiter].name}</small></span><QueueClock endsAt={recruitment.completesAt} /></div> : null}
+          <div className="army-roster gate-c-army-roster">
+            {TROOP_ORDER.map((troop) => {
+              const item = TROOPS[troop];
+              const locked = troopRequirementProblem(troop, village.buildings);
+              const cost = troopCost(troop, quantity);
+              const affordable = canAfford(village.resources, cost);
+              return <article key={troop} data-empty={village.army[troop] === 0} data-locked={Boolean(locked)}>
+                <i>{item.icon}</i><span>{item.plural}<small>{locked ?? `${item.role} · ${item.population} pop each`}</small></span>
+                <strong>{village.army[troop]}</strong><em>Lv. {snapshot.kingdom.troopLevels[troop]}</em>
+                <div><small>{cost.wood}W · {cost.stone}S · {cost.iron}I</small><button type="button" disabled={busy || Boolean(recruitment) || Boolean(locked) || !affordable} onClick={() => onRecruit(troop, quantity)}>Recruit</button></div>
+              </article>;
+            })}
+          </div>
+        </> : <>
+          {research ? <div className="gate-c-queue"><ReloadIcon /><span>{TROOPS[research.troop].plural} → level {research.targetLevel}<small>Kingdom-wide combat research</small></span><QueueClock endsAt={research.completesAt} /></div> : null}
+          <div className="research-grid">
+            {TROOP_ORDER.map((troop) => {
+              const item = TROOPS[troop];
+              const current = snapshot.kingdom.troopLevels[troop];
+              const target = current + 1;
+              const problem = current >= 10 ? "Maximum level reached." : researchRequirementProblem(troop, target, village.buildings);
+              const cost = troopResearchCost(troop, Math.min(10, target));
+              return <article key={troop} data-locked={Boolean(problem)}><i>{item.icon}</i><span>{item.plural}<small>{problem ?? `Next level increases battlefield power.`}</small></span><strong>Lv {current}</strong><div><small>{cost.wood}W · {cost.stone}S · {cost.iron}I</small><button type="button" disabled={busy || Boolean(research) || Boolean(problem) || !canAfford(village.resources, cost)} onClick={() => onResearch(troop, target)}>Research</button></div></article>;
+            })}
+          </div>
+        </>}
         <button type="button" className="army-plan-button" onClick={onOpenWar}><Crosshair2Icon />Scout an enemy and plan an attack<ArrowRightIcon /></button>
       </section>
     </MobileScroll>
@@ -363,16 +452,20 @@ export function SharedWorld({ onOpenWar }: { onOpenWar: () => void }) {
     return () => events.close();
   }, [phase, snapshot?.world.id, loadSnapshot]);
 
+  useEffect(() => {
+    if (phase !== "world") return;
+    const timer = window.setInterval(() => void loadSnapshot(), 30_000);
+    return () => window.clearInterval(timer);
+  }, [phase, loadSnapshot]);
+
   const logout = async () => {
     await api("/api/auth/logout", { method: "POST" });
     setSnapshot(null);
     setPhase("auth");
   };
 
-  const queueBarracks = async () => {
+  const sendWorldCommand = async (command: GameCommand, successMessage = "Order committed to the shared world") => {
     if (!snapshot) return;
-    const village = snapshot.world.villages.find((candidate) => candidate.id === snapshot.kingdom.capitalVillageId);
-    if (!village) return;
     setBusy(true);
     setNotice("");
     try {
@@ -384,43 +477,39 @@ export function SharedWorld({ onOpenWar }: { onOpenWar: () => void }) {
           actorPlayerId: snapshot.player.id,
           expectedWorldVersion: snapshot.world.version,
           issuedAt: new Date().toISOString(),
-          command: { type: "village.build.queue", payload: { villageId: village.id, building: "barracks" } },
+          command,
         })),
       });
       latestVersion.current = result.payload.worldVersion;
-      setNotice("Barracks upgrade committed to the shared world");
+      setNotice(successMessage);
       await loadSnapshot();
     } catch (problem) {
-      setNotice(problem instanceof Error ? problem.message : "The build command failed.");
+      setNotice(problem instanceof Error ? problem.message : "The world could not commit that order.");
       await loadSnapshot();
     } finally {
       setBusy(false);
     }
   };
 
+  const capitalVillageId = snapshot?.kingdom.capitalVillageId ?? "";
+  const queueBuilding = (building: BuildingType) => void sendWorldCommand(
+    { type: "village.build.queue", payload: { villageId: capitalVillageId, building } },
+    `${BUILDINGS[building].name} construction started`,
+  );
+
+  const queueRecruitment = (troop: TroopType, quantity: number) => void sendWorldCommand(
+    { type: "village.recruit.queue", payload: { villageId: capitalVillageId, troop, quantity } },
+    `${quantity} ${quantity === 1 ? TROOPS[troop].name : TROOPS[troop].plural} entered training`,
+  );
+
+  const queueResearch = (troop: TroopType, targetLevel: number) => void sendWorldCommand(
+    { type: "kingdom.research.queue", payload: { villageId: capitalVillageId, troop, targetLevel } },
+    `${TROOPS[troop].plural} level ${targetLevel} research started`,
+  );
+
   const sendChat = async (body: string) => {
     if (!snapshot) return;
-    setBusy(true);
-    try {
-      const result = await api<{ payload: { worldVersion: number } }>("/api/world/commands", {
-        method: "POST",
-        body: JSON.stringify(makeCommandEnvelope({
-          commandId: crypto.randomUUID(),
-          worldId: snapshot.world.id,
-          actorPlayerId: snapshot.player.id,
-          expectedWorldVersion: snapshot.world.version,
-          issuedAt: new Date().toISOString(),
-          command: { type: "chat.send", payload: { channelId: `world:${snapshot.world.id}`, body } },
-        })),
-      });
-      latestVersion.current = result.payload.worldVersion;
-      await loadSnapshot();
-    } catch (problem) {
-      setNotice(problem instanceof Error ? problem.message : "The message could not be sent.");
-      await loadSnapshot();
-    } finally {
-      setBusy(false);
-    }
+    await sendWorldCommand({ type: "chat.send", payload: { channelId: `world:${snapshot.world.id}`, body } }, "Message sent to Emberfall");
   };
 
   if (phase === "loading") return <main className="world-loading"><div className="world-sigil">KS</div><span>Opening Emberfall…</span></main>;
@@ -453,15 +542,15 @@ export function SharedWorld({ onOpenWar }: { onOpenWar: () => void }) {
             kingdom={selectedKingdom}
             isOwned={selectedKingdom.id === snapshot.kingdom.id}
             job={selectedJob}
-            onBuild={queueBarracks}
-            busy={busy}
+            economy={snapshot.villageEconomy.find((entry) => entry.villageId === selectedVillage.id)}
+            onManage={() => setView("village")}
           />
         </>
       ) : null}
-      {view === "village" ? <VillageView snapshot={snapshot} job={capitalJob} onBuild={queueBarracks} busy={busy} /> : null}
-      {view === "army" ? <ArmyView snapshot={snapshot} onOpenWar={onOpenWar} /> : null}
+      {view === "village" ? <VillageView snapshot={snapshot} job={capitalJob} onBuild={queueBuilding} busy={busy} /> : null}
+      {view === "army" ? <ArmyView snapshot={snapshot} onOpenWar={onOpenWar} onRecruit={queueRecruitment} onResearch={queueResearch} busy={busy} /> : null}
       {view === "chat" ? <ChatView snapshot={snapshot} onSend={sendChat} busy={busy} /> : null}
-      {notice && view === "world" ? <div className="world-live-notice" role="status">{notice}</div> : null}
+      {notice ? <div className="world-live-notice" role="status">{notice}</div> : null}
       <WorldNavigation view={view} onChange={setView} onOpenWar={onOpenWar} />
     </main>
   );

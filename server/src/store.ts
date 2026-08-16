@@ -3,8 +3,26 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import {
+  BUILDINGS,
   GAME_CONTRACT_VERSION,
+  TROOPS,
+  TROOP_ORDER,
+  armyPopulation,
+  buildingCost,
+  buildingDurationSeconds,
+  buildingRequirementProblem,
+  canAfford,
   createTwoPlayerWorldFixture,
+  populationCapacity,
+  productionPerHour,
+  researchRequirementProblem,
+  storageCapacity,
+  troopCost,
+  troopResearchCost,
+  troopResearchDurationSeconds,
+  troopRequirementProblem,
+  troopTrainingDurationSeconds,
+  type Army,
   type BuildingLevels,
   type BuildingType,
   type CommandEnvelope,
@@ -12,6 +30,7 @@ import {
   type KingdomState,
   type PlayerArenaStanding,
   type ResourceStock,
+  type TroopType,
   type VillageState,
   type WorldState,
 } from "../../packages/game-core/src/index.ts";
@@ -39,6 +58,40 @@ export type ConstructionJob = {
   completesAt: string;
 };
 
+export type RecruitmentJob = {
+  id: string;
+  villageId: string;
+  troop: TroopType;
+  quantity: number;
+  startedAt: string;
+  completesAt: string;
+};
+
+export type ResearchJob = {
+  id: string;
+  kingdomId: string;
+  villageId: string;
+  troop: TroopType;
+  targetLevel: number;
+  startedAt: string;
+  completesAt: string;
+};
+
+export type VillageEconomy = {
+  villageId: string;
+  productionPerHour: ResourceStock;
+  storageCapacity: number;
+  populationUsed: number;
+  populationCapacity: number;
+};
+
+export type KingdomNotification = {
+  id: string;
+  kind: "construction" | "recruitment" | "research";
+  message: string;
+  createdAt: string;
+};
+
 export type WorldChatMessage = {
   id: string;
   playerId: string;
@@ -52,11 +105,16 @@ export type WorldChatMessage = {
 
 export type SharedWorldSnapshot = {
   snapshotVersion: number;
+  serverTime: string;
   player: SessionPlayer;
   kingdom: KingdomState;
   arena: PlayerArenaStanding;
   world: WorldState;
+  villageEconomy: VillageEconomy[];
   constructionJobs: ConstructionJob[];
+  recruitmentJobs: RecruitmentJob[];
+  researchJobs: ResearchJob[];
+  notifications: KingdomNotification[];
   chatMessages: WorldChatMessage[];
 };
 
@@ -76,6 +134,8 @@ export type CommandResult =
         commandId: string;
         worldVersion: number;
         constructionJob?: ConstructionJob;
+        recruitmentJob?: RecruitmentJob;
+        researchJob?: ResearchJob;
       };
     }
   | {
@@ -90,40 +150,14 @@ export type CommandResult =
 
 type StoreOptions = {
   buildDurationMs?: number;
+  recruitDurationMs?: number;
+  researchDurationMs?: number;
   now?: () => Date;
 };
 
-const BUILDING_TYPES: BuildingType[] = [
-  "hq",
-  "timber",
-  "quarry",
-  "iron",
-  "farm",
-  "warehouse",
-  "barracks",
-  "wall",
-  "academy",
-  "stable",
-  "workshop",
-  "smithy",
-  "market",
-];
-
-const BUILD_BASE_COST: Record<BuildingType, ResourceStock> = {
-  hq: { wood: 180, stone: 160, iron: 80 },
-  timber: { wood: 120, stone: 90, iron: 35 },
-  quarry: { wood: 110, stone: 100, iron: 40 },
-  iron: { wood: 130, stone: 110, iron: 30 },
-  farm: { wood: 100, stone: 85, iron: 35 },
-  warehouse: { wood: 140, stone: 120, iron: 55 },
-  barracks: { wood: 180, stone: 120, iron: 80 },
-  wall: { wood: 100, stone: 220, iron: 90 },
-  academy: { wood: 360, stone: 320, iron: 260 },
-  stable: { wood: 280, stone: 220, iron: 180 },
-  workshop: { wood: 340, stone: 300, iron: 230 },
-  smithy: { wood: 250, stone: 240, iron: 220 },
-  market: { wood: 200, stone: 180, iron: 110 },
-};
+const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[];
+const TROOP_TYPES = TROOP_ORDER as readonly TroopType[];
+const RESOURCE_KINDS = ["wood", "stone", "iron"] as const;
 
 function parseJson<T>(value: unknown): T {
   return JSON.parse(String(value)) as T;
@@ -144,16 +178,6 @@ function arenaTier(points: number): PlayerArenaStanding["tier"] {
   if (points >= 2_000) return "Silver";
   if (points >= 500) return "Bronze";
   return "Unranked";
-}
-
-function buildCost(building: BuildingType, currentLevel: number): ResourceStock {
-  const scale = Math.pow(1.45, Math.max(0, currentLevel - 1));
-  const base = BUILD_BASE_COST[building];
-  return {
-    wood: Math.round(base.wood * scale),
-    stone: Math.round(base.stone * scale),
-    iron: Math.round(base.iron * scale),
-  };
 }
 
 function normalizeUsername(value: string): string {
@@ -187,16 +211,21 @@ export class StoreError extends Error {
 export class SharedWorldStore {
   readonly db: DatabaseSync;
   readonly buildDurationMs: number;
+  readonly recruitDurationMs?: number;
+  readonly researchDurationMs?: number;
   readonly now: () => Date;
   private readonly listeners = new Set<(event: StoredWorldEvent) => void>();
 
   constructor(databasePath: string, options: StoreOptions = {}) {
     this.db = new DatabaseSync(databasePath);
-    this.buildDurationMs = options.buildDurationMs ?? 15_000;
+    this.buildDurationMs = options.buildDurationMs ?? 0;
+    this.recruitDurationMs = options.recruitDurationMs;
+    this.researchDurationMs = options.researchDurationMs;
     this.now = options.now ?? (() => new Date());
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.migrate();
     this.seedWorld();
+    this.ensureEconomyRows();
   }
 
   close(): void {
@@ -215,9 +244,11 @@ export class SharedWorldStore {
   }
 
   private migrate(): void {
-    const migrationPath = fileURLToPath(new URL("../db/migrations/0002_gate_b_local_sqlite.sql", import.meta.url));
-    this.db.exec(readFileSync(migrationPath, "utf8"));
-    this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (2, ?)").run(this.now().toISOString());
+    for (const [version, filename] of [[2, "0002_gate_b_local_sqlite.sql"], [3, "0003_gate_c_economy.sql"]] as const) {
+      const migrationPath = fileURLToPath(new URL(`../db/migrations/${filename}`, import.meta.url));
+      this.db.exec(readFileSync(migrationPath, "utf8"));
+      this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)").run(version, this.now().toISOString());
+    }
   }
 
   private seedWorld(): void {
@@ -276,6 +307,13 @@ export class SharedWorldStore {
         );
       }
     });
+  }
+
+  private ensureEconomyRows(): void {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO local_village_economy(village_id, last_materialized_at, resource_carry_json, layout_json)
+      SELECT id, ?, '{"wood":0,"stone":0,"iron":0}', '{}' FROM local_villages
+    `).run(this.now().toISOString());
   }
 
   register(input: { username: string; password: string; kingdomName: string }): { token: string; player: SessionPlayer } {
@@ -418,6 +456,7 @@ export class SharedWorldStore {
     }));
     return {
       snapshotVersion: world.version,
+      serverTime: this.now().toISOString(),
       player,
       kingdom,
       arena: {
@@ -429,7 +468,19 @@ export class SharedWorldStore {
         tier: arenaTier(kingdom.warVictoryPoints),
       },
       world,
+      villageEconomy: world.villages.map((village) => this.readVillageEconomy(village)),
       constructionJobs: jobs,
+      recruitmentJobs: this.readRecruitmentJobs(worldId),
+      researchJobs: this.readResearchJobs(worldId),
+      notifications: (this.db.prepare(`
+        SELECT id, kind, message, created_at FROM local_kingdom_notifications
+        WHERE kingdom_id = ? ORDER BY created_at DESC, id DESC LIMIT 12
+      `).all(player.kingdomId) as DbRow[]).map((row) => ({
+        id: String(row.id),
+        kind: String(row.kind) as KingdomNotification["kind"],
+        message: String(row.message),
+        createdAt: String(row.created_at),
+      })),
       chatMessages,
     };
   }
@@ -469,8 +520,8 @@ export class SharedWorldStore {
     if (envelope.worldId !== this.worldIdForKingdom(player.kingdomId)) {
       return this.storeRejected(player, envelope, "FORBIDDEN", "The player does not belong to that world.");
     }
-    if (envelope.command.type !== "village.build.queue" && envelope.command.type !== "chat.send") {
-      return this.storeRejected(player, envelope, "INVALID_COMMAND", "Gate B currently accepts build-queue and world-chat commands.");
+    if (!["village.build.queue", "village.recruit.queue", "kingdom.research.queue", "chat.send"].includes(envelope.command.type)) {
+      return this.storeRejected(player, envelope, "INVALID_COMMAND", "This world command is not active yet.");
     }
 
     this.materializeDueJobs();
@@ -519,6 +570,18 @@ export class SharedWorldStore {
         return;
       }
 
+      if (envelope.command.type === "village.recruit.queue") {
+        result = this.queueRecruitment(player, envelope, envelope.command.payload, currentVersion, published);
+        this.insertCommand(player, envelope, result);
+        return;
+      }
+
+      if (envelope.command.type === "kingdom.research.queue") {
+        result = this.queueResearch(player, envelope, envelope.command.payload, currentVersion, published);
+        this.insertCommand(player, envelope, result);
+        return;
+      }
+
       const payload = envelope.command.payload;
       if (!BUILDING_TYPES.includes(payload.building)) {
         result = this.reject(envelope.commandId, "INVALID_COMMAND", "Unknown building type.", currentVersion);
@@ -547,8 +610,14 @@ export class SharedWorldStore {
       const resources = parseJson<ResourceStock>(villageRow.resources_json);
       const buildings = parseJson<BuildingLevels>(villageRow.buildings_json);
       const currentLevel = buildings[payload.building];
-      const cost = buildCost(payload.building, currentLevel);
-      if (resources.wood < cost.wood || resources.stone < cost.stone || resources.iron < cost.iron) {
+      const prerequisiteProblem = buildingRequirementProblem(payload.building, buildings);
+      if (prerequisiteProblem) {
+        result = this.reject(envelope.commandId, "PREREQUISITE_MISSING", prerequisiteProblem, currentVersion);
+        this.insertCommand(player, envelope, result);
+        return;
+      }
+      const cost = buildingCost(payload.building, currentLevel);
+      if (!canAfford(resources, cost)) {
         result = this.reject(envelope.commandId, "INSUFFICIENT_RESOURCES", "The village cannot afford that upgrade.", currentVersion);
         this.insertCommand(player, envelope, result);
         return;
@@ -557,13 +626,14 @@ export class SharedWorldStore {
       resources.stone -= cost.stone;
       resources.iron -= cost.iron;
       const startedAt = this.now();
+      const durationMs = this.buildDurationMs || buildingDurationSeconds(payload.building, currentLevel, buildings.hq) * 1000;
       const job: ConstructionJob = {
         id: `construction-${randomUUID()}`,
         villageId: payload.villageId,
         building: payload.building,
         targetLevel: currentLevel + 1,
         startedAt: startedAt.toISOString(),
-        completesAt: new Date(startedAt.getTime() + this.buildDurationMs).toISOString(),
+        completesAt: new Date(startedAt.getTime() + durationMs).toISOString(),
       };
       this.db.prepare("UPDATE local_villages SET resources_json = ?, state_version = state_version + 1 WHERE id = ?")
         .run(JSON.stringify(resources), payload.villageId);
@@ -581,34 +651,279 @@ export class SharedWorldStore {
     return result;
   }
 
+  private queueRecruitment(
+    player: SessionPlayer,
+    envelope: CommandEnvelope,
+    payload: Extract<GameCommand, { type: "village.recruit.queue" }>["payload"],
+    currentVersion: number,
+    published: StoredWorldEvent[],
+  ): CommandResult {
+    if (!TROOP_TYPES.includes(payload.troop) || !Number.isInteger(payload.quantity) || payload.quantity < 1 || payload.quantity > 100) {
+      return this.reject(envelope.commandId, "INVALID_COMMAND", "Recruitment orders must contain 1–100 valid troops.", currentVersion);
+    }
+    const villageRow = this.ownedVillageRow(player, envelope.worldId, payload.villageId);
+    if (!villageRow) return this.reject(envelope.commandId, "FORBIDDEN", "The player does not own that village.", currentVersion);
+    if (this.db.prepare("SELECT 1 FROM local_recruitment_jobs WHERE village_id = ? AND status = 'queued'").get(payload.villageId)) {
+      return this.reject(envelope.commandId, "QUEUE_FULL", "That village already has an active recruitment order.", currentVersion);
+    }
+    const resources = parseJson<ResourceStock>(villageRow.resources_json);
+    const buildings = parseJson<BuildingLevels>(villageRow.buildings_json);
+    const army = parseJson<Army>(villageRow.army_json);
+    const prerequisiteProblem = troopRequirementProblem(payload.troop, buildings);
+    if (prerequisiteProblem) return this.reject(envelope.commandId, "PREREQUISITE_MISSING", prerequisiteProblem, currentVersion);
+    const cost = troopCost(payload.troop, payload.quantity);
+    if (!canAfford(resources, cost)) return this.reject(envelope.commandId, "INSUFFICIENT_RESOURCES", "The village cannot afford that recruitment order.", currentVersion);
+    const usedPopulation = armyPopulation(army) + this.queuedPopulation(payload.villageId);
+    if (usedPopulation + TROOPS[payload.troop].population * payload.quantity > populationCapacity(buildings.farm)) {
+      return this.reject(envelope.commandId, "POPULATION_FULL", "Upgrade the Farm before recruiting that many troops.", currentVersion);
+    }
+    for (const kind of RESOURCE_KINDS) resources[kind] -= cost[kind];
+    const startedAt = this.now();
+    const durationMs = this.recruitDurationMs ?? troopTrainingDurationSeconds(payload.troop, payload.quantity, buildings) * 1000;
+    const job: RecruitmentJob = {
+      id: `recruitment-${randomUUID()}`,
+      villageId: payload.villageId,
+      troop: payload.troop,
+      quantity: payload.quantity,
+      startedAt: startedAt.toISOString(),
+      completesAt: new Date(startedAt.getTime() + durationMs).toISOString(),
+    };
+    this.updateVillageResources(payload.villageId, resources);
+    this.db.prepare(`
+      INSERT INTO local_recruitment_jobs(id, world_id, village_id, troop, quantity, started_at, completes_at, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'queued')
+    `).run(job.id, envelope.worldId, job.villageId, job.troop, job.quantity, job.startedAt, job.completesAt);
+    const worldVersion = this.incrementWorldVersion(envelope.worldId);
+    published.push(this.insertEvent(envelope.worldId, worldVersion, "recruitment.queued", { villageId: payload.villageId, recruitmentJob: job }));
+    return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, recruitmentJob: job } };
+  }
+
+  private queueResearch(
+    player: SessionPlayer,
+    envelope: CommandEnvelope,
+    payload: Extract<GameCommand, { type: "kingdom.research.queue" }>["payload"],
+    currentVersion: number,
+    published: StoredWorldEvent[],
+  ): CommandResult {
+    if (!TROOP_TYPES.includes(payload.troop)) return this.reject(envelope.commandId, "INVALID_COMMAND", "Unknown troop research.", currentVersion);
+    const villageRow = this.ownedVillageRow(player, envelope.worldId, payload.villageId);
+    if (!villageRow) return this.reject(envelope.commandId, "FORBIDDEN", "The player does not own that village.", currentVersion);
+    if (this.db.prepare("SELECT 1 FROM local_research_jobs WHERE kingdom_id = ? AND status = 'queued'").get(player.kingdomId)) {
+      return this.reject(envelope.commandId, "QUEUE_FULL", "That kingdom already has active troop research.", currentVersion);
+    }
+    const kingdomRow = this.db.prepare("SELECT troop_levels_json FROM local_kingdoms WHERE id = ?").get(player.kingdomId) as DbRow;
+    const troopLevels = parseJson<Record<TroopType, number>>(kingdomRow.troop_levels_json);
+    if (payload.targetLevel !== troopLevels[payload.troop] + 1) {
+      return this.reject(envelope.commandId, "INVALID_COMMAND", `The next ${TROOPS[payload.troop].name} research level is ${troopLevels[payload.troop] + 1}.`, currentVersion);
+    }
+    const resources = parseJson<ResourceStock>(villageRow.resources_json);
+    const buildings = parseJson<BuildingLevels>(villageRow.buildings_json);
+    const prerequisiteProblem = researchRequirementProblem(payload.troop, payload.targetLevel, buildings);
+    if (prerequisiteProblem) return this.reject(envelope.commandId, "PREREQUISITE_MISSING", prerequisiteProblem, currentVersion);
+    const cost = troopResearchCost(payload.troop, payload.targetLevel);
+    if (!canAfford(resources, cost)) return this.reject(envelope.commandId, "INSUFFICIENT_RESOURCES", "The village cannot fund that research.", currentVersion);
+    for (const kind of RESOURCE_KINDS) resources[kind] -= cost[kind];
+    const startedAt = this.now();
+    const durationMs = this.researchDurationMs ?? troopResearchDurationSeconds(payload.targetLevel, buildings.academy) * 1000;
+    const job: ResearchJob = {
+      id: `research-${randomUUID()}`,
+      kingdomId: player.kingdomId,
+      villageId: payload.villageId,
+      troop: payload.troop,
+      targetLevel: payload.targetLevel,
+      startedAt: startedAt.toISOString(),
+      completesAt: new Date(startedAt.getTime() + durationMs).toISOString(),
+    };
+    this.updateVillageResources(payload.villageId, resources);
+    this.db.prepare(`
+      INSERT INTO local_research_jobs(id, world_id, kingdom_id, village_id, troop, target_level, started_at, completes_at, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')
+    `).run(job.id, envelope.worldId, job.kingdomId, job.villageId, job.troop, job.targetLevel, job.startedAt, job.completesAt);
+    const worldVersion = this.incrementWorldVersion(envelope.worldId);
+    published.push(this.insertEvent(envelope.worldId, worldVersion, "research.queued", { researchJob: job }));
+    return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, researchJob: job } };
+  }
+
   materializeDueJobs(): StoredWorldEvent[] {
-    const due = this.db.prepare(`
-      SELECT id, world_id, village_id, building, target_level
-      FROM local_construction_jobs
-      WHERE status = 'queued' AND completes_at <= ?
-      ORDER BY completes_at, id
-    `).all(this.now().toISOString()) as DbRow[];
-    if (due.length === 0) return [];
+    const now = this.now();
+    const due = [
+      ...(this.db.prepare(`
+        SELECT id, world_id, village_id, building AS item, target_level AS amount, completes_at, 'construction' AS kind
+        FROM local_construction_jobs WHERE status = 'queued' AND completes_at <= ?
+      `).all(now.toISOString()) as DbRow[]),
+      ...(this.db.prepare(`
+        SELECT id, world_id, village_id, troop AS item, quantity AS amount, completes_at, 'recruitment' AS kind
+        FROM local_recruitment_jobs WHERE status = 'queued' AND completes_at <= ?
+      `).all(now.toISOString()) as DbRow[]),
+      ...(this.db.prepare(`
+        SELECT id, world_id, village_id, kingdom_id, troop AS item, target_level AS amount, completes_at, 'research' AS kind
+        FROM local_research_jobs WHERE status = 'queued' AND completes_at <= ?
+      `).all(now.toISOString()) as DbRow[]),
+    ].sort((left, right) => String(left.completes_at).localeCompare(String(right.completes_at)) || String(left.id).localeCompare(String(right.id)));
     const published: StoredWorldEvent[] = [];
     this.withTransaction(() => {
       for (const job of due) {
         const villageId = String(job.village_id);
         const worldId = String(job.world_id);
-        const row = this.db.prepare("SELECT buildings_json FROM local_villages WHERE id = ?").get(villageId) as DbRow;
-        const buildings = parseJson<BuildingLevels>(row.buildings_json);
-        buildings[String(job.building) as BuildingType] = Number(job.target_level);
-        this.db.prepare("UPDATE local_villages SET buildings_json = ?, state_version = state_version + 1 WHERE id = ?")
-          .run(JSON.stringify(buildings), villageId);
-        this.db.prepare("UPDATE local_construction_jobs SET status = 'complete' WHERE id = ?").run(String(job.id));
+        this.accrueVillage(villageId, new Date(String(job.completes_at)));
+        const row = this.db.prepare("SELECT kingdom_id, buildings_json, army_json FROM local_villages WHERE id = ?").get(villageId) as DbRow;
+        const kingdomId = String(job.kingdom_id ?? row.kingdom_id);
+        let eventType = "village.changed";
+        let message = "";
+        if (String(job.kind) === "construction") {
+          const buildings = parseJson<BuildingLevels>(row.buildings_json);
+          const building = String(job.item) as BuildingType;
+          buildings[building] = Number(job.amount);
+          this.db.prepare("UPDATE local_villages SET buildings_json = ?, state_version = state_version + 1 WHERE id = ?")
+            .run(JSON.stringify(buildings), villageId);
+          this.db.prepare("UPDATE local_construction_jobs SET status = 'complete' WHERE id = ?").run(String(job.id));
+          message = `${BUILDINGS[building].name} reached level ${job.amount}.`;
+        } else if (String(job.kind) === "recruitment") {
+          const army = parseJson<Army>(row.army_json);
+          const troop = String(job.item) as TroopType;
+          army[troop] += Number(job.amount);
+          this.db.prepare("UPDATE local_villages SET army_json = ?, state_version = state_version + 1 WHERE id = ?")
+            .run(JSON.stringify(army), villageId);
+          this.db.prepare("UPDATE local_recruitment_jobs SET status = 'complete' WHERE id = ?").run(String(job.id));
+          eventType = "recruitment.completed";
+          message = `${job.amount} ${Number(job.amount) === 1 ? TROOPS[troop].name : TROOPS[troop].plural} joined the army.`;
+        } else {
+          const kingdomRow = this.db.prepare("SELECT troop_levels_json FROM local_kingdoms WHERE id = ?").get(kingdomId) as DbRow;
+          const levels = parseJson<Record<TroopType, number>>(kingdomRow.troop_levels_json);
+          const troop = String(job.item) as TroopType;
+          levels[troop] = Number(job.amount);
+          this.db.prepare("UPDATE local_kingdoms SET troop_levels_json = ? WHERE id = ?").run(JSON.stringify(levels), kingdomId);
+          this.db.prepare("UPDATE local_research_jobs SET status = 'complete' WHERE id = ?").run(String(job.id));
+          eventType = "troop.level.changed";
+          message = `${TROOPS[troop].plural} reached kingdom level ${job.amount}.`;
+        }
+        this.insertNotification(worldId, kingdomId, String(job.kind) as KingdomNotification["kind"], message, String(job.completes_at));
         const worldVersion = this.incrementWorldVersion(worldId);
-        published.push(this.insertEvent(worldId, worldVersion, "village.changed", {
+        published.push(this.insertEvent(worldId, worldVersion, eventType, {
           village: this.readVillage(villageId),
-          completedConstructionId: String(job.id),
+          completedJobId: String(job.id),
+          message,
         }));
       }
+      const villages = this.db.prepare("SELECT id FROM local_villages").all() as DbRow[];
+      for (const village of villages) this.accrueVillage(String(village.id), now);
     });
     this.publish(published);
     return published;
+  }
+
+  private accrueVillage(villageId: string, target: Date): void {
+    const row = this.db.prepare(`
+      SELECT v.resources_json, v.buildings_json, e.last_materialized_at, e.resource_carry_json
+      FROM local_villages v JOIN local_village_economy e ON e.village_id = v.id WHERE v.id = ?
+    `).get(villageId) as DbRow | undefined;
+    if (!row) return;
+    const last = new Date(String(row.last_materialized_at));
+    const elapsedHours = Math.max(0, target.getTime() - last.getTime()) / 3_600_000;
+    if (elapsedHours <= 0) return;
+    const resources = parseJson<ResourceStock>(row.resources_json);
+    const buildings = parseJson<BuildingLevels>(row.buildings_json);
+    const carry = parseJson<ResourceStock>(row.resource_carry_json);
+    const cap = storageCapacity(buildings.warehouse);
+    const production: ResourceStock = {
+      wood: productionPerHour(buildings.timber),
+      stone: productionPerHour(buildings.quarry),
+      iron: productionPerHour(buildings.iron),
+    };
+    let changed = false;
+    for (const kind of RESOURCE_KINDS) {
+      if (resources[kind] >= cap) {
+        resources[kind] = cap;
+        carry[kind] = 0;
+        continue;
+      }
+      const generated = carry[kind] + production[kind] * elapsedHours;
+      const whole = Math.floor(generated);
+      const accepted = Math.min(whole, cap - resources[kind]);
+      resources[kind] += accepted;
+      carry[kind] = resources[kind] >= cap ? 0 : generated - whole;
+      changed ||= accepted > 0;
+    }
+    if (changed) {
+      this.db.prepare("UPDATE local_villages SET resources_json = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(JSON.stringify(resources), villageId);
+    }
+    this.db.prepare("UPDATE local_village_economy SET last_materialized_at = ?, resource_carry_json = ? WHERE village_id = ?")
+      .run(target.toISOString(), JSON.stringify(carry), villageId);
+  }
+
+  private readVillageEconomy(village: VillageState): VillageEconomy {
+    return {
+      villageId: village.id,
+      productionPerHour: {
+        wood: productionPerHour(village.buildings.timber),
+        stone: productionPerHour(village.buildings.quarry),
+        iron: productionPerHour(village.buildings.iron),
+      },
+      storageCapacity: storageCapacity(village.buildings.warehouse),
+      populationUsed: armyPopulation(village.army) + this.queuedPopulation(village.id),
+      populationCapacity: populationCapacity(village.buildings.farm),
+    };
+  }
+
+  private queuedPopulation(villageId: string): number {
+    return (this.db.prepare("SELECT troop, quantity FROM local_recruitment_jobs WHERE village_id = ? AND status = 'queued'").all(villageId) as DbRow[])
+      .reduce((total, row) => total + TROOPS[String(row.troop) as TroopType].population * Number(row.quantity), 0);
+  }
+
+  private readRecruitmentJobs(worldId: string): RecruitmentJob[] {
+    return (this.db.prepare(`
+      SELECT id, village_id, troop, quantity, started_at, completes_at
+      FROM local_recruitment_jobs WHERE world_id = ? AND status = 'queued' ORDER BY completes_at
+    `).all(worldId) as DbRow[]).map((row) => ({
+      id: String(row.id),
+      villageId: String(row.village_id),
+      troop: String(row.troop) as TroopType,
+      quantity: Number(row.quantity),
+      startedAt: String(row.started_at),
+      completesAt: String(row.completes_at),
+    }));
+  }
+
+  private readResearchJobs(worldId: string): ResearchJob[] {
+    return (this.db.prepare(`
+      SELECT id, kingdom_id, village_id, troop, target_level, started_at, completes_at
+      FROM local_research_jobs WHERE world_id = ? AND status = 'queued' ORDER BY completes_at
+    `).all(worldId) as DbRow[]).map((row) => ({
+      id: String(row.id),
+      kingdomId: String(row.kingdom_id),
+      villageId: String(row.village_id),
+      troop: String(row.troop) as TroopType,
+      targetLevel: Number(row.target_level),
+      startedAt: String(row.started_at),
+      completesAt: String(row.completes_at),
+    }));
+  }
+
+  private ownedVillageRow(player: SessionPlayer, worldId: string, villageId: string): DbRow | undefined {
+    return this.db.prepare(`
+      SELECT v.*, k.controller_player_id FROM local_villages v
+      JOIN local_kingdoms k ON k.id = v.kingdom_id
+      WHERE v.id = ? AND v.world_id = ? AND k.controller_player_id = ?
+    `).get(villageId, worldId, player.id) as DbRow | undefined;
+  }
+
+  private updateVillageResources(villageId: string, resources: ResourceStock): void {
+    this.db.prepare("UPDATE local_villages SET resources_json = ?, state_version = state_version + 1 WHERE id = ?")
+      .run(JSON.stringify(resources), villageId);
+  }
+
+  private insertNotification(
+    worldId: string,
+    kingdomId: string,
+    kind: KingdomNotification["kind"],
+    message: string,
+    createdAt: string,
+  ): void {
+    this.db.prepare(`
+      INSERT INTO local_kingdom_notifications(id, world_id, kingdom_id, kind, message, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(`notification-${randomUUID()}`, worldId, kingdomId, kind, message, createdAt);
   }
 
   private readWorld(worldId: string): WorldState {

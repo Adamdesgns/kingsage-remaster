@@ -16,7 +16,7 @@ const client = readFileSync("mobile-rebuild/src/game/SharedWorld.tsx", "utf8");
 for (const [label, source, patterns] of [
   ["world store", store, ["scryptSync", "local_command_inbox", "expectedWorldVersion", "materializeDueJobs", "KINGDOM_NAME_TAKEN", "local_chat_messages"]],
   ["HTTP boundary", http, ["/api/auth/register", "/api/world/snapshot", "/api/world/commands", "/api/world/stream"]],
-  ["shared-world client", client, ["Claim your kingdom", "EventSource", "makeCommandEnvelope", "Upgrade Barracks", "WorldNavigation", "ArmyView", "ChatView"]],
+  ["shared-world client", client, ["Claim your kingdom", "EventSource", "makeCommandEnvelope", "village.build.queue", "WorldNavigation", "ArmyView", "ChatView"]],
 ]) {
   for (const pattern of patterns) {
     if (!source.includes(pattern)) failures.push(`${label} is missing ${pattern}`);

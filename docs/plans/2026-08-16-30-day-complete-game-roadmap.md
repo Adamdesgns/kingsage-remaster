@@ -146,6 +146,8 @@ Art/content agents operate from asset briefs and write only to assigned asset fo
 
 **Gate C:** two accounts can grow for a simulated seven days, close their browsers, return and find every resource, building and queue correct.
 
+**Local proof — Aug 16:** the Gate C persistence acceptance test passes early. The visual village, original economy curves, production/storage/population, all progression prerequisites, construction/recruitment/research timers, eight troop types, levels 1–10 and recovery notifications are implemented. Player-edited defensive placement remains paired with the authoritative defender snapshot at the Gate C/D boundary. Nothing was pushed or deployed.
+
 ### Days 13–17 — World warfare · Aug 28–Sep 1
 
 **Goal:** one player can scout and attack another player from the world map.

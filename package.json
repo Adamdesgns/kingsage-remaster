@@ -9,6 +9,8 @@
     "start:world": "npm --prefix server start",
     "test:server": "npm --prefix server test",
     "check:gate-b": "node scripts/check-gate-b.mjs",
-    "test:gate-b": "npm run test:gate-a && npm run check:gate-b && npm run test:server"
+    "test:gate-b": "npm run test:gate-a && npm run check:gate-b && npm run test:server",
+    "check:gate-c": "node scripts/check-gate-c.mjs",
+    "test:gate-c": "npm run test:gate-b && npm run check:gate-c"
   }
 }

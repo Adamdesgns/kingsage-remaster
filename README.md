@@ -70,3 +70,11 @@ durable server-owned state, timed Barracks construction, world chat, and connect
 World / Village / Army / War / Chat navigation. `npm run test:gate-b` verifies the
 shared contracts, protected mobile build, two-session isolation, idempotent commands,
 event delivery, and database restart recovery. Nothing has been pushed or deployed.
+
+**Gate C — Persistent Economy Core** is complete locally. The shared world now has a
+visual tappable village, original compounding KingSage economy rules, offline resource
+production, storage and population caps, prerequisite-driven building progression,
+separate server-timed construction and recruitment queues, eight recruitable troop
+families, kingdom-wide research levels 1–10 and return notifications. `npm run
+test:gate-c` includes a simulated seven-day close/reconnect for two kingdoms. Saved
+defensive placement remains tied to the next authoritative scouting/warfare slice.
