@@ -22,6 +22,9 @@ enterTable.Parent = remotes
 local queueCommand = Instance.new("RemoteFunction")
 queueCommand.Name = "QueueCommand"
 queueCommand.Parent = remotes
+local toast = Instance.new("RemoteEvent")
+toast.Name = "Toast"
+toast.Parent = remotes
 remotes.Parent = ReplicatedStorage
 
 WorldSession.StateChanged = Instance.new("BindableEvent") -- (player, snapshot)

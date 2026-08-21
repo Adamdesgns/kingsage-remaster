@@ -21,14 +21,16 @@ local function secretKey(): string?
 	return nil
 end
 
--- Returns (true, decodedTable) or (false, reasonString).
--- Retries only when NO HTTP answer arrived (transport failure). Once the
--- server answered - success or rejection - that answer stands. Command
--- payloads carry commandId, so transport retries can never double-charge.
-function ApiClient.post(path: string, body: { [string]: any }): (boolean, any)
+-- Full form: (answered, status, decodedBody | reasonString).
+-- `answered=true` means the world server gave an HTTP answer (any status) and
+-- the body decoded; the answer is FINAL - never retried. `answered=false`
+-- means transport failure after bounded retries; nothing is known to have
+-- happened. Command payloads carry commandId, so transport retries can never
+-- double-charge.
+function ApiClient.postFull(path: string, body: { [string]: any }): (boolean, number?, any)
 	local key = secretKey()
 	if not key then
-		return false, "NO_SECRET"
+		return false, nil, "NO_SECRET"
 	end
 	local payload = HttpService:JSONEncode(body)
 	local delays = { 1, 2 }
@@ -45,17 +47,31 @@ function ApiClient.post(path: string, body: { [string]: any }): (boolean, any)
 			local decodedOk, decoded = pcall(function()
 				return HttpService:JSONDecode(response.Body)
 			end)
-			if response.Success and decodedOk then
-				return true, decoded
+			if decodedOk then
+				return true, response.StatusCode, decoded
 			end
-			local code = if decodedOk and typeof(decoded) == "table" then tostring((decoded :: any).code or (decoded :: any).error and (decoded :: any).error.code or "?") else "BAD_JSON"
-			return false, string.format("HTTP_%d:%s", response.StatusCode, code)
+			return true, response.StatusCode, "BAD_JSON"
 		end
 		if attempt < 3 then
 			task.wait(delays[attempt])
 		end
 	end
-	return false, "UNREACHABLE"
+	return false, nil, "UNREACHABLE"
+end
+
+-- Simple form used by session/state: (true, body) only on HTTP success.
+function ApiClient.post(path: string, body: { [string]: any }): (boolean, any)
+	local answered, status, decoded = ApiClient.postFull(path, body)
+	if not answered then
+		return false, decoded
+	end
+	if status and status >= 200 and status < 300 and typeof(decoded) == "table" then
+		return true, decoded
+	end
+	local code = if typeof(decoded) == "table"
+		then tostring((decoded :: any).code or ((decoded :: any).error and (decoded :: any).error.code) or "?")
+		else tostring(decoded)
+	return false, string.format("HTTP_%d:%s", status or 0, code)
 end
 
 return ApiClient
