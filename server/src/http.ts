@@ -1,13 +1,15 @@
+import { timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 import { SharedWorldStore, StoreError, type SessionPlayer } from "./store.ts";
-import type { CommandEnvelope } from "../../packages/game-core/src/contracts.ts";
+import { makeCommandEnvelope, type CommandEnvelope, type GameCommand } from "../../packages/game-core/src/contracts.ts";
 
 type ServerOptions = {
   store: SharedWorldStore;
   staticRoot?: string;
   materializeIntervalMs?: number;
+  robloxKey?: string;
 };
 
 type JsonObject = Record<string, unknown>;
@@ -71,6 +73,15 @@ function sessionCookie(token: string): string {
 
 function clearSessionCookie(): string {
   return "kingsage_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0";
+}
+
+function requireRobloxKey(request: IncomingMessage, robloxKey: string | undefined): void {
+  if (!robloxKey) throw new StoreError("ROBLOX_DISABLED", "Roblox API is not configured.", 503);
+  const presented = Buffer.from(String(request.headers["x-kingsage-key"] ?? ""));
+  const expected = Buffer.from(robloxKey);
+  if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) {
+    throw new StoreError("BAD_KEY", "Invalid key.", 401);
+  }
 }
 
 function authenticate(request: IncomingMessage, store: SharedWorldStore): SessionPlayer {
@@ -189,6 +200,55 @@ export function createWorldHttpServer(options: ServerOptions): {
         const player = authenticate(request, store);
         const envelope = await readJson(request) as unknown as CommandEnvelope;
         const result = store.applyCommand(player, envelope);
+        json(response, result.type === "command.accepted" ? 200 : 409, result);
+        return;
+      }
+
+      if (request.method === "POST" && path === "/api/roblox/session") {
+        requireRobloxKey(request, options.robloxKey);
+        const body = await readJson(request);
+        const linked = store.linkRobloxPlayer({
+          robloxUserId: Number(body.robloxUserId),
+          displayName: String(body.displayName ?? ""),
+        });
+        json(response, 200, {
+          playerId: linked.player.id,
+          kingdomId: linked.player.kingdomId,
+          created: linked.created,
+          contractVersion: 1,
+        });
+        return;
+      }
+
+      if (request.method === "POST" && path === "/api/roblox/state") {
+        requireRobloxKey(request, options.robloxKey);
+        const body = await readJson(request);
+        const ids = Array.isArray(body.robloxUserIds) ? (body.robloxUserIds as unknown[]).slice(0, 50) : [];
+        const states: Record<string, unknown> = {};
+        for (const raw of ids) {
+          const robloxUserId = Math.trunc(Number(raw));
+          if (!Number.isFinite(robloxUserId) || robloxUserId <= 0) continue;
+          const linked = store.peekRobloxPlayer(robloxUserId);
+          if (linked) states[String(robloxUserId)] = store.getSnapshot(linked);
+        }
+        json(response, 200, { serverTime: new Date().toISOString(), states });
+        return;
+      }
+
+      if (request.method === "POST" && path === "/api/roblox/commands") {
+        requireRobloxKey(request, options.robloxKey);
+        const body = await readJson(request);
+        const linked = store.peekRobloxPlayer(Number(body.robloxUserId));
+        if (!linked) throw new StoreError("UNKNOWN_ROBLOX_USER", "Call /api/roblox/session first.", 404);
+        const envelope = makeCommandEnvelope({
+          commandId: String(body.commandId ?? ""),
+          worldId: store.worldIdForPlayer(linked),
+          actorPlayerId: linked.id,
+          expectedWorldVersion: Number(body.expectedWorldVersion ?? -1),
+          issuedAt: new Date().toISOString(),
+          command: body.command as GameCommand,
+        });
+        const result = store.applyCommand(linked, envelope);
         json(response, result.type === "command.accepted" ? 200 : 409, result);
         return;
       }

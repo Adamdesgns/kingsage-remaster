@@ -15,7 +15,7 @@ function joinDefaultDatabase(root: string): string {
 
 mkdirSync(dirname(databasePath), { recursive: true });
 const store = new SharedWorldStore(databasePath);
-const app = createWorldHttpServer({ store, staticRoot });
+const app = createWorldHttpServer({ store, staticRoot, robloxKey: process.env.KINGSAGE_ROBLOX_KEY });
 
 app.server.listen(port, "127.0.0.1", () => {
   console.log(`KingSage shared world listening at http://127.0.0.1:${port}/?world=shared`);

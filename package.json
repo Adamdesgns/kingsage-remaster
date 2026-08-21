@@ -12,6 +12,7 @@
     "test:gate-b": "npm run test:gate-a && npm run check:gate-b && npm run test:server",
     "check:gate-c": "node scripts/check-gate-c.mjs",
     "test:gate-c": "npm run test:gate-b && npm run check:gate-c",
+    "test:roblox-layer": "npm --prefix server run test:roblox",
     "check:gate-d": "node scripts/check-gate-d.mjs",
     "test:gate-d": "npm run test:gate-c && npm run check:gate-d"
   }
