@@ -60,6 +60,44 @@ test("display-name collisions still found distinct kingdoms", () => {
   }
 });
 
+test("web accounts cannot squat roblox usernames", () => {
+  const temp = tempDatabase();
+  const store = new SharedWorldStore(temp.path);
+  try {
+    // The roblox: namespace is unreachable from the web path...
+    assert.throws(
+      () => store.register({ username: "roblox:5", password: "password-123", kingdomName: "Squat Crown" }),
+      (error: any) => error?.code === "INVALID_USERNAME",
+    );
+    // ...and the closest legal lookalike does not collide with a real link.
+    store.register({ username: "roblox_5", password: "password-123", kingdomName: "Lookalike Crown" });
+    const linked = store.linkRobloxPlayer({ robloxUserId: 5, displayName: "RealFive" });
+    assert.equal(linked.created, true);
+    assert.equal(linked.player.username, "roblox:5");
+  } finally {
+    store.close();
+    rmSync(temp.directory, { recursive: true, force: true });
+  }
+});
+
+test("three identical display names found three distinct kingdom names", () => {
+  const temp = tempDatabase();
+  const store = new SharedWorldStore(temp.path);
+  try {
+    const names = new Set<string>();
+    for (const userId of [21, 22, 23]) {
+      const linked = store.linkRobloxPlayer({ robloxUserId: userId, displayName: "Bob" });
+      const snapshot = store.getSnapshot(linked.player);
+      assert.ok(snapshot.kingdom.name.length <= 32, snapshot.kingdom.name);
+      names.add(snapshot.kingdom.name.toLowerCase());
+    }
+    assert.equal(names.size, 3);
+  } finally {
+    store.close();
+    rmSync(temp.directory, { recursive: true, force: true });
+  }
+});
+
 test("world full: linking past the open AI seats fails with WORLD_FULL", () => {
   const temp = tempDatabase();
   const store = new SharedWorldStore(temp.path);

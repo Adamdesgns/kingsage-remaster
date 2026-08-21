@@ -28,12 +28,20 @@ task.defer(function()
 	camera.CFrame = CFrame.lookAt(Vector3.new(70, 45, 0), Vector3.new(0, 5, 0))
 end)
 
+-- The meter must not perturb the measurement: samples collect per frame,
+-- but the clone/sort/format work runs at 4 Hz.
 local frames: { number } = {}
+local meterClock = 0
 RunService.RenderStepped:Connect(function(dt)
 	table.insert(frames, dt)
 	if #frames > 300 then
 		table.remove(frames, 1)
 	end
+	meterClock += dt
+	if meterClock < 0.25 then
+		return
+	end
+	meterClock = 0
 	local sum = 0
 	local sorted = table.clone(frames)
 	table.sort(sorted)

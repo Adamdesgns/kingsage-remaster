@@ -343,6 +343,41 @@ export class SharedWorldStore {
     `).run(this.now().toISOString());
   }
 
+  // Shared seat-claim mechanics. register() and linkRobloxPlayer() MUST found
+  // kingdoms identically or web- and Roblox-founded kingdoms drift apart
+  // structurally; every claim change goes through these two helpers.
+  private findOpenSeat(): { kingdomId: string; worldId: string; villageId: string } {
+    const seat = this.db.prepare(`
+      SELECT id, world_id, capital_village_id
+      FROM local_kingdoms
+      WHERE controller_player_id IS NULL AND seat_kind = 'ai'
+      ORDER BY id
+      LIMIT 1
+    `).get() as DbRow | undefined;
+    if (!seat) throw new StoreError("WORLD_FULL", "This alpha world has no open kingdom seats.", 409);
+    return { kingdomId: String(seat.id), worldId: String(seat.world_id), villageId: String(seat.capital_village_id) };
+  }
+
+  private occupySeat(seat: { kingdomId: string; worldId: string; villageId: string }, playerId: string, kingdomName: string): StoredWorldEvent {
+    this.db.prepare(`
+      UPDATE local_kingdoms
+      SET controller_player_id = ?, seat_kind = 'human', name = ?
+      WHERE id = ?
+    `).run(playerId, kingdomName, seat.kingdomId);
+    this.db.prepare("UPDATE local_villages SET name = ?, state_version = state_version + 1 WHERE id = ?")
+      .run(`${kingdomName} Keep`, seat.villageId);
+    const worldVersion = this.incrementWorldVersion(seat.worldId);
+    return this.insertEvent(seat.worldId, worldVersion, "kingdom.claimed", {
+      kingdomId: seat.kingdomId,
+      playerId,
+      kingdomName,
+    });
+  }
+
+  private kingdomNameTaken(name: string): boolean {
+    return this.db.prepare("SELECT 1 FROM local_kingdoms WHERE name = ? COLLATE NOCASE").get(name) !== undefined;
+  }
+
   register(input: { username: string; password: string; kingdomName: string }): { token: string; player: SessionPlayer } {
     const username = normalizeUsername(input.username);
     const kingdomName = normalizeKingdomName(input.kingdomName);
@@ -352,8 +387,9 @@ export class SharedWorldStore {
 
     const existing = this.db.prepare("SELECT 1 FROM local_players WHERE username = ?").get(username);
     if (existing) throw new StoreError("USERNAME_TAKEN", "That username is already registered.", 409);
-    const kingdomNameTaken = this.db.prepare("SELECT 1 FROM local_kingdoms WHERE name = ? COLLATE NOCASE").get(kingdomName);
-    if (kingdomNameTaken) throw new StoreError("KINGDOM_NAME_TAKEN", "That kingdom name already exists in this world.", 409);
+    if (this.kingdomNameTaken(kingdomName)) {
+      throw new StoreError("KINGDOM_NAME_TAKEN", "That kingdom name already exists in this world.", 409);
+    }
 
     const playerId = `player-${randomUUID()}`;
     const salt = randomBytes(16);
@@ -363,36 +399,13 @@ export class SharedWorldStore {
     const published: StoredWorldEvent[] = [];
 
     this.withTransaction(() => {
-      const seat = this.db.prepare(`
-        SELECT id, world_id, capital_village_id
-        FROM local_kingdoms
-        WHERE controller_player_id IS NULL AND seat_kind = 'ai'
-        ORDER BY id
-        LIMIT 1
-      `).get() as DbRow | undefined;
-      if (!seat) throw new StoreError("WORLD_FULL", "This alpha world has no open kingdom seats.", 409);
-      kingdomId = String(seat.id);
-      const worldId = String(seat.world_id);
-      const villageId = String(seat.capital_village_id);
-
+      const seat = this.findOpenSeat();
+      kingdomId = seat.kingdomId;
       this.db.prepare(`
         INSERT INTO local_players(id, username, password_salt, password_hash, kingdom_id, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(playerId, username, salt.toString("hex"), digest.toString("hex"), kingdomId, createdAt);
-      this.db.prepare(`
-        UPDATE local_kingdoms
-        SET controller_player_id = ?, seat_kind = 'human', name = ?
-        WHERE id = ?
-      `).run(playerId, kingdomName, kingdomId);
-      this.db.prepare("UPDATE local_villages SET name = ?, state_version = state_version + 1 WHERE id = ?")
-        .run(`${kingdomName} Keep`, villageId);
-      const worldVersion = this.incrementWorldVersion(worldId);
-      const event = this.insertEvent(worldId, worldVersion, "kingdom.claimed", {
-        kingdomId,
-        playerId,
-        kingdomName,
-      });
-      published.push(event);
+      published.push(this.occupySeat(seat, playerId, kingdomName));
     });
 
     const token = this.createSession(playerId);
@@ -408,29 +421,31 @@ export class SharedWorldStore {
     const existing = this.peekRobloxPlayer(robloxUserId);
     if (existing) return { player: existing, created: false };
 
-    const baseName = String(input.displayName ?? "").replace(/[^A-Za-z0-9 _-]/g, "").trim().slice(0, 24) || `Ruler ${robloxUserId}`;
+    // Base name is capped at 20 so every generated candidate stays inside
+    // normalizeKingdomName's 32-char ceiling ("'s Realm 99" adds 11).
+    const baseName = String(input.displayName ?? "").replace(/[^A-Za-z0-9 _-]/g, "").replace(/\s+/g, " ").trim().slice(0, 20).trim() || `Ruler ${robloxUserId % 100000}`;
     const playerId = `player-${randomUUID()}`;
-    const username = `roblox_${robloxUserId}`;
+    // The ':' namespace is un-squattable: normalizeUsername rejects ':' on the
+    // web register path, so no web account can ever pre-claim this username.
+    const username = `roblox:${robloxUserId}`;
     const createdAt = this.now().toISOString();
     let kingdomId = "";
     const published: StoredWorldEvent[] = [];
 
     this.withTransaction(() => {
-      const seat = this.db.prepare(`
-        SELECT id, world_id, capital_village_id
-        FROM local_kingdoms
-        WHERE controller_player_id IS NULL AND seat_kind = 'ai'
-        ORDER BY id
-        LIMIT 1
-      `).get() as DbRow | undefined;
-      if (!seat) throw new StoreError("WORLD_FULL", "This alpha world has no open kingdom seats.", 409);
-      kingdomId = String(seat.id);
-      const worldId = String(seat.world_id);
-      const villageId = String(seat.capital_village_id);
+      const seat = this.findOpenSeat();
+      kingdomId = seat.kingdomId;
 
-      let kingdomName = `${baseName}'s Realm`;
-      const taken = this.db.prepare("SELECT 1 FROM local_kingdoms WHERE name = ? COLLATE NOCASE").get(kingdomName);
-      if (taken) kingdomName = `${baseName}'s Realm ${robloxUserId % 1000}`;
+      let kingdomName = "";
+      const candidates = [`${baseName}'s Realm`];
+      for (let suffix = 2; suffix <= 99; suffix += 1) candidates.push(`${baseName}'s Realm ${suffix}`);
+      for (const candidate of candidates) {
+        if (!this.kingdomNameTaken(candidate)) {
+          kingdomName = candidate;
+          break;
+        }
+      }
+      if (!kingdomName) kingdomName = normalizeKingdomName(`Realm ${playerId.slice(7, 15)}`);
 
       this.db.prepare(`
         INSERT INTO local_players(id, username, password_salt, password_hash, kingdom_id, created_at)
@@ -438,15 +453,7 @@ export class SharedWorldStore {
       `).run(playerId, username, kingdomId, createdAt);
       this.db.prepare("INSERT INTO roblox_players(roblox_user_id, player_id, created_at) VALUES (?, ?, ?)")
         .run(robloxUserId, playerId, createdAt);
-      this.db.prepare(`
-        UPDATE local_kingdoms
-        SET controller_player_id = ?, seat_kind = 'human', name = ?
-        WHERE id = ?
-      `).run(playerId, kingdomName, kingdomId);
-      this.db.prepare("UPDATE local_villages SET name = ?, state_version = state_version + 1 WHERE id = ?")
-        .run(`${kingdomName} Keep`, villageId);
-      const worldVersion = this.incrementWorldVersion(worldId);
-      published.push(this.insertEvent(worldId, worldVersion, "kingdom.claimed", { kingdomId, playerId, kingdomName }));
+      published.push(this.occupySeat(seat, playerId, normalizeKingdomName(kingdomName)));
     });
 
     this.publish(published);
@@ -460,10 +467,6 @@ export class SharedWorldStore {
       WHERE r.roblox_user_id = ?
     `).get(Math.trunc(robloxUserId)) as DbRow | undefined;
     return row ? { id: String(row.id), username: String(row.username), kingdomId: String(row.kingdom_id) } : null;
-  }
-
-  worldIdForPlayer(player: SessionPlayer): string {
-    return this.worldIdForKingdom(player.kingdomId);
   }
 
   login(input: { username: string; password: string }): { token: string; player: SessionPlayer } {
@@ -513,8 +516,8 @@ export class SharedWorldStore {
     return token;
   }
 
-  getSnapshot(player: SessionPlayer): SharedWorldSnapshot {
-    this.materializeDueJobs();
+  getSnapshot(player: SessionPlayer, options: { skipMaterialize?: boolean } = {}): SharedWorldSnapshot {
+    if (!options.skipMaterialize) this.materializeDueJobs();
     const kingdomRow = this.db.prepare("SELECT * FROM local_kingdoms WHERE id = ?").get(player.kingdomId) as DbRow | undefined;
     if (!kingdomRow) throw new StoreError("KINGDOM_NOT_FOUND", "The player's kingdom no longer exists.", 404);
     const worldId = String(kingdomRow.world_id);
@@ -1537,7 +1540,7 @@ export class SharedWorldStore {
     return row ? Number(row.version) : 0;
   }
 
-  private worldIdForKingdom(kingdomId: string): string {
+  worldIdForKingdom(kingdomId: string): string {
     const row = this.db.prepare("SELECT world_id FROM local_kingdoms WHERE id = ?").get(kingdomId) as DbRow | undefined;
     if (!row) throw new StoreError("KINGDOM_NOT_FOUND", "Kingdom not found.", 404);
     return String(row.world_id);

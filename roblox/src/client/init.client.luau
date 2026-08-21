@@ -11,40 +11,29 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+local shared = ReplicatedStorage:WaitForChild("WorldShared")
+local Buildings = require(shared:WaitForChild("Buildings"))
+local TimeUtil = require(shared:WaitForChild("TimeUtil"))
+
 local remotes = ReplicatedStorage:WaitForChild("WorldRemotes")
 local stateSync = remotes:WaitForChild("StateSync") :: RemoteEvent
 local enterTable = remotes:WaitForChild("EnterTable") :: RemoteEvent
 local queueCommand = remotes:WaitForChild("QueueCommand") :: RemoteFunction
 local toastRemote = remotes:WaitForChild("Toast") :: RemoteEvent
 
-local BUILDING_NAMES: { [string]: string } = {
-	hq = "Keep", timber = "Timber Camp", quarry = "Quarry", iron = "Iron Mine",
-	farm = "Farm", warehouse = "Warehouse", barracks = "Barracks", wall = "Wall Works",
-	academy = "Academy", stable = "Stable", workshop = "Workshop", smithy = "Smithy", market = "Market",
-}
-local BUILDING_ORDER = { "hq", "timber", "quarry", "iron", "farm", "warehouse", "barracks", "wall", "academy", "stable", "workshop", "smithy", "market" }
-local TROOP_NAMES: { [string]: string } = {
-	spear = "Spearmen", sword = "Swordsmen", axe = "Axemen", archer = "Archers",
-	scout = "Scouts", lightCavalry = "Light Cavalry", ram = "Rams", noble = "Nobles",
-}
-
 -- latest world data
-local latest: { snapshot: any?, status: string, clockOffset: number, outdated: boolean } = {
+local latest: { snapshot: any?, status: string, clockOffset: number, outdated: boolean, sessionError: string? } = {
 	snapshot = nil,
 	status = "connecting",
 	clockOffset = 0,
 	outdated = false,
+	sessionError = nil,
 }
 
-local function isoToEpoch(iso: string?): number?
-	if typeof(iso) ~= "string" then
-		return nil
-	end
-	local ok, dateTime = pcall(DateTime.fromIsoDate, iso)
-	if ok and dateTime then
-		return dateTime.UnixTimestamp
-	end
-	return nil
+-- Countdowns use Roblox's synced server clock plus the world-server offset,
+-- NEVER the device clock (a wrong phone clock must not bend timers).
+local function nowServerSeconds(): number
+	return workspace:GetServerTimeNow() + latest.clockOffset
 end
 
 local function myCapital(): any
@@ -62,6 +51,18 @@ local function myCapital(): any
 		end
 	end
 	return fallback
+end
+
+local function myVillage(villageId: string?): any
+	local snapshot = latest.snapshot
+	if villageId and snapshot and snapshot.world then
+		for _, village in snapshot.world.villages do
+			if village.id == villageId then
+				return village
+			end
+		end
+	end
+	return myCapital()
 end
 
 -- ===== root gui =====
@@ -105,6 +106,10 @@ queuePanel.Parent = gui
 local queueList = Instance.new("UIListLayout")
 queueList.SortOrder = Enum.SortOrder.LayoutOrder
 queueList.Parent = queuePanel
+
+-- live queue rows for the 1 Hz ticker (plain table; no per-frame instance walks)
+type QueueRow = { label: TextLabel, baseText: string, completesAt: number?, lastShown: number? }
+local queueRows: { QueueRow } = {}
 
 -- toasts
 local toastFrame = Instance.new("Frame")
@@ -153,7 +158,7 @@ banner.Text = "Reconnecting to the realm…"
 banner.Visible = false
 banner.Parent = gui
 
--- holding scene (before first snapshot)
+-- holding scene (before first snapshot; also carries final session refusals)
 local holding = Instance.new("Frame")
 holding.Name = "Holding"
 holding.Size = UDim2.fromScale(1, 1)
@@ -192,6 +197,7 @@ outdatedModal.Parent = gui
 -- ===== war table overhead view =====
 local camera = workspace.CurrentCamera
 local inTableView = false
+local tableInfo: { centerX: number, centerZ: number, boundsHalf: number, villageId: string? }? = nil
 local tablePanel: Frame? = nil
 
 local function exitTableView()
@@ -199,6 +205,7 @@ local function exitTableView()
 		return
 	end
 	inTableView = false
+	tableInfo = nil
 	camera.CameraType = Enum.CameraType.Custom
 	if tablePanel then
 		tablePanel:Destroy()
@@ -220,10 +227,16 @@ local function invokeQueue(request: { [string]: string | number })
 end
 
 local function buildTablePanel()
-	local capital = myCapital()
-	if not capital then
+	if tablePanel then
+		tablePanel:Destroy()
+		tablePanel = nil
+	end
+	local village = myVillage(tableInfo and tableInfo.villageId)
+	if not village then
 		return
 	end
+	local villageId = tostring(village.id)
+
 	local panel = Instance.new("Frame")
 	panel.Name = "TablePanel"
 	panel.Size = UDim2.new(0, 340, 1, -120)
@@ -235,7 +248,7 @@ local function buildTablePanel()
 
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Size = UDim2.new(1, 0, 1, -48)
-	scroll.CanvasSize = UDim2.new(0, 0, 0, #BUILDING_ORDER * 40 + 60)
+	scroll.CanvasSize = UDim2.new(0, 0, 0, #Buildings.ORDER * 40 + 60)
 	scroll.BackgroundTransparency = 1
 	scroll.ScrollBarThickness = 6
 	scroll.Parent = panel
@@ -244,7 +257,7 @@ local function buildTablePanel()
 	layout.Padding = UDim.new(0, 4)
 	layout.Parent = scroll
 
-	for index, building in BUILDING_ORDER do
+	for index, building in Buildings.ORDER do
 		local row = Instance.new("Frame")
 		row.Size = UDim2.new(1, -8, 0, 36)
 		row.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
@@ -252,11 +265,11 @@ local function buildTablePanel()
 		row.LayoutOrder = index
 		row.Parent = scroll
 
-		local level = tonumber(capital.buildings and capital.buildings[building]) or 0
+		local level = tonumber(village.buildings and village.buildings[building]) or 0
 		local nameLabel = makeLabel(row, "Name")
 		nameLabel.Size = UDim2.new(0.6, 0, 1, 0)
 		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-		nameLabel.Text = string.format("  %s  Lv %d", BUILDING_NAMES[building] or building, level)
+		nameLabel.Text = string.format("  %s  Lv %d", Buildings.displayName(building), level)
 
 		local upgrade = Instance.new("TextButton")
 		upgrade.Size = UDim2.new(0.35, 0, 0.85, 0)
@@ -268,14 +281,14 @@ local function buildTablePanel()
 		upgrade.Text = "Upgrade"
 		upgrade.Parent = row
 		upgrade.Activated:Connect(function()
-			invokeQueue({ kind = "build", villageId = tostring(capital.id), building = building })
+			invokeQueue({ kind = "build", villageId = villageId, building = building })
 		end)
 	end
 
 	local recruitRow = Instance.new("Frame")
 	recruitRow.Size = UDim2.new(1, -8, 0, 36)
 	recruitRow.BackgroundColor3 = Color3.fromRGB(40, 30, 30)
-	recruitRow.LayoutOrder = #BUILDING_ORDER + 1
+	recruitRow.LayoutOrder = #Buildings.ORDER + 1
 	recruitRow.Parent = scroll
 	local recruitButton = Instance.new("TextButton")
 	recruitButton.Size = UDim2.fromScale(1, 1)
@@ -283,10 +296,15 @@ local function buildTablePanel()
 	recruitButton.TextColor3 = Color3.new(1, 1, 1)
 	recruitButton.Font = Enum.Font.GothamBold
 	recruitButton.TextScaled = true
-	recruitButton.Text = "Recruit 5 Spearmen"
+	recruitButton.Text = Buildings.RECRUIT_PRESET.label
 	recruitButton.Parent = recruitRow
 	recruitButton.Activated:Connect(function()
-		invokeQueue({ kind = "recruit", villageId = tostring(capital.id), troop = "spear", quantity = 5 })
+		invokeQueue({
+			kind = "recruit",
+			villageId = villageId,
+			troop = Buildings.RECRUIT_PRESET.troop,
+			quantity = Buildings.RECRUIT_PRESET.quantity,
+		})
 	end)
 
 	local leave = Instance.new("TextButton")
@@ -301,11 +319,12 @@ local function buildTablePanel()
 	leave.Activated:Connect(exitTableView)
 end
 
-enterTable.OnClientEvent:Connect(function(info: { centerX: number, centerZ: number, boundsHalf: number })
+enterTable.OnClientEvent:Connect(function(info: { centerX: number, centerZ: number, boundsHalf: number, villageId: string? })
 	if inTableView then
 		return
 	end
 	inTableView = true
+	tableInfo = info
 	camera.CameraType = Enum.CameraType.Scriptable
 	-- fixed overhead vantage, clamped by construction to this settlement
 	local center = Vector3.new(info.centerX, 0, info.centerZ)
@@ -313,15 +332,22 @@ enterTable.OnClientEvent:Connect(function(info: { centerX: number, centerZ: numb
 	buildTablePanel()
 end)
 
--- walking (any movement) exits the table
-player.CharacterAdded:Connect(function(character)
-	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
-	humanoid.Running:Connect(function(speed)
-		if inTableView and speed > 1 then
-			exitTableView()
-		end
-	end)
-end)
+-- walking (any movement) exits the table; hook the CURRENT character too —
+-- by the time this script runs the first character usually already exists.
+local function hookCharacter(character: Model)
+	local humanoid = character:WaitForChild("Humanoid", 10)
+	if humanoid and humanoid:IsA("Humanoid") then
+		humanoid.Running:Connect(function(speed)
+			if inTableView and speed > 1 then
+				exitTableView()
+			end
+		end)
+	end
+end
+player.CharacterAdded:Connect(hookCharacter)
+if player.Character then
+	task.spawn(hookCharacter, player.Character)
+end
 
 -- ===== HUD refresh =====
 local function refreshHud()
@@ -335,70 +361,78 @@ local function refreshHud()
 		)
 	end
 
-	-- rebuild queue rows (few of them; cheap)
-	for _, child in queuePanel:GetChildren() do
-		if child:IsA("TextLabel") then
-			child:Destroy()
-		end
+	-- rebuild queue rows (few of them; cheap at heartbeat cadence)
+	for _, row in queueRows do
+		row.label:Destroy()
 	end
+	table.clear(queueRows)
 	local snapshot = latest.snapshot
 	if not snapshot then
 		return
 	end
-	local rows: { { text: string, completesAt: number? } } = {}
+	local entries: { { text: string, completesAt: number? } } = {}
 	for _, job in (snapshot.constructionJobs or {}) do
-		table.insert(rows, {
-			text = string.format("%s → Lv %d", BUILDING_NAMES[job.building] or job.building, tonumber(job.targetLevel) or 0),
-			completesAt = isoToEpoch(job.completesAt),
+		table.insert(entries, {
+			text = string.format("%s → Lv %d", Buildings.displayName(job.building), tonumber(job.targetLevel) or 0),
+			completesAt = TimeUtil.isoToEpoch(job.completesAt),
 		})
 	end
 	for _, job in (snapshot.recruitmentJobs or {}) do
-		table.insert(rows, {
-			text = string.format("%d %s", tonumber(job.quantity) or 0, TROOP_NAMES[job.troop] or job.troop),
-			completesAt = isoToEpoch(job.completesAt),
+		table.insert(entries, {
+			text = string.format("%d %s", tonumber(job.quantity) or 0, Buildings.TROOP_NAMES[job.troop] or job.troop),
+			completesAt = TimeUtil.isoToEpoch(job.completesAt),
 		})
 	end
-	if #rows == 0 then
+	if #entries == 0 then
 		local empty = makeLabel(queuePanel, "Empty")
 		empty.Size = UDim2.new(1, 0, 0, 30)
 		empty.Text = "No work queued"
 		empty.TextTransparency = 0.4
+		table.insert(queueRows, { label = empty, baseText = "No work queued", completesAt = nil, lastShown = nil })
 		return
 	end
-	for index, row in rows do
+	for index, entry in entries do
 		local label = makeLabel(queuePanel, "Job" .. index)
 		label.Size = UDim2.new(1, -8, 0, 28)
 		label.LayoutOrder = index
 		label.TextXAlignment = Enum.TextXAlignment.Left
-		label:SetAttribute("CompletesAt", row.completesAt)
-		label:SetAttribute("BaseText", row.text)
-		label.Text = row.text
+		label.Text = entry.text
+		table.insert(queueRows, { label = label, baseText = entry.text, completesAt = entry.completesAt, lastShown = nil })
+	end
+
+	-- while at the table, the panel must track the same fresh state
+	if inTableView then
+		buildTablePanel()
 	end
 end
 
--- countdowns tick locally for DISPLAY ONLY, from server timestamps
-RunService.Heartbeat:Connect(function()
-	local nowServer = os.time() + latest.clockOffset
-	for _, child in queuePanel:GetChildren() do
-		if child:IsA("TextLabel") then
-			local completesAt = child:GetAttribute("CompletesAt")
-			local baseText = child:GetAttribute("BaseText")
-			if typeof(completesAt) == "number" and typeof(baseText) == "string" then
-				local remaining = math.max(math.floor(completesAt - nowServer), 0)
-				child.Text = string.format("  %s — %d:%02d", baseText, remaining // 60, remaining % 60)
+-- countdown ticker: display only; writes a label only when its second changes
+task.spawn(function()
+	while true do
+		task.wait(0.25)
+		local now = nowServerSeconds()
+		for _, row in queueRows do
+			if row.completesAt then
+				local remaining = math.max(math.floor(row.completesAt - now), 0)
+				if remaining ~= row.lastShown then
+					row.lastShown = remaining
+					row.label.Text = string.format("  %s — %d:%02d", row.baseText, remaining // 60, remaining % 60)
+				end
 			end
 		end
 	end
 end)
 
-stateSync.OnClientEvent:Connect(function(payload: { snapshot: any?, status: string, clockOffset: number, outdated: boolean? })
+stateSync.OnClientEvent:Connect(function(payload: { snapshot: any?, status: string, clockOffset: number, outdated: boolean?, sessionError: string? })
 	latest.snapshot = payload.snapshot or latest.snapshot
 	latest.status = tostring(payload.status)
 	latest.clockOffset = tonumber(payload.clockOffset) or latest.clockOffset
 	latest.outdated = payload.outdated == true
+	latest.sessionError = payload.sessionError
 
 	outdatedModal.Visible = latest.outdated
 	holding.Visible = latest.snapshot == nil
+	holdingLabel.Text = latest.sessionError or "The realm is waking…"
 	banner.Visible = latest.snapshot ~= nil and latest.status ~= "online"
 
 	if latest.snapshot then

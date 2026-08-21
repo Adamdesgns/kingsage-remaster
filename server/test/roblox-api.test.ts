@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { GAME_CONTRACT_VERSION } from "../../packages/game-core/src/contracts.ts";
 import { createWorldHttpServer } from "../src/http.ts";
 import { SharedWorldStore } from "../src/store.ts";
 
@@ -50,8 +51,9 @@ test("session founds once, state returns the founded village, duplicate command 
   await withServer(KEY, async (base) => {
     const session = await post(base, "/api/roblox/session", { robloxUserId: 42, displayName: "Dad" }, KEY);
     assert.equal(session.status, 200, await session.clone().text());
-    const identity = await session.json() as { playerId: string; kingdomId: string; created: boolean };
+    const identity = await session.json() as { playerId: string; kingdomId: string; created: boolean; contractVersion: number };
     assert.equal(identity.created, true);
+    assert.equal(identity.contractVersion, GAME_CONTRACT_VERSION);
 
     const stateResponse = await post(base, "/api/roblox/state", { robloxUserIds: [42] }, KEY);
     assert.equal(stateResponse.status, 200);

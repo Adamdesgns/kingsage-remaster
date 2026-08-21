@@ -3,6 +3,9 @@
 -- world-server state. A level-3 barracks on the server IS a level-3 grey box
 -- here. Diffs on stateVersion; never invents state. Grey boxes only (spec §7).
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Buildings = require(ReplicatedStorage:WaitForChild("WorldShared"):WaitForChild("Buildings"))
 
 local SettlementBuilder = {}
 
@@ -27,8 +30,6 @@ local LAYOUT: { [string]: Vector3 } = {
 	academy = Vector3.new(0, 0, -35),
 	wall = Vector3.new(-16, 0, 44), -- the wall BUILDING plot (upgrades the ring); ring itself is drawn separately
 }
-
-local BUILDING_ORDER = { "hq", "timber", "quarry", "iron", "farm", "warehouse", "barracks", "wall", "academy", "stable", "workshop", "smithy", "market" }
 
 local settlementsFolder = Instance.new("Folder")
 settlementsFolder.Name = "Settlements"
@@ -86,15 +87,6 @@ local function labelFor(part: BasePart, text: string)
 	billboard.Parent = part
 end
 
-local function buildingDisplayName(building: string): string
-	local names: { [string]: string } = {
-		hq = "Keep", timber = "Timber Camp", quarry = "Quarry", iron = "Iron Mine",
-		farm = "Farm", warehouse = "Warehouse", barracks = "Barracks", wall = "Wall Works",
-		academy = "Academy", stable = "Stable", workshop = "Workshop", smithy = "Smithy", market = "Market",
-	}
-	return names[building] or building
-end
-
 local function renderBuilding(container: Model, origin: CFrame, villageId: string, building: string, level: number)
 	local existing = container:FindFirstChild("B_" .. building)
 	if existing then
@@ -110,7 +102,7 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 	model:SetAttribute("Building", building)
 	model:SetAttribute("Level", level)
 
-	local displayName = buildingDisplayName(building)
+	local displayName = Buildings.displayName(building)
 	local part: Part
 	if level <= 0 then
 		part = greyPart("Structure", Vector3.new(BUILDING_FOOTPRINT, 1, BUILDING_FOOTPRINT),
@@ -135,7 +127,7 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 	if building == "barracks" then
 		local recruit = Instance.new("ProximityPrompt")
 		recruit.Name = "RecruitPrompt"
-		recruit.ActionText = "Recruit 5 Spearmen"
+		recruit.ActionText = Buildings.RECRUIT_PRESET.label
 		recruit.ObjectText = displayName
 		recruit.HoldDuration = 0.35
 		recruit.MaxActivationDistance = 12
@@ -171,13 +163,18 @@ local function renderShell(model: Model, origin: CFrame, villageName: string)
 	local cross = greyPart("StreetCross", Vector3.new(WALL_HALF * 2 - 10, 0.2, 6), origin * CFrame.new(0, 0.11, 0), model, Color3.fromRGB(70, 70, 70))
 	cross.Material = Enum.Material.Slate
 
-	-- spawn just inside the gate
+	-- spawn just inside the gate. NOT Neutral: a neutral spawn would scatter
+	-- OTHER players' respawns into this settlement; each owner gets it via
+	-- player.RespawnLocation instead.
 	local spawn = Instance.new("SpawnLocation")
 	spawn.Name = "GateSpawn"
 	spawn.Size = Vector3.new(6, 1, 6)
 	spawn.CFrame = origin * CFrame.new(0, 0.5, WALL_HALF - 6)
 	spawn.Anchored = true
-	spawn.Neutral = true
+	-- Neutral=false keeps general spawn logic from scattering OTHER players
+	-- here; Enabled must stay true or Player.RespawnLocation ignores it.
+	spawn.Neutral = false
+	spawn.Enabled = true
 	spawn.Duration = 0
 	spawn.Color = Color3.fromRGB(80, 80, 80)
 	spawn.Parent = model
@@ -227,7 +224,11 @@ function SettlementBuilder.onState(player: Player, snapshot: any, kingdomId: str
 		model.Parent = settlementsFolder
 		current = { model = model, origin = origin, stateVersion = -1, levels = {}, slot = slot }
 		rendered[player] = current
-		-- put the avatar at the gate of their own settlement
+		-- own-gate respawns forever, plus an immediate first teleport
+		local spawn = model:FindFirstChild("GateSpawn")
+		if spawn and spawn:IsA("SpawnLocation") then
+			player.RespawnLocation = spawn
+		end
 		task.defer(function()
 			local character = player.Character or player.CharacterAdded:Wait()
 			local root = character:WaitForChild("HumanoidRootPart", 5)
@@ -237,7 +238,7 @@ function SettlementBuilder.onState(player: Player, snapshot: any, kingdomId: str
 		end)
 	end
 
-	for _, building in BUILDING_ORDER do
+	for _, building in Buildings.ORDER do
 		local level = tonumber(village.buildings and village.buildings[building]) or 0
 		if current.levels[building] ~= level then
 			renderBuilding(current.model, current.origin, tostring(village.id), building, level)
@@ -251,6 +252,11 @@ function SettlementBuilder.getSettlement(player: Player): Model?
 	local current = rendered[player]
 	return current and current.model or nil
 end
+
+-- Part factory shared with anything that builds inside a settlement (the war
+-- table uses these), so a global change to settlement parts hits everything.
+SettlementBuilder.greyPart = greyPart
+SettlementBuilder.labelFor = labelFor
 
 Players.PlayerRemoving:Connect(function(player)
 	local current = rendered[player]

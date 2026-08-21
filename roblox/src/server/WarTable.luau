@@ -19,16 +19,12 @@ local function ensureTable(player: Player)
 	end
 	local centerX = tonumber(settlement:GetAttribute("CenterX")) or 0
 	local centerZ = tonumber(settlement:GetAttribute("CenterZ")) or 0
+	local villageId = settlement:GetAttribute("VillageId")
 
-	local table_ = Instance.new("Part")
-	table_.Name = "WarTable"
-	table_.Size = Vector3.new(6, 3, 4)
 	-- at the keep's foot, on the main street (keep sits near origin+Z=5)
-	table_.CFrame = CFrame.new(centerX, 1.5, centerZ + 16)
-	table_.Anchored = true
-	table_.Color = Color3.fromRGB(70, 50, 30)
-	table_.Material = Enum.Material.WoodPlanks
-	table_.Parent = settlement
+	local slab = SettlementBuilder.greyPart("WarTable", Vector3.new(6, 3, 4),
+		CFrame.new(centerX, 1.5, centerZ + 16), settlement, Color3.fromRGB(70, 50, 30))
+	slab.Material = Enum.Material.WoodPlanks
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "TablePrompt"
@@ -43,14 +39,18 @@ local function ensureTable(player: Player)
 				centerX = centerX,
 				centerZ = centerZ,
 				boundsHalf = tonumber(settlement:GetAttribute("BoundsHalf")) or 75,
+				villageId = villageId,
 			})
 		end
 	end)
-	prompt.Parent = table_
+	prompt.Parent = slab
 end
 
 WorldSession.StateChanged.Event:Connect(function(player: Player)
-	ensureTable(player)
+	-- Deferred so this never depends on BindableEvent handler ordering:
+	-- SettlementBuilder's own StateChanged handler runs first regardless,
+	-- and the settlement exists by the time we look for it.
+	task.defer(ensureTable, player)
 end)
 
 return WarTable

@@ -3,7 +3,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 import { SharedWorldStore, StoreError, type SessionPlayer } from "./store.ts";
-import { makeCommandEnvelope, type CommandEnvelope, type GameCommand } from "../../packages/game-core/src/contracts.ts";
+import { GAME_CONTRACT_VERSION, makeCommandEnvelope, type CommandEnvelope, type GameCommand } from "../../packages/game-core/src/contracts.ts";
 
 type ServerOptions = {
   store: SharedWorldStore;
@@ -119,6 +119,12 @@ export function createWorldHttpServer(options: ServerOptions): {
       const url = new URL(request.url ?? "/", origin);
       const path = url.pathname;
 
+      // Structural gate: EVERY current and future /api/roblox route is
+      // key-authenticated here, so a new route cannot forget the check.
+      if (path.startsWith("/api/roblox/")) {
+        requireRobloxKey(request, options.robloxKey);
+      }
+
       if (request.method === "GET" && path === "/api/health") {
         json(response, 200, { ok: true, service: "kingsage-world", contractVersion: 1 });
         return;
@@ -205,7 +211,6 @@ export function createWorldHttpServer(options: ServerOptions): {
       }
 
       if (request.method === "POST" && path === "/api/roblox/session") {
-        requireRobloxKey(request, options.robloxKey);
         const body = await readJson(request);
         const linked = store.linkRobloxPlayer({
           robloxUserId: Number(body.robloxUserId),
@@ -215,34 +220,40 @@ export function createWorldHttpServer(options: ServerOptions): {
           playerId: linked.player.id,
           kingdomId: linked.player.kingdomId,
           created: linked.created,
-          contractVersion: 1,
+          contractVersion: GAME_CONTRACT_VERSION,
         });
         return;
       }
 
       if (request.method === "POST" && path === "/api/roblox/state") {
-        requireRobloxKey(request, options.robloxKey);
         const body = await readJson(request);
-        const ids = Array.isArray(body.robloxUserIds) ? (body.robloxUserIds as unknown[]).slice(0, 50) : [];
+        const ids = Array.isArray(body.robloxUserIds) ? (body.robloxUserIds as unknown[]).slice(0, 200) : [];
+        store.materializeDueJobs();
         const states: Record<string, unknown> = {};
         for (const raw of ids) {
           const robloxUserId = Math.trunc(Number(raw));
           if (!Number.isFinite(robloxUserId) || robloxUserId <= 0) continue;
           const linked = store.peekRobloxPlayer(robloxUserId);
-          if (linked) states[String(robloxUserId)] = store.getSnapshot(linked);
+          if (!linked) continue;
+          try {
+            states[String(robloxUserId)] = store.getSnapshot(linked, { skipMaterialize: true });
+          } catch (error) {
+            // One broken player (e.g. eliminated kingdom) must not poison the
+            // whole server's heartbeat; omit them and let the rest sync.
+            console.error(`roblox/state: snapshot failed for ${robloxUserId}`, error);
+          }
         }
         json(response, 200, { serverTime: new Date().toISOString(), states });
         return;
       }
 
       if (request.method === "POST" && path === "/api/roblox/commands") {
-        requireRobloxKey(request, options.robloxKey);
         const body = await readJson(request);
         const linked = store.peekRobloxPlayer(Number(body.robloxUserId));
         if (!linked) throw new StoreError("UNKNOWN_ROBLOX_USER", "Call /api/roblox/session first.", 404);
         const envelope = makeCommandEnvelope({
           commandId: String(body.commandId ?? ""),
-          worldId: store.worldIdForPlayer(linked),
+          worldId: store.worldIdForKingdom(linked.kingdomId),
           actorPlayerId: linked.id,
           expectedWorldVersion: Number(body.expectedWorldVersion ?? -1),
           issuedAt: new Date().toISOString(),

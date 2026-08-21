@@ -75,8 +75,10 @@ local function spawnSoldier(side: number, rank: number, file: number)
 		CFrame.new(0.45, 0.9, 0), -- right leg
 	}
 
+	-- Both sides share the same X band so the armies clash head-on; the whole
+	-- point is measuring 200 troops IN CONTACT, not marching past each other.
 	local zHalf = 60
-	local x = (file - 5.5) * 4 + (side == 1 and -20 or 20)
+	local x = (file - 5.5) * 4
 	local z = if side == 1 then -zHalf - (rank - 1) * 4 else zHalf + (rank - 1) * 4
 	local facing = if side == 1 then 0 else math.pi
 	local root = CFrame.new(x, 0, z) * CFrame.Angles(0, facing, 0)
@@ -127,26 +129,31 @@ label.Parent = gui
 local gui2 = gui:Clone()
 gui2.Face = Enum.NormalId.Back
 gui2.Parent = board
+local backLabel = gui2:FindFirstChildOfClass("TextLabel") :: TextLabel
 
 local frameTimes: { number } = {}
 local swingClock = 0
 local casualtyClock = 0
 local engagementClock = 0
+local meterClock = 0
 local ENGAGEMENT_SCAN_INTERVAL = 0.2 -- the real game's squads think coarsely; don't let an O(n²) scan pollute the render measurement
 local anyEngaged = false
 
-local function nearestEnemyDistance(me: Soldier): number
-	local best = math.huge
+local ENGAGE_DISTANCE_SQ = ENGAGE_DISTANCE * ENGAGE_DISTANCE
+
+local function nearEnemy(me: Soldier): boolean
+	-- squared distances (no sqrt) and early exit: the scan is sim bookkeeping
+	-- and must not pollute the frame-time measurement.
 	local myPos = me.root.Position
 	for _, other in soldiers do
 		if other.alive and other.side ~= me.side then
-			local d = (other.root.Position - myPos).Magnitude
-			if d < best then
-				best = d
+			local delta = other.root.Position - myPos
+			if delta:Dot(delta) <= ENGAGE_DISTANCE_SQ then
+				return true
 			end
 		end
 	end
-	return best
+	return false
 end
 
 local function killOne(side: number)
@@ -206,7 +213,7 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 		aliveCount += 1
 		if rescan then
-			soldier.engaged = nearestEnemyDistance(soldier) <= ENGAGE_DISTANCE
+			soldier.engaged = nearEnemy(soldier)
 		end
 		if soldier.engaged then
 			anyEngaged = true
@@ -238,24 +245,25 @@ RunService.Heartbeat:Connect(function(dt)
 		end
 	end
 
-	-- meter text
-	local sum = 0
-	local worst = 0
-	for _, frame in frameTimes do
-		sum += frame
-		if frame > worst then
-			worst = frame
+	-- meter text at 4 Hz — the meter must not perturb the measurement
+	meterClock += dt
+	if meterClock >= 0.25 then
+		meterClock -= 0.25
+		local sum = 0
+		local worst = 0
+		for _, frame in frameTimes do
+			sum += frame
+			if frame > worst then
+				worst = frame
+			end
 		end
-	end
-	local average = sum / math.max(#frameTimes, 1)
-	label.Text = string.format(
-		"SERVER avg %.1f fps | worst %.0f ms | troops %d",
-		1 / math.max(average, 0.0001),
-		worst * 1000,
-		aliveCount
-	)
-	local backLabel = gui2:FindFirstChildOfClass("TextLabel")
-	if backLabel then
+		local average = sum / math.max(#frameTimes, 1)
+		label.Text = string.format(
+			"SERVER avg %.1f fps | worst %.0f ms | troops %d",
+			1 / math.max(average, 0.0001),
+			worst * 1000,
+			aliveCount
+		)
 		backLabel.Text = label.Text
 	end
 end)
