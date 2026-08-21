@@ -1,0 +1,12 @@
+{
+  "name": "TroopSpike",
+  "tree": {
+    "$className": "DataModel",
+    "ServerScriptService": { "$className": "ServerScriptService", "Spike": { "$path": "spike/server" } },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": { "$className": "StarterPlayerScripts", "SpikeClient": { "$path": "spike/client" } }
+    },
+    "Workspace": { "$className": "Workspace", "$properties": { "StreamingEnabled": false } }
+  }
+}
