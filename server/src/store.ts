@@ -271,7 +271,7 @@ export class SharedWorldStore {
   }
 
   private migrate(): void {
-    for (const [version, filename] of [[2, "0002_gate_b_local_sqlite.sql"], [3, "0003_gate_c_economy.sql"], [4, "0004_gate_d_warfare.sql"]] as const) {
+    for (const [version, filename] of [[2, "0002_gate_b_local_sqlite.sql"], [3, "0003_gate_c_economy.sql"], [4, "0004_gate_d_warfare.sql"], [5, "0005_roblox_identity.sql"]] as const) {
       const migrationPath = fileURLToPath(new URL(`../db/migrations/${filename}`, import.meta.url));
       this.db.exec(readFileSync(migrationPath, "utf8"));
       this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)").run(version, this.now().toISOString());
@@ -398,6 +398,72 @@ export class SharedWorldStore {
     const token = this.createSession(playerId);
     this.publish(published);
     return { token, player: { id: playerId, username, kingdomId } };
+  }
+
+  linkRobloxPlayer(input: { robloxUserId: number; displayName: string }): { player: SessionPlayer; created: boolean } {
+    const robloxUserId = Math.trunc(input.robloxUserId);
+    if (!Number.isFinite(robloxUserId) || robloxUserId <= 0) {
+      throw new StoreError("INVALID_ROBLOX_USER", "robloxUserId must be a positive integer.", 400);
+    }
+    const existing = this.peekRobloxPlayer(robloxUserId);
+    if (existing) return { player: existing, created: false };
+
+    const baseName = String(input.displayName ?? "").replace(/[^A-Za-z0-9 _-]/g, "").trim().slice(0, 24) || `Ruler ${robloxUserId}`;
+    const playerId = `player-${randomUUID()}`;
+    const username = `roblox_${robloxUserId}`;
+    const createdAt = this.now().toISOString();
+    let kingdomId = "";
+    const published: StoredWorldEvent[] = [];
+
+    this.withTransaction(() => {
+      const seat = this.db.prepare(`
+        SELECT id, world_id, capital_village_id
+        FROM local_kingdoms
+        WHERE controller_player_id IS NULL AND seat_kind = 'ai'
+        ORDER BY id
+        LIMIT 1
+      `).get() as DbRow | undefined;
+      if (!seat) throw new StoreError("WORLD_FULL", "This alpha world has no open kingdom seats.", 409);
+      kingdomId = String(seat.id);
+      const worldId = String(seat.world_id);
+      const villageId = String(seat.capital_village_id);
+
+      let kingdomName = `${baseName}'s Realm`;
+      const taken = this.db.prepare("SELECT 1 FROM local_kingdoms WHERE name = ? COLLATE NOCASE").get(kingdomName);
+      if (taken) kingdomName = `${baseName}'s Realm ${robloxUserId % 1000}`;
+
+      this.db.prepare(`
+        INSERT INTO local_players(id, username, password_salt, password_hash, kingdom_id, created_at)
+        VALUES (?, ?, '', '', ?, ?)
+      `).run(playerId, username, kingdomId, createdAt);
+      this.db.prepare("INSERT INTO roblox_players(roblox_user_id, player_id, created_at) VALUES (?, ?, ?)")
+        .run(robloxUserId, playerId, createdAt);
+      this.db.prepare(`
+        UPDATE local_kingdoms
+        SET controller_player_id = ?, seat_kind = 'human', name = ?
+        WHERE id = ?
+      `).run(playerId, kingdomName, kingdomId);
+      this.db.prepare("UPDATE local_villages SET name = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(`${kingdomName} Keep`, villageId);
+      const worldVersion = this.incrementWorldVersion(worldId);
+      published.push(this.insertEvent(worldId, worldVersion, "kingdom.claimed", { kingdomId, playerId, kingdomName }));
+    });
+
+    this.publish(published);
+    return { player: { id: playerId, username, kingdomId }, created: true };
+  }
+
+  peekRobloxPlayer(robloxUserId: number): SessionPlayer | null {
+    const row = this.db.prepare(`
+      SELECT p.id, p.username, p.kingdom_id
+      FROM roblox_players r JOIN local_players p ON p.id = r.player_id
+      WHERE r.roblox_user_id = ?
+    `).get(Math.trunc(robloxUserId)) as DbRow | undefined;
+    return row ? { id: String(row.id), username: String(row.username), kingdomId: String(row.kingdom_id) } : null;
+  }
+
+  worldIdForPlayer(player: SessionPlayer): string {
+    return this.worldIdForKingdom(player.kingdomId);
   }
 
   login(input: { username: string; password: string }): { token: string; player: SessionPlayer } {
