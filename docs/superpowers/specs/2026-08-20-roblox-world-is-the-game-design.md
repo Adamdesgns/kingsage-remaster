@@ -184,6 +184,11 @@ confirmation.**
 
 ## 10. Open implementation questions (decided at planning, not silently)
 
+- **Name: the game CANNOT ship as "KingsAge"** (Adam, 2026-08-20 — the name
+  belongs to the original 2008 game's owners; same playbook as JARVIS →
+  KEORIS). "KingsAge" is a working title only, used internally in this repo.
+  An original name must be chosen before the Roblox experience is published or
+  marketed. Naming brainstorm pending with Adam.
 - **VPS provider + deploy story** for the world server. Constraint: a few
   dollars a month, always on.
 - **Secret management** for Roblox-server → API auth (likely Roblox Secrets
