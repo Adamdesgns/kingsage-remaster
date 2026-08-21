@@ -2,6 +2,7 @@
 local WorldSession = require(script:WaitForChild("WorldSession"))
 local SettlementBuilder = require(script:WaitForChild("SettlementBuilder"))
 require(script:WaitForChild("CommandService"))
+require(script:WaitForChild("WarTable"))
 
 WorldSession.StateChanged.Event:Connect(function(player: Player, snapshot: any)
 	local identity = WorldSession.getIdentity(player)
