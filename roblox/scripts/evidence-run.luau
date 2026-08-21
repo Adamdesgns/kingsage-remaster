@@ -40,45 +40,63 @@ if remotes then
 	check("Toast remote", remotes:FindFirstChild("Toast") ~= nil)
 end
 
--- settlements
+-- settlements (region slice: EVERY world village renders — own = full,
+-- foreign = fog silhouette with no prompts and no level information)
 local settlements = workspace:FindFirstChild("Settlements")
 check("Settlements folder exists", settlements ~= nil)
-local settlementCount = 0
+local fullCount, shellCount = 0, 0
 if settlements then
 	for _, model in settlements:GetChildren() do
 		if model:IsA("Model") then
-			settlementCount += 1
-			local buildings = 0
-			local prompts = 0
-			local labelled = 0
-			for _, child in model:GetChildren() do
-				if child.Name:sub(1, 2) == "B_" then
-					buildings += 1
-					local structure = child:FindFirstChild("Structure")
-					if structure and structure:FindFirstChild("InteractPrompt") then
-						prompts += 1
-					end
-					if structure and structure:FindFirstChild("NameBillboard") then
-						labelled += 1
-					end
-				end
-			end
-			check(model.Name .. ": 13 buildings rendered", buildings == 13, tostring(buildings))
-			check(model.Name .. ": every building has a prompt", prompts == 13, tostring(prompts))
-			check(model.Name .. ": every building labelled", labelled == 13, tostring(labelled))
-			check(model.Name .. ": war table present", model:FindFirstChild("WarTable") ~= nil)
-			check(model.Name .. ": gate spawn present", model:FindFirstChild("GateSpawn") ~= nil)
-			check(model.Name .. ": walls present", model:FindFirstChild("WallN") ~= nil and model:FindFirstChild("WallS1") ~= nil)
 			local villageId = model:GetAttribute("VillageId")
 			check(model.Name .. ": bound to a real villageId", typeof(villageId) == "string" and #(villageId :: string) > 0)
-			local barracks = model:FindFirstChild("B_barracks")
-			local structure = barracks and (barracks :: Instance):FindFirstChild("Structure")
-			check(model.Name .. ": barracks recruit prompt", structure ~= nil and (structure :: Instance):FindFirstChild("RecruitPrompt") ~= nil)
+			check(model.Name .. ": walls present", model:FindFirstChild("WallN") ~= nil and model:FindFirstChild("WallS1") ~= nil)
+			if model:GetAttribute("Foreign") == true then
+				shellCount += 1
+				local prompts = 0
+				local leveled = 0
+				for _, descendant in model:GetDescendants() do
+					if descendant:IsA("ProximityPrompt") then
+						prompts += 1
+					end
+					if descendant:IsA("Model") and (tonumber(descendant:GetAttribute("Level")) or 0) > 0 then
+						leveled += 1
+					end
+				end
+				check(model.Name .. ": FOREIGN has zero prompts (fog)", prompts == 0, tostring(prompts))
+				check(model.Name .. ": FOREIGN leaks no levels (fog)", leveled == 0, tostring(leveled))
+				check(model.Name .. ": FOREIGN keep massing + banner", model:FindFirstChild("KeepMassing") ~= nil and model:FindFirstChild("BannerPost") ~= nil)
+			else
+				fullCount += 1
+				local buildings, prompts, labelled = 0, 0, 0
+				for _, child in model:GetChildren() do
+					if child.Name:sub(1, 2) == "B_" then
+						buildings += 1
+						local structure = child:FindFirstChild("Structure")
+						if structure and structure:FindFirstChild("InteractPrompt") then
+							prompts += 1
+						end
+						if structure and structure:FindFirstChild("NameBillboard") then
+							labelled += 1
+						end
+					end
+				end
+				check(model.Name .. ": 13 buildings rendered", buildings == 13, tostring(buildings))
+				check(model.Name .. ": every building has a prompt", prompts == 13, tostring(prompts))
+				check(model.Name .. ": every building labelled", labelled == 13, tostring(labelled))
+				check(model.Name .. ": war table present", model:FindFirstChild("WarTable") ~= nil)
+				check(model.Name .. ": gate spawn present", model:FindFirstChild("GateSpawn") ~= nil)
+				local barracks = model:FindFirstChild("B_barracks")
+				local structure = barracks and (barracks :: Instance):FindFirstChild("Structure")
+				check(model.Name .. ": barracks recruit prompt", structure ~= nil and (structure :: Instance):FindFirstChild("RecruitPrompt") ~= nil)
+			end
 		end
 	end
 end
-check("at least one settlement built (a player must be in-game)", settlementCount > 0)
-check("one settlement per present player", settlementCount == #Players:GetPlayers(), string.format("%d settlements / %d players", settlementCount, #Players:GetPlayers()))
+check("at least one FULL settlement (a player must be in-game)", fullCount > 0)
+check("foreign silhouettes exist (the world has neighbors)", shellCount > 0, tostring(shellCount))
+check("wilderness built", workspace:FindFirstChild("Wilderness") ~= nil and #workspace.Wilderness:GetChildren() > 1)
+check("one full settlement per present player (single-village slice)", fullCount == #Players:GetPlayers(), string.format("%d full / %d players", fullCount, #Players:GetPlayers()))
 
 print(string.format("[EVIDENCE] ---- automated: %d PASS, %d FAIL ----", pass, fail))
 print([[

@@ -1,5 +1,14 @@
 # Slice-one drills — written procedures + results log
 
+> **Live evidence, 2026-08-21 (recorded on video):** first real Studio play
+> session ran the full loop — `session open for Dadisaking86 (kingdom
+> kingdom-5, created=true)`, grey-box settlement built from live state, HUD
+> showing real resources (Wood 1389 / Stone 1374 / Iron 1404), a REAL
+> accepted `village.build.queue` command with its server countdown on screen
+> ("Timber Camp → Lv 2 — 10:33"), self-driving demo tour active. Recording:
+> 95s captured by Claude via ffmpeg, delivered to Adam. The five formal
+> drills below remain to be run as written.
+
 Every drill gets a dated PASS/FAIL line with the actual observation when run.
 Evidence, not vibes. The automated half lives in `roblox/scripts/evidence-run.luau`
 (paste as a ServerScript — **never** the Studio command bar; see its header).
