@@ -1,0 +1,6 @@
+return {
+	API_BASE = "http://127.0.0.1:4178",
+	HEARTBEAT_SECONDS = 10,
+	CONTRACT_VERSION = 1,
+	SESSION_RETRY_SECONDS = { 2, 4, 8, 15, 30 },
+}
