@@ -43,6 +43,7 @@ end
 walk("roblox/src")
 walk("roblox/spike")
 walk("roblox/scripts")
+walk("roblox/demo")
 
 print(string.format("---- %d files checked, %d failed ----", checked, failures))
 if failures > 0 then

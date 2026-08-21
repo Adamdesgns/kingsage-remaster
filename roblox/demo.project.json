@@ -1,0 +1,24 @@
+{
+  "name": "WorldGameDemo",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": { "$className": "ReplicatedStorage", "WorldShared": { "$path": "src/shared" } },
+    "ServerScriptService": { "$className": "ServerScriptService", "WorldServer": { "$path": "src/server" } },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "WorldClient": { "$path": "src/client" },
+        "WorldDemo": { "$path": "demo" }
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace",
+      "$properties": { "StreamingEnabled": true, "StreamingMinRadius": 128, "StreamingTargetRadius": 1024 }
+    },
+    "HttpService": {
+      "$className": "HttpService",
+      "$properties": { "HttpEnabled": true }
+    }
+  }
+}
