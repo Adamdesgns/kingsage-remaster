@@ -186,9 +186,11 @@ confirmation.**
 
 - **Name: the game CANNOT ship as "KingsAge"** (Adam, 2026-08-20 — the name
   belongs to the original 2008 game's owners; same playbook as JARVIS →
-  KEORIS). "KingsAge" is a working title only, used internally in this repo.
-  An original name must be chosen before the Roblox experience is published or
-  marketed. Naming brainstorm pending with Adam.
+  KEORIS). **Working title as of 2026-08-21: "Kingsmarch"** (Adam's pick,
+  explicitly provisional — "probably change it later"). One light search
+  found no existing game/experience/trademark under that name; a full vet
+  (Roblox search collisions, trademark sweep, handles) happens before any
+  publish or marketing. Runner-up lane recorded: Emberfall / Realmfall.
 - **VPS provider + deploy story** for the world server. Constraint: a few
   dollars a month, always on.
 - **Secret management** for Roblox-server → API auth (likely Roblox Secrets
