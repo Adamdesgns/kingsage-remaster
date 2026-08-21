@@ -11,6 +11,10 @@
     "Workspace": {
       "$className": "Workspace",
       "$properties": { "StreamingEnabled": true, "StreamingMinRadius": 128, "StreamingTargetRadius": 1024 }
+    },
+    "HttpService": {
+      "$className": "HttpService",
+      "$properties": { "HttpEnabled": true }
     }
   }
 }
