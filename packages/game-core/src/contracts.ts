@@ -153,6 +153,13 @@ export type BattleOutcome = {
   loot: ResourceStock;
   planScore: number;
   orderBonus: number;
+  /**
+   * Troops the defender surrendered rather than lost: they leave the village
+   * and march home with the attacker. Empty unless the surrender rule fired
+   * (see `surrenderYield`). Never invents soldiers - every unit here is a
+   * survivor that already existed.
+   */
+  yielded: Army;
 };
 
 export type BattleSessionState = {
@@ -175,7 +182,7 @@ export type GameCommand =
   | { type: "village.build.queue"; payload: { villageId: VillageId; building: BuildingType } }
   | { type: "village.recruit.queue"; payload: { villageId: VillageId; troop: TroopType; quantity: number } }
   | { type: "kingdom.research.queue"; payload: { villageId: VillageId; troop: TroopType; targetLevel: number } }
-  | { type: "march.launch"; payload: { fromVillageId: VillageId; targetVillageId: VillageId; kind: Exclude<MarchKind, "return">; army: Army } }
+  | { type: "march.launch"; payload: { fromVillageId: VillageId; targetVillageId: VillageId; kind: Exclude<MarchKind, "return">; army: Army; plan?: BattlePlan } }
   | { type: "battle.open"; payload: { marchId: MarchId; targetVillageVersion: number; plan: BattlePlan } }
   | { type: "battle.order"; payload: { battleId: BattleId; sequence: number; squad: CommandSquadId; x: number; y: number; atMs: number } }
   | { type: "battle.retreat"; payload: { battleId: BattleId; sequence: number; atMs: number } }

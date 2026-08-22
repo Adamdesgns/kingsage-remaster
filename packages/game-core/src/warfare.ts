@@ -16,6 +16,26 @@ const BEST_PLAN: BattlePlan = {
   style: "Flanking Strike",
 };
 
+/**
+ * The plan an attack is fought under when its owner never chose one. A blunt
+ * frontal assault at midday: what "nobody gave orders" should look like. Used
+ * only by server-side auto-resolution of an unattended attack, so an army can
+ * never be stranded outside a wall forever waiting for a human.
+ */
+export const UNPLANNED_ATTACK_PLAN: BattlePlan = {
+  entry: "Main Breach",
+  troops: "Balanced Army",
+  time: "Midday",
+  style: "Full Assault",
+};
+
+/**
+ * How many times stronger the attacker must be before a beaten defender
+ * yields instead of dying. PROPOSED (battles slice A) - tune here, not in
+ * logic.
+ */
+export const SURRENDER_POWER_RATIO = 3;
+
 export function isValidArmy(army: Army): boolean {
   return TROOP_ORDER.every((troop) => Number.isInteger(army[troop]) && army[troop] >= 0);
 }
@@ -105,6 +125,31 @@ export function calculateLoot(resources: ResourceStock, carryingArmy: Army): Res
   return loot;
 }
 
+/**
+ * Spec SS5's surrender mechanic: "if the defender surrenders, the attacker
+ * absorbs their surviving troops... intimidation over annihilation can pay in
+ * soldiers."
+ *
+ * A beaten defender yields when the attack was overwhelming - the attacker
+ * won, someone is left alive to yield, and attacker power was at least
+ * SURRENDER_POWER_RATIO times the defender's. Deterministic, no RNG, and it
+ * returns only troops that already survived, so the rule can never manufacture
+ * soldiers or make under-committing profitable.
+ */
+export function surrenderYield(input: {
+  winner: "attacker" | "defender";
+  attackerPower: number;
+  defenderPower: number;
+  defenderSurvivors: Army;
+}): Army {
+  if (input.winner !== "attacker") return emptyArmy();
+  if (armyUnitCount(input.defenderSurvivors) < 1) return emptyArmy();
+  if (!Number.isFinite(input.attackerPower) || !Number.isFinite(input.defenderPower)) return emptyArmy();
+  if (input.defenderPower <= 0) return emptyArmy();
+  if (input.attackerPower < input.defenderPower * SURRENDER_POWER_RATIO) return emptyArmy();
+  return { ...input.defenderSurvivors };
+}
+
 export function resolveBattle(input: {
   attacker: Army;
   defender: Army;
@@ -132,8 +177,9 @@ export function resolveBattle(input: {
   const attackerSurvivors = scaleArmy(input.attacker, 1 - attackerLossRatio, `${input.seed}:attacker`);
   const defenderSurvivors = scaleArmy(input.defender, 1 - defenderLossRatio, `${input.seed}:defender`);
   const loot = attackerWon ? calculateLoot(input.defenderResources, attackerSurvivors) : { wood: 0, stone: 0, iron: 0 };
+  const winner = attackerWon ? ("attacker" as const) : ("defender" as const);
   return {
-    winner: attackerWon ? "attacker" : "defender",
+    winner,
     attackerSurvivors,
     defenderSurvivors,
     attackerCasualties: armyCasualties(input.attacker, attackerSurvivors),
@@ -141,6 +187,7 @@ export function resolveBattle(input: {
     loot,
     planScore,
     orderBonus,
+    yielded: surrenderYield({ winner, attackerPower, defenderPower, defenderSurvivors }),
   };
 }
 

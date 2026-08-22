@@ -18,6 +18,7 @@ import {
   marchDurationSeconds,
   resolveBattle,
   retreatSurvivors,
+  UNPLANNED_ATTACK_PLAN,
   subtractArmy,
   buildingCost,
   buildingDurationSeconds,
@@ -37,6 +38,7 @@ import {
   type BuildingLevels,
   type BuildingType,
   type BattleOutcome,
+  type BattlePlan,
   type BattleSessionState,
   type CommandEnvelope,
   type GameCommand,
@@ -175,8 +177,21 @@ type StoreOptions = {
   researchDurationMs?: number;
   marchDurationMs?: number;
   returnDurationMs?: number;
+  /**
+   * How long an arrived attack waits at the walls for its owner before the
+   * server fights it without them. Tests shorten it; production wants it long
+   * enough that showing up is a real choice.
+   */
+  autoResolveMs?: number;
   now?: () => Date;
 };
+
+/**
+ * Two minutes at the walls. Long enough that a player who is in the world can
+ * get to the table and attend; short enough that an attack is never a parked
+ * army the owner has to remember to finish.
+ */
+const DEFAULT_AUTO_RESOLVE_MS = 120_000;
 
 const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[];
 const TROOP_TYPES = TROOP_ORDER as readonly TroopType[];
@@ -192,6 +207,15 @@ function passwordDigest(password: string, salt: Buffer): Buffer {
 
 function sessionTokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function isValidBattlePlan(plan: unknown): plan is BattlePlan {
+  if (!plan || typeof plan !== "object") return false;
+  const candidate = plan as BattlePlan;
+  return ["West Ridge", "Main Breach", "East Woods"].includes(candidate.entry)
+    && ["Vanguard Heavy", "Balanced Army", "Cavalry Wing"].includes(candidate.troops)
+    && ["Dawn", "Midday", "Night"].includes(candidate.time)
+    && ["Siege Push", "Flanking Strike", "Full Assault"].includes(candidate.style);
 }
 
 function arenaTier(points: number): PlayerArenaStanding["tier"] {
@@ -238,6 +262,7 @@ export class SharedWorldStore {
   readonly researchDurationMs?: number;
   readonly marchDurationMs?: number;
   readonly returnDurationMs?: number;
+  readonly autoResolveMs: number;
   readonly now: () => Date;
   private readonly listeners = new Set<(event: StoredWorldEvent) => void>();
 
@@ -248,6 +273,7 @@ export class SharedWorldStore {
     this.researchDurationMs = options.researchDurationMs;
     this.marchDurationMs = options.marchDurationMs;
     this.returnDurationMs = options.returnDurationMs;
+    this.autoResolveMs = options.autoResolveMs ?? DEFAULT_AUTO_RESOLVE_MS;
     this.now = options.now ?? (() => new Date());
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.migrate();
@@ -271,7 +297,7 @@ export class SharedWorldStore {
   }
 
   private migrate(): void {
-    for (const [version, filename] of [[2, "0002_gate_b_local_sqlite.sql"], [3, "0003_gate_c_economy.sql"], [4, "0004_gate_d_warfare.sql"], [5, "0005_roblox_identity.sql"]] as const) {
+    for (const [version, filename] of [[2, "0002_gate_b_local_sqlite.sql"], [3, "0003_gate_c_economy.sql"], [4, "0004_gate_d_warfare.sql"], [5, "0005_roblox_identity.sql"], [6, "0006_battles_slice_a.sql"]] as const) {
       const migrationPath = fileURLToPath(new URL(`../db/migrations/${filename}`, import.meta.url));
       this.db.exec(readFileSync(migrationPath, "utf8"));
       this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)").run(version, this.now().toISOString());
@@ -775,7 +801,7 @@ export class SharedWorldStore {
   ): CommandResult {
     const command = envelope.command;
     if (command.type === "march.launch") {
-      const { fromVillageId, targetVillageId, kind, army } = command.payload;
+      const { fromVillageId, targetVillageId, kind, army, plan: launchPlan } = command.payload;
       if (!isValidArmy(army) || armyUnitCount(army) < 1 || !["scout", "attack"].includes(kind)) {
         return this.reject(envelope.commandId, "INVALID_ARMY", "Send a valid scout or attack formation with at least one troop.", currentVersion);
       }
@@ -787,6 +813,12 @@ export class SharedWorldStore {
       }
       if (kind === "attack" && !this.db.prepare("SELECT 1 FROM local_scout_reports WHERE kingdom_id = ? AND target_village_id = ? LIMIT 1").get(player.kingdomId, targetVillageId)) {
         return this.reject(envelope.commandId, "SCOUT_REQUIRED", "Scout this village before committing an attack march.", currentVersion);
+      }
+      // The plan is chosen when the attack is DESIGNED (spec SS5: at the war
+      // table), not when it lands — otherwise an attack whose owner is offline
+      // on arrival has no orders to be fought under and strands forever.
+      if (launchPlan !== undefined && !isValidBattlePlan(launchPlan)) {
+        return this.reject(envelope.commandId, "INVALID_PLAN", "The attack plan contains an unknown order.", currentVersion);
       }
       const from = this.ownedVillageRow(player, envelope.worldId, fromVillageId);
       const target = this.db.prepare("SELECT * FROM local_villages WHERE id = ? AND world_id = ?").get(targetVillageId, envelope.worldId) as DbRow | undefined;
@@ -819,19 +851,19 @@ export class SharedWorldStore {
         INSERT INTO local_marches(id, world_id, kingdom_id, from_village_id, target_village_id, kind, status, army_json, loot_json, departed_at, arrives_at, battle_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
       `).run(march.id, march.worldId, march.kingdomId, march.fromVillageId, march.targetVillageId, march.kind, march.status, JSON.stringify(march.army), JSON.stringify(march.loot), march.departedAt, march.arrivesAt);
+      if (kind === "attack") {
+        // auto_resolve_at stays NULL until the march ARRIVES: the deadline is
+        // how long the attacker has at the walls, not how long the road is.
+        this.db.prepare("INSERT INTO local_march_plans(march_id, plan_json, auto_resolve_at) VALUES (?, ?, NULL)")
+          .run(march.id, JSON.stringify(launchPlan ?? UNPLANNED_ATTACK_PLAN));
+      }
       const worldVersion = this.incrementWorldVersion(envelope.worldId);
       published.push(this.insertEvent(envelope.worldId, worldVersion, "march.changed", { march, village: this.readVillage(fromVillageId) }));
       return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, march } };
     }
 
     if (command.type === "battle.open") {
-      const marchRow = this.db.prepare(`
-        SELECT m.*, v.state_version AS defender_version, v.kingdom_id AS defender_kingdom_id,
-          v.army_json AS defender_army_json, v.resources_json AS defender_resources_json,
-          v.buildings_json AS defender_buildings_json
-        FROM local_marches m JOIN local_villages v ON v.id = m.target_village_id
-        WHERE m.id = ? AND m.world_id = ? AND m.kingdom_id = ?
-      `).get(command.payload.marchId, envelope.worldId, player.kingdomId) as DbRow | undefined;
+      const marchRow = this.attackMarchRow(String(command.payload.marchId), envelope.worldId, player.kingdomId);
       if (!marchRow || String(marchRow.kind) !== "attack" || String(marchRow.status) !== "awaiting_battle") {
         return this.reject(envelope.commandId, "MARCH_NOT_READY", "That attack has not reached the target or already entered battle.", currentVersion);
       }
@@ -842,31 +874,10 @@ export class SharedWorldStore {
         return this.reject(envelope.commandId, "STALE_SCOUT_REPORT", "The defender changed after your report. Scout again before opening battle.", currentVersion);
       }
       const plan = command.payload.plan;
-      if (!["West Ridge", "Main Breach", "East Woods"].includes(plan.entry)
-        || !["Vanguard Heavy", "Balanced Army", "Cavalry Wing"].includes(plan.troops)
-        || !["Dawn", "Midday", "Night"].includes(plan.time)
-        || !["Siege Push", "Flanking Strike", "Full Assault"].includes(plan.style)) {
+      if (!isValidBattlePlan(plan)) {
         return this.reject(envelope.commandId, "INVALID_PLAN", "The attack plan contains an unknown order.", currentVersion);
       }
-      const attackerKingdom = this.db.prepare("SELECT troop_levels_json FROM local_kingdoms WHERE id = ?").get(player.kingdomId) as DbRow;
-      const defenderKingdom = this.db.prepare("SELECT troop_levels_json FROM local_kingdoms WHERE id = ?").get(String(marchRow.defender_kingdom_id)) as DbRow;
-      const defenderBuildings = parseJson<BuildingLevels>(marchRow.defender_buildings_json);
-      const openedAt = this.now().toISOString();
-      const battleId = `battle-${randomUUID()}`;
-      const seed = createHash("sha256").update(`${envelope.worldId}:${command.payload.marchId}:${openedAt}`).digest("hex").slice(0, 24);
-      this.db.prepare(`
-        INSERT INTO local_battle_sessions(
-          id, march_id, world_id, attacker_kingdom_id, defender_kingdom_id, attacker_village_id, defender_village_id,
-          defender_village_version, status, plan_json, seed, attacker_army_json, defender_army_json,
-          attacker_levels_json, defender_levels_json, defender_wall_level, defender_resources_json, outcome_json, opened_at, resolved_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
-      `).run(
-        battleId, command.payload.marchId, envelope.worldId, player.kingdomId, String(marchRow.defender_kingdom_id),
-        String(marchRow.from_village_id), String(marchRow.target_village_id), Number(marchRow.defender_version), JSON.stringify(plan), seed,
-        String(marchRow.army_json), String(marchRow.defender_army_json), String(attackerKingdom.troop_levels_json),
-        String(defenderKingdom.troop_levels_json), defenderBuildings.wall, String(marchRow.defender_resources_json), openedAt,
-      );
-      this.db.prepare("UPDATE local_marches SET battle_id = ? WHERE id = ?").run(battleId, command.payload.marchId);
+      const battleId = this.openBattleSession(envelope.worldId, String(command.payload.marchId), marchRow, player.kingdomId, plan);
       const worldVersion = this.incrementWorldVersion(envelope.worldId);
       const battle = this.readBattle(battleId)!;
       published.push(this.insertEvent(envelope.worldId, worldVersion, "battle.started", { battle }));
@@ -910,6 +921,8 @@ export class SharedWorldStore {
         loot: { wood: 0, stone: 0, iron: 0 },
         planScore: battlePlanScore(parseJson(row.plan_json)),
         orderBonus: Math.min(0.12, acceptedOrders * 0.02),
+        // Nobody yields to an army that ran away.
+        yielded: emptyArmy(),
       };
       return this.finishBattle(envelope, row, outcome, "retreated", published);
     }
@@ -1038,20 +1051,123 @@ export class SharedWorldStore {
     `).get(battleId, worldId, kingdomId) as DbRow | undefined;
   }
 
-  private finishBattle(
-    envelope: CommandEnvelope,
+  /** The attack march joined to everything a battle needs from its target. */
+  private attackMarchRow(marchId: string, worldId: string, kingdomId: string): DbRow | undefined {
+    return this.db.prepare(`
+      SELECT m.*, v.state_version AS defender_version, v.kingdom_id AS defender_kingdom_id,
+        v.army_json AS defender_army_json, v.resources_json AS defender_resources_json,
+        v.buildings_json AS defender_buildings_json
+      FROM local_marches m JOIN local_villages v ON v.id = m.target_village_id
+      WHERE m.id = ? AND m.world_id = ? AND m.kingdom_id = ?
+    `).get(marchId, worldId, kingdomId) as DbRow | undefined;
+  }
+
+  /**
+   * Freeze a battle: both armies, both troop level sets, the wall and the
+   * defender's stores as they stand right now. Shared by the player opening a
+   * battle they are attending and by the server fighting one they are not, so
+   * an unattended battle can never be scored off different numbers.
+   */
+  private openBattleSession(worldId: string, marchId: string, marchRow: DbRow, attackerKingdomId: string, plan: BattlePlan): string {
+    const attackerKingdom = this.db.prepare("SELECT troop_levels_json FROM local_kingdoms WHERE id = ?").get(attackerKingdomId) as DbRow;
+    const defenderKingdom = this.db.prepare("SELECT troop_levels_json FROM local_kingdoms WHERE id = ?").get(String(marchRow.defender_kingdom_id)) as DbRow;
+    const defenderBuildings = parseJson<BuildingLevels>(marchRow.defender_buildings_json);
+    const openedAt = this.now().toISOString();
+    const battleId = `battle-${randomUUID()}`;
+    const seed = createHash("sha256").update(`${worldId}:${marchId}:${openedAt}`).digest("hex").slice(0, 24);
+    this.db.prepare(`
+      INSERT INTO local_battle_sessions(
+        id, march_id, world_id, attacker_kingdom_id, defender_kingdom_id, attacker_village_id, defender_village_id,
+        defender_village_version, status, plan_json, seed, attacker_army_json, defender_army_json,
+        attacker_levels_json, defender_levels_json, defender_wall_level, defender_resources_json, outcome_json, opened_at, resolved_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)
+    `).run(
+      battleId, marchId, worldId, attackerKingdomId, String(marchRow.defender_kingdom_id),
+      String(marchRow.from_village_id), String(marchRow.target_village_id), Number(marchRow.defender_version), JSON.stringify(plan), seed,
+      String(marchRow.army_json), String(marchRow.defender_army_json), String(attackerKingdom.troop_levels_json),
+      String(defenderKingdom.troop_levels_json), defenderBuildings.wall, String(marchRow.defender_resources_json), openedAt,
+    );
+    this.db.prepare("UPDATE local_marches SET battle_id = ? WHERE id = ?").run(battleId, marchId);
+    return battleId;
+  }
+
+  /**
+   * Attacks whose owner never showed up. Spec SS5: "If offline, the server
+   * resolves it from the plan and stats... Offline attacks work; showing up
+   * matters." Showing up still matters because attendance is the only way to
+   * earn the accepted-orders bonus — the server gives whatever orders were
+   * actually issued, which for an absent commander is none.
+   *
+   * Deliberately does NOT re-check scout-report freshness the way battle.open
+   * does: that rule stops a PLAYER attacking on stale intel, and applying it
+   * here would strand the army all over again for a defender who simply built
+   * something while the march was on the road.
+   */
+  private materializeDueBattles(now: Date, published: StoredWorldEvent[]): void {
+    const due = this.db.prepare(`
+      SELECT m.id AS march_id, m.world_id, m.kingdom_id, m.battle_id, p.plan_json
+      FROM local_marches m JOIN local_march_plans p ON p.march_id = m.id
+      WHERE m.status = 'awaiting_battle' AND p.auto_resolve_at IS NOT NULL AND p.auto_resolve_at <= ?
+      ORDER BY p.auto_resolve_at, m.id
+    `).all(now.toISOString()) as DbRow[];
+    for (const entry of due) {
+      const worldId = String(entry.world_id);
+      const kingdomId = String(entry.kingdom_id);
+      const marchId = String(entry.march_id);
+      const storedPlan = parseJson<BattlePlan>(entry.plan_json);
+      const plan = isValidBattlePlan(storedPlan) ? storedPlan : UNPLANNED_ATTACK_PLAN;
+      let battleId = entry.battle_id ? String(entry.battle_id) : null;
+      if (!battleId) {
+        const marchRow = this.attackMarchRow(marchId, worldId, kingdomId);
+        if (!marchRow) continue;
+        battleId = this.openBattleSession(worldId, marchId, marchRow, kingdomId, plan);
+        const worldVersion = this.incrementWorldVersion(worldId);
+        published.push(this.insertEvent(worldId, worldVersion, "battle.started", { battle: this.readBattle(battleId) }));
+      }
+      const row = this.battleResolutionRow(battleId, worldId, kingdomId);
+      if (!row || String(row.status) !== "open") continue;
+      const outcome = resolveBattle({
+        attacker: parseJson(row.attacker_army_json),
+        defender: parseJson(row.defender_army_json),
+        attackerLevels: parseJson(row.attacker_levels_json),
+        defenderLevels: parseJson(row.defender_levels_json),
+        defenderWallLevel: Number(row.defender_wall_level),
+        defenderResources: parseJson(row.defender_resources_json),
+        plan: parseJson(row.plan_json),
+        acceptedOrders: Number(row.order_count),
+        seed: String(row.seed),
+      });
+      this.settleBattle(worldId, row, outcome, "resolved", published);
+    }
+  }
+
+  /**
+   * Apply an outcome to the world: defender losses, loot, war points, the
+   * surrender absorption, the homeward march, both notifications, the event.
+   * Takes a worldId rather than an envelope so the SERVER can settle a battle
+   * nobody attended (materializeDueBattles) through exactly the same path a
+   * player command uses - one settlement rule, not two.
+   */
+  private settleBattle(
+    worldId: string,
     row: DbRow,
     outcome: BattleOutcome,
     status: "resolved" | "retreated",
     published: StoredWorldEvent[],
-  ): CommandResult {
+  ): { battle: BattleSessionState; march: MarchState; worldVersion: number } {
     const resolvedAt = this.now();
     const loot = outcome.loot;
+    const yieldedCount = armyUnitCount(outcome.yielded);
     if (status === "resolved") {
       const currentDefender = this.db.prepare("SELECT army_json, resources_json FROM local_villages WHERE id = ?")
         .get(String(row.defender_village_id)) as DbRow;
       const defenderArmy = parseJson<Army>(currentDefender.army_json);
-      for (const troop of TROOP_TYPES) defenderArmy[troop] = Math.max(0, defenderArmy[troop] - outcome.defenderCasualties[troop]);
+      for (const troop of TROOP_TYPES) {
+        // Casualties AND anyone who laid down arms leave the garrison. Both are
+        // floored at zero against the CURRENT army, which may have changed
+        // while the march was on the road.
+        defenderArmy[troop] = Math.max(0, defenderArmy[troop] - outcome.defenderCasualties[troop] - outcome.yielded[troop]);
+      }
       const defenderResources = parseJson<ResourceStock>(currentDefender.resources_json);
       for (const kind of RESOURCE_KINDS) defenderResources[kind] = Math.max(0, defenderResources[kind] - loot[kind]);
       this.db.prepare("UPDATE local_villages SET army_json = ?, resources_json = ?, state_version = state_version + 1 WHERE id = ?")
@@ -1067,24 +1183,45 @@ export class SharedWorldStore {
     const distance = distanceBetween({ x: Number(from.x), y: Number(from.y) }, { x: Number(target.x), y: Number(target.y) });
     const returnMs = this.returnDurationMs ?? marchDurationSeconds(distance, "return") * 1000;
     const arrivesAt = new Date(resolvedAt.getTime() + returnMs).toISOString();
+    // Whoever yielded marches home WITH the attacker, so the world never loses
+    // or gains a soldier across a surrender - they change side, that is all.
+    const homewardArmy = status === "resolved" ? addArmies(outcome.attackerSurvivors, outcome.yielded) : outcome.attackerSurvivors;
     this.db.prepare("UPDATE local_battle_sessions SET status = ?, outcome_json = ?, resolved_at = ? WHERE id = ?")
       .run(status, JSON.stringify(outcome), resolvedAt.toISOString(), String(row.id));
     this.db.prepare("UPDATE local_marches SET status = 'returning', kind = 'return', army_json = ?, loot_json = ?, arrives_at = ? WHERE id = ?")
-      .run(JSON.stringify(outcome.attackerSurvivors), JSON.stringify(loot), arrivesAt, String(row.march_id));
+      .run(JSON.stringify(homewardArmy), JSON.stringify(loot), arrivesAt, String(row.march_id));
+    // The march is settled; its plan deadline must never fire again.
+    this.db.prepare("UPDATE local_march_plans SET auto_resolve_at = NULL WHERE march_id = ?").run(String(row.march_id));
+    const surrenderNote = yieldedCount > 0 ? ` ${yieldedCount} of their troops surrendered and march with you.` : "";
     const attackerMessage = status === "retreated"
       ? `${armyUnitCount(outcome.attackerSurvivors)} troops withdrew and are returning home.`
       : outcome.winner === "attacker"
-        ? `Victory. ${armyUnitCount(outcome.attackerSurvivors)} survivors are returning with ${loot.wood + loot.stone + loot.iron} resources.`
+        ? `Victory. ${armyUnitCount(outcome.attackerSurvivors)} survivors are returning with ${loot.wood + loot.stone + loot.iron} resources.${surrenderNote}`
         : `Defeat. ${armyUnitCount(outcome.attackerSurvivors)} survivors are returning home.`;
     const defenderMessage = status === "retreated"
       ? "The attacking army withdrew from your walls."
-      : outcome.winner === "attacker" ? "Your village defenses were defeated." : "Your garrison held the village.";
-    this.insertNotification(envelope.worldId, String(row.attacker_kingdom_id), "battle", attackerMessage, resolvedAt.toISOString());
-    this.insertNotification(envelope.worldId, String(row.defender_kingdom_id), "battle", defenderMessage, resolvedAt.toISOString());
-    const worldVersion = this.incrementWorldVersion(envelope.worldId);
+      : outcome.winner === "attacker"
+        ? (yieldedCount > 0
+          ? `Your village defenses were defeated and ${yieldedCount} of your troops surrendered.`
+          : "Your village defenses were defeated.")
+        : "Your garrison held the village.";
+    this.insertNotification(worldId, String(row.attacker_kingdom_id), "battle", attackerMessage, resolvedAt.toISOString());
+    this.insertNotification(worldId, String(row.defender_kingdom_id), "battle", defenderMessage, resolvedAt.toISOString());
+    const worldVersion = this.incrementWorldVersion(worldId);
     const battle = this.readBattle(String(row.id))!;
     const march = this.readMarch(String(row.march_id))!;
-    published.push(this.insertEvent(envelope.worldId, worldVersion, status === "retreated" ? "battle.retreated" : "battle.resolved", { battle, march }));
+    published.push(this.insertEvent(worldId, worldVersion, status === "retreated" ? "battle.retreated" : "battle.resolved", { battle, march }));
+    return { battle, march, worldVersion };
+  }
+
+  private finishBattle(
+    envelope: CommandEnvelope,
+    row: DbRow,
+    outcome: BattleOutcome,
+    status: "resolved" | "retreated",
+    published: StoredWorldEvent[],
+  ): CommandResult {
+    const { battle, march, worldVersion } = this.settleBattle(envelope.worldId, row, outcome, status, published);
     return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, battle, march } };
   }
 
@@ -1150,6 +1287,9 @@ export class SharedWorldStore {
         }));
       }
       this.materializeDueMarches(now, published);
+      // After marches, so an attack that arrives already past its deadline
+      // (a long server outage) settles in the very same pass.
+      this.materializeDueBattles(now, published);
       const villages = this.db.prepare("SELECT id FROM local_villages").all() as DbRow[];
       for (const village of villages) this.accrueVillage(String(village.id), now);
     });
@@ -1187,6 +1327,14 @@ export class SharedWorldStore {
 
       if (kind === "attack") {
         this.db.prepare("UPDATE local_marches SET status = 'awaiting_battle' WHERE id = ?").run(marchId);
+        // The clock at the walls starts on ARRIVAL. Marches launched before
+        // this slice existed carry no plan row, so give them one here rather
+        // than leaving them stranded with no deadline at all.
+        const deadline = new Date(new Date(String(row.arrives_at)).getTime() + this.autoResolveMs).toISOString();
+        this.db.prepare(`
+          INSERT INTO local_march_plans(march_id, plan_json, auto_resolve_at) VALUES (?, ?, ?)
+          ON CONFLICT(march_id) DO UPDATE SET auto_resolve_at = excluded.auto_resolve_at
+        `).run(marchId, JSON.stringify(UNPLANNED_ATTACK_PLAN), deadline);
         const worldVersion = this.incrementWorldVersion(worldId);
         const march = this.readMarch(marchId)!;
         published.push(this.insertEvent(worldId, worldVersion, "march.arrived", { march }));
