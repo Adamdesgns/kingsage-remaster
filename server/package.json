@@ -6,6 +6,6 @@
   "scripts": {
     "start": "node --experimental-strip-types src/index.ts",
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "test:roblox": "node --experimental-strip-types --test test/roblox-link.test.ts test/roblox-api.test.ts test/roblox-scouting.test.ts test/roblox-battles.test.ts test/roblox-attend.test.ts"
+    "test:roblox": "node --experimental-strip-types --test test/roblox-link.test.ts test/roblox-api.test.ts test/roblox-scouting.test.ts test/roblox-battles.test.ts test/roblox-attend.test.ts test/roblox-conquest.test.ts"
   }
 }
