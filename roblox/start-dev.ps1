@@ -1,3 +1,15 @@
+param(
+    # -Fresh starts the world server against a BRAND NEW database file.
+    #
+    # Why this exists: seedWorld() returns early when a world already exists, so
+    # KINGSAGE_DEV_SEED_NOBLES only takes effect at world CREATION. Without a
+    # fresh database the conquest drills (D1-D7) fail silently - the NOBLEMEN
+    # section reads 0, the demo tour sends a plain raid, and conquest never
+    # fires. This switch leaves the existing dev world untouched on disk and
+    # simply points the server somewhere new.
+    [switch]$Fresh
+)
+
 # One-double-click dev loop: world server + demo place in Studio.
 # Right-click > Run with PowerShell (or: powershell -ExecutionPolicy Bypass -File roblox\start-dev.ps1)
 $repo = Split-Path $PSScriptRoot -Parent
@@ -8,7 +20,16 @@ $repo = Split-Path $PSScriptRoot -Parent
 $listening = Get-NetTCPConnection -LocalPort 4178 -State Listen -ErrorAction SilentlyContinue
 if (-not $listening) {
     Start-Process powershell -ArgumentList "-NoExit", "-Command",
-        "`$env:PORT='4178'; `$env:KINGSAGE_ROBLOX_KEY='dev-secret-local-0001'; `$env:KINGSAGE_AUTO_RESOLVE_MS='25000'; `$env:KINGSAGE_DEV_SEED_NOBLES='5'; Set-Location '$repo'; npm run start:world"
+# -Fresh: a new database file per run, so the world is CREATED and therefore seeded.
+$dbLine = ''
+if ($Fresh) {
+    $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
+    $freshDb = Join-Path $repo "server\data\kingsage-drill-$stamp.sqlite"
+    Write-Host "-Fresh: new world at $freshDb (your existing dev world is untouched)"
+    $dbLine = "`$env:KINGSAGE_DATABASE_PATH='$freshDb';"
+}
+
+        "`$env:PORT='4178'; `$env:KINGSAGE_ROBLOX_KEY='dev-secret-local-0001'; `$env:KINGSAGE_AUTO_RESOLVE_MS='25000'; `$env:KINGSAGE_DEV_SEED_NOBLES='5'; $dbLine Set-Location '$repo'; npm run start:world"
     Start-Sleep -Seconds 3
     Write-Host "world server started on 4178"
 } else {

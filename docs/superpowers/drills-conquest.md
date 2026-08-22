@@ -20,9 +20,22 @@ wrong — the session that checked had a stale PATH. `npm run check:luau` runs
 from any fresh terminal, and `check:luau-rules` now RUNS the shared Luau rather
 than only parsing it.
 
-**Hands-free shortcut.** `roblox\start-dev.ps1` seeds five Noblemen per village
-(`KINGSAGE_DEV_SEED_NOBLES=5`) and the demo tour declares a conquest whenever
-its village has any. One press of Play walks D1–D3 with nobody at the keyboard.
+**Hands-free shortcut — and you MUST use `-Fresh`:**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File roblox\start-dev.ps1 -Fresh
+```
+
+`-Fresh` starts the world server against a brand-new database file. **Without it
+these drills fail silently.** `seedWorld()` returns early when a world already
+exists, so `KINGSAGE_DEV_SEED_NOBLES=5` only takes effect at world *creation* —
+against the existing dev world the NOBLEMEN section reads 0, the demo tour sends
+an ordinary raid, and conquest never fires. Verified 2026-08-22: a fresh world
+seeds 5 Noblemen into all 6 villages; the pre-existing dev world has 0.
+
+`-Fresh` leaves your existing dev world untouched on disk — it simply points the
+server at a new timestamped file. Then one press of Play walks D1–D3 with nobody
+at the keyboard.
 
 ---
 
