@@ -118,20 +118,27 @@ local function sanitizePlan(plan: { [string]: string }?): { [string]: string }
 	return safe
 end
 
--- Everything in the village that can actually fight, scouts and noblemen
--- excluded. Returns the army and its unit count.
-local function musterFrom(village: any): ({ [string]: number }, number)
+-- Everything in the village that marches on an attack, per the ONE rule in
+-- shared/Buildings (scouts never; noblemen only on a declared conquest).
+-- Returns the army, its FIGHTING count (nobles excluded, so "no troops here"
+-- still means no troops), and how many noblemen ride.
+local function musterFrom(village: any, withNobles: boolean?): ({ [string]: number }, number, number)
 	local army: { [string]: number } = {}
-	local total = 0
+	local fighting = 0
+	local nobles = 0
 	for _, troop in Buildings.TROOP_ORDER do
 		local count = 0
-		if not Buildings.ATTACK_MUSTER_EXCLUDES[troop] then
+		if Buildings.mustersOnAttack(troop, withNobles) then
 			count = math.max(math.floor(tonumber(village and village.army and village.army[troop]) or 0), 0)
 		end
 		army[troop] = count
-		total += count
+		if Buildings.CONQUEST_ONLY[troop] then
+			nobles += count
+		else
+			fighting += count
+		end
 	end
-	return army, total
+	return army, fighting, nobles
 end
 
 -- Battle-order sequence per battle. The world server refuses anything but the
@@ -262,9 +269,16 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 			return nil, nil, "Scout them first — nobody attacks blind."
 		end
 		local from = findVillage(snapshot, villageId)
-		local army, total = musterFrom(from)
-		if total < 1 then
+		-- A conquest is an explicit declaration by the player. Anything the
+		-- client did not say plainly is an ordinary raid, and noblemen stay
+		-- home — never inferred from what happens to be in the barracks.
+		local withNobles = request.withNobles == true
+		local army, fighting, nobles = musterFrom(from, withNobles)
+		if fighting < 1 then
 			return nil, nil, "No fighting troops in this village."
+		end
+		if withNobles and nobles < 1 then
+			return nil, nil, "No noblemen here — they are trained at an Academy."
 		end
 		local plan = sanitizePlan(request.plan)
 		return {
@@ -276,8 +290,11 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 				army = army,
 				plan = plan,
 			},
-		}, string.format("attack:%s:%s:%d:%s:%s:%s:%s",
-			villageId, targetId, total, plan.entry, plan.troops, plan.time, plan.style), nil
+		-- The nobleman count is part of the fingerprint: a raid and a conquest
+		-- on the same target in the same breath are DIFFERENT intents, and the
+		-- 2s same-intent guard must not swallow the second one.
+		}, string.format("attack:%s:%s:%d:%d:%s:%s:%s:%s",
+			villageId, targetId, fighting, nobles, plan.entry, plan.troops, plan.time, plan.style), nil
 	end
 
 	-- ---- attending a battle (slice B) ----

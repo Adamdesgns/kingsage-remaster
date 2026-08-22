@@ -14,6 +14,8 @@
     "test:gate-c": "npm run test:gate-b && npm run check:gate-c",
     "test:roblox-layer": "npm --prefix server run test:roblox",
     "check:luau": "lune run roblox/scripts/syntax-check.luau",
+    "check:luau-rules": "lune run roblox/scripts/rules-check.luau",
+    "test:luau": "npm run check:luau && npm run check:luau-rules",
     "check:gate-d": "node scripts/check-gate-d.mjs",
     "test:gate-d": "npm run test:gate-c && npm run check:gate-d"
   }
