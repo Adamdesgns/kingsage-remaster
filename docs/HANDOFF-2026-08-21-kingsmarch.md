@@ -104,6 +104,18 @@ writing anything. This slice is new verbs and views over data already in hand.
   `/api/roblox/*` routes. The load-bearing one: **the same snapshot that
   carries a scout report still shows that village fogged.**
 
+- `demo/DemoTour.client.luau` — the self-driving tour now scouts too: opens
+  the table, switches to War, sends a real scout at the nearest neighbour,
+  wanders while the HUD countdown runs, returns for the report card. **One
+  press of Play now produces video of drills S1–S3 with nobody at the
+  keyboard** — the point, since three slices running have stalled on a human
+  tap. It goes through the same RemoteFunction the button calls (a script
+  cannot fire another script's `Button.Activated`), so the command path and
+  every view are real and only the finger is simulated. The one piece of
+  product code this needed is a labelled QA hook: a `DemoTab` attribute on the
+  HUD ScreenGui switches the war-table tab. Nothing in the real game sets it
+  and it carries no authority. It also never spends a village's last scout.
+
 **Verified:** `npm run test:roblox-layer` 16/16, `npm run test:gate-d` 30/30
 plus all four gate checkers. **Not verified:** anything in Studio, and the
 Luau syntax gate (see the trap below).

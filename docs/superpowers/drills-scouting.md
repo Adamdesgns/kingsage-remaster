@@ -9,6 +9,17 @@ The automated half that CAN be checked from inside a running server lives in
 Studio command bar). Everything below is by hand because it is UI and feel,
 which no server script can see.
 
+**Hands-free shortcut for S1–S3.** The self-driving demo tour
+(`roblox/demo/DemoTour.client.luau`, demo place only) now runs the whole
+scouting leg by itself: it opens the war table, switches to the War tab, sends
+a real scout at the nearest neighbour, wanders while the HUD countdown runs,
+and comes back to the table for the report card. So **one press of Play
+produces video of S1–S3** with nobody at the keyboard — which matters, because
+three slices in a row have now stalled waiting for a human to tap something.
+It sends the scout through the same RemoteFunction the button calls (a script
+cannot fire another script's `Button.Activated`), so the command path and every
+view are real and only the finger is simulated. S4–S6 still need hands.
+
 **Setup:** as slice one — world server up on 4178 with
 `KINGSAGE_ROBLOX_KEY=dev-secret-local-0001`, `SecretConfig.luau` matching,
 Rojo synced, Play (the ▶ button; F5 is a brightness key on Adam's laptop).

@@ -665,6 +665,19 @@ enterTable.OnClientEvent:Connect(function(info: { centerX: number, centerZ: numb
 	buildTablePanel()
 end)
 
+-- QA/demo hook, used only by demo.project.json's self-driving tour: setting a
+-- "DemoTab" attribute on this ScreenGui switches the war-table tab, because
+-- one script cannot fire another script's Button.Activated. Nothing in the
+-- real game ever sets it, and it carries NO authority — it only chooses which
+-- local rows are drawn from state the player already has.
+gui:GetAttributeChangedSignal("DemoTab"):Connect(function()
+	local wanted = gui:GetAttribute("DemoTab")
+	if inTableView and (wanted == "village" or wanted == "war") and activeTab ~= wanted then
+		activeTab = tostring(wanted)
+		buildTablePanel()
+	end
+end)
+
 -- walking (any movement) exits the table; hook the CURRENT character too —
 -- by the time this script runs the first character usually already exists.
 local function hookCharacter(character: Model)
