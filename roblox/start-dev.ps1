@@ -8,7 +8,7 @@ $repo = Split-Path $PSScriptRoot -Parent
 $listening = Get-NetTCPConnection -LocalPort 4178 -State Listen -ErrorAction SilentlyContinue
 if (-not $listening) {
     Start-Process powershell -ArgumentList "-NoExit", "-Command",
-        "`$env:PORT='4178'; `$env:KINGSAGE_ROBLOX_KEY='dev-secret-local-0001'; `$env:KINGSAGE_AUTO_RESOLVE_MS='25000'; Set-Location '$repo'; npm run start:world"
+        "`$env:PORT='4178'; `$env:KINGSAGE_ROBLOX_KEY='dev-secret-local-0001'; `$env:KINGSAGE_AUTO_RESOLVE_MS='25000'; `$env:KINGSAGE_DEV_SEED_NOBLES='5'; Set-Location '$repo'; npm run start:world"
     Start-Sleep -Seconds 3
     Write-Host "world server started on 4178"
 } else {

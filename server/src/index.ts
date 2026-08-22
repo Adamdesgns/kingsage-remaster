@@ -13,13 +13,18 @@ const port = Number(process.env.PORT ?? 4174);
 // to sit through the production wait; unset means the store's own default.
 const rawAutoResolve = Number(process.env.KINGSAGE_AUTO_RESOLVE_MS);
 const autoResolveMs = Number.isFinite(rawAutoResolve) && rawAutoResolve > 0 ? rawAutoResolve : undefined;
+// DEV ONLY: seed Noblemen into every village so the conquest path can actually
+// be walked in a Studio session. A conquest needs three to five of them, at
+// 900s each, which no recording can sit through. Unset in production.
+const rawSeedNobles = Number(process.env.KINGSAGE_DEV_SEED_NOBLES);
+const devSeedNobles = Number.isFinite(rawSeedNobles) && rawSeedNobles > 0 ? rawSeedNobles : undefined;
 
 function joinDefaultDatabase(root: string): string {
   return `${root}/data/kingsage-local.sqlite`;
 }
 
 mkdirSync(dirname(databasePath), { recursive: true });
-const store = new SharedWorldStore(databasePath, { autoResolveMs });
+const store = new SharedWorldStore(databasePath, { autoResolveMs, devSeedNobles });
 const app = createWorldHttpServer({ store, staticRoot, robloxKey: process.env.KINGSAGE_ROBLOX_KEY });
 
 app.server.listen(port, "127.0.0.1", () => {

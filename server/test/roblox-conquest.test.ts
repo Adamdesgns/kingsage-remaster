@@ -364,3 +364,120 @@ test("the conquered village is no longer fogged for its new owner", async () => 
     assert.equal(lost.buildings.hq, 0, "the old owner is on the outside now");
   });
 });
+
+/**
+ * Re-scout the target so a follow-up attack is legal. A conquest needs three
+ * to five Noblemen and a village only holds so many, so real campaigns arrive
+ * in waves — and every wave changes the garrison the last report described.
+ */
+async function scoutAgain(context: Ctx, home: any, target: any, tag: string) {
+  context.store.db.prepare(
+    "UPDATE local_villages SET army_json = json_set(army_json, '$.scout', 1), state_version = state_version + 1 WHERE id = ?",
+  ).run(home.id);
+  const before = await context.state(ATTACKER_ID);
+  const scout = await context.command(ATTACKER_ID, `c-rescout-${tag}`, before.world.version, {
+    type: "march.launch",
+    payload: { fromVillageId: home.id, targetVillageId: target.id, kind: "scout", army: { ...emptyArmy(), scout: 1 } },
+  });
+  assert.equal(scout.body.type, "command.accepted", `wave ${tag} re-scouted (${JSON.stringify(scout.body)})`);
+  context.advance(MARCH_MS + 20);
+}
+
+test("a village at full loyalty falls to a campaign of waves, and loyalty persists between them", async () => {
+  await withServer(async (context) => {
+    // The loop a real player walks: loyalty 100, one Nobleman per wave, each
+    // wave chipping 20-35 off what the last one left. Nothing in the suite
+    // covered this before — every other conquest test either poses loyalty low
+    // enough for a single Nobleman or lands the whole claim in one attack. If
+    // loyalty did not persist across attacks, conquest would be unreachable in
+    // play no matter how many Noblemen a kingdom could afford.
+    //
+    // A Nobleman can DIE at the wall even in a walkover, and a wave that buries
+    // its Nobleman moves nothing. That is the rule, not a flake, so each wave
+    // is checked against the survivors it actually had rather than against an
+    // assumption that every wave lands.
+    const { home, target, attackerKingdomId, defenderKingdomId } = await posedForConquest(context, {
+      loyalty: 100,
+      attackerHome: { ...OVERWHELMING, noble: 6 },
+    });
+
+    let loyalty = 100;
+    let captured = false;
+    let landedWaves = 0;
+
+    for (let wave = 1; wave <= 10 && !captured; wave += 1) {
+      if (wave > 1) await scoutAgain(context, home, target, String(wave));
+      // A fresh escort and a fresh token garrison each wave: the rule under
+      // test is loyalty, not attrition.
+      context.store.db.prepare("UPDATE local_villages SET army_json = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(JSON.stringify({ ...OVERWHELMING, noble: 1, scout: 1 }), home.id);
+      context.store.db.prepare("UPDATE local_villages SET army_json = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(JSON.stringify(TOKEN_GARRISON), target.id);
+
+      const { battle, seed } = await attackAndSettle(context, `c-wave-${wave}`, home, target, { ...OVERWHELMING, noble: 1 });
+      assert.equal(battle.outcome.winner, "attacker", `wave ${wave} won at the wall`);
+
+      const survivors = Number(battle.outcome.attackerSurvivors.noble ?? 0);
+      let expected = loyalty;
+      for (let index = 0; index < survivors && expected > 0; index += 1) expected -= loyaltyDrop(seed, index);
+
+      const after = villageRow(context, target.id);
+      if (expected <= 0) {
+        captured = true;
+        landedWaves += 1;
+        assert.equal(String(after.kingdom_id), attackerKingdomId, `wave ${wave} took the village`);
+        assert.equal(Number(after.loyalty), LOYALTY_ON_CAPTURE, "a taken village resets to a fragile 25");
+        break;
+      }
+
+      assert.equal(Number(after.loyalty), expected,
+        `wave ${wave} moved loyalty by exactly what its ${survivors} surviving Nobleman/men were worth`);
+      assert.equal(String(after.kingdom_id), defenderKingdomId, `wave ${wave} did not take it early`);
+      if (survivors > 0) {
+        landedWaves += 1;
+        assert.ok(Number(after.loyalty) < loyalty, `wave ${wave} with a survivor must move loyalty`);
+      } else {
+        assert.equal(Number(after.loyalty), loyalty, `wave ${wave} buried its Nobleman, so nothing moved`);
+      }
+      loyalty = Number(after.loyalty);
+    }
+
+    assert.ok(captured, "a sustained campaign eventually takes the village");
+    // 100 loyalty against a 20-35 drop can never fall to fewer than three
+    // landed Noblemen, and must always fall by five.
+    assert.ok(landedWaves >= 3 && landedWaves <= 5,
+      `${landedWaves} Noblemen pressed the claim, which is inside the designed 3-5`);
+  });
+});
+
+test("DEV seeding is off by default, and when set only adds Noblemen", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "kingsage-seed-"));
+  try {
+    const plain = new SharedWorldStore(join(directory, "plain.sqlite"), {});
+    const plainVillages = plain.db.prepare("SELECT army_json FROM local_villages").all() as any[];
+    assert.ok(plainVillages.length > 0, "the fixture built a world");
+    for (const row of plainVillages) {
+      assert.equal(JSON.parse(row.army_json).noble ?? 0, 0,
+        "a production boot never seeds a Nobleman — conquest must be earned");
+    }
+    const plainFirst = JSON.parse(plainVillages[0].army_json);
+    plain.close();
+
+    const seeded = new SharedWorldStore(join(directory, "seeded.sqlite"), { devSeedNobles: 4 });
+    const seededVillages = seeded.db.prepare("SELECT army_json FROM local_villages").all() as any[];
+    for (const row of seededVillages) {
+      assert.equal(JSON.parse(row.army_json).noble, 4, "the knob seeds every village");
+    }
+    const seededFirst = JSON.parse(seededVillages[0].army_json);
+    // Everything that is not a Nobleman must be untouched, or the knob would be
+    // quietly rebalancing a world the other tests depend on.
+    for (const troop of Object.keys(plainFirst)) {
+      if (troop === "noble") continue;
+      assert.equal(seededFirst[troop], plainFirst[troop], `${troop} was left alone`);
+    }
+    assert.equal(armyUnitCount(seededFirst), armyUnitCount(plainFirst) + 4, "it added exactly four units");
+    seeded.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
