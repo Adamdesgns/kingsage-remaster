@@ -33,8 +33,9 @@ Roblox server → HTTP → world server (spec: `../docs/superpowers/specs/2026-0
   on confident FAILs against a working game. Test through gameplay, the HUD,
   in-game admin commands, or `scripts/evidence-run.luau` pasted as a real
   ServerScript.
-- Drills live in `../docs/superpowers/drills-slice-one.md` and
-  `../docs/superpowers/drills-scouting.md` — run them, record results with dates.
+- Drills live in `../docs/superpowers/drills-slice-one.md`,
+  `drills-scouting.md`, `drills-battles.md` and `drills-battle-scene.md` — run
+  them, record results with dates. **Eighteen are written and zero have run.**
 - ⚠️ **The Luau syntax gate needs Lune, which is NOT installed on this PC**
   (only `rojo`, from winget). `npm run check:luau` therefore cannot run here;
   until Lune is installed, Luau changes are hand-checked plus whatever Studio
@@ -48,9 +49,24 @@ Roblox server → HTTP → world server (spec: `../docs/superpowers/specs/2026-0
   foreign ones fog silhouettes), CommandService (idempotent build / recruit /
   scout march), WarTable
 - `src/client/` — HUD (resources, queues AND marches on one countdown ticker),
-  war table camera with its **Village** and **War** tabs (scout targets,
-  marches, scout reports), failure banners
+  war table camera with its **Village** and **War** tabs (scout targets, attack
+  planning, marches, scout and battle reports), the battle view, failure banners
+- `src/client/BattleScene.luau` — the battle scene. CLIENT-side on purpose:
+  nothing it builds replicates, so a couple of hundred soldiers cost the
+  network nothing, and every client seeds its randomness from the battle's own
+  seed so everyone sees the same fight with no syncing
+- `src/shared/BattleConfig.luau` — every number the scene renders by, including
+  the ADAPTIVE budget that stands in for the phone measurement nobody has taken
 - `spike.project.json` + `spike/` — standalone 200-troop performance spike
+
+## The battle rule
+
+The world server's Gate D maths is the outcome authority. The battle scene is a
+RENDERING of that maths and decides nothing: no frame rate, no device, no cull
+can move a single casualty. That is what makes the adaptive fidelity budget in
+`BattleConfig` safe — a phone that cannot draw 200 soldiers draws fewer, and
+the result is identical. While a battle is `open` the scene kills nobody,
+because nothing has been decided yet.
 
 ## The fog rule
 

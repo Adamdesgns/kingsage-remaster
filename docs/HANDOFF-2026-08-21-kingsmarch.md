@@ -1,17 +1,18 @@
 # Kingsmarch (Roblox) — chat handoff, 2026-08-21
 
 Read this first in a fresh chat. Code beats this note; then fix the note.
-Everything below is committed and pushed on `main` (tip `12c72a2`). The design
+Everything below is committed and pushed on `main` (tip `7f474c9`). The design
 gate is CLOSED — the spec is approved and slice one is built, reviewed, and
 proven live on video. This is now ordinary forward development.
 
 ## The one-line state
 
 The village loop is real and running on the authoritative world server; the
-region world (neighbors + wilderness + fog) shipped today; **scouting AND the
-attack round-trip (battles slice A) shipped tonight — both offline-verified,
-neither ever run in Studio**. The next rung is the 200-troop phone measurement,
-then battles slice B (the 3D fight itself).
+region world, scouting, the attack round-trip (battles slice A) and the battle
+scene itself (battles slice B) have all shipped — **every one of them
+offline-verified and NONE of them ever run in Studio**. Eighteen drills are
+written across four files and zero have been run. The next rung is conquest
+(slice C), but the thing actually owed is one press of Play.
 
 ## Names and identity
 
@@ -30,10 +31,11 @@ then battles slice B (the 3D fight itself).
 2. `docs/superpowers/plans/2026-08-21-roblox-slice-one.md` — executed.
 3. `docs/superpowers/plans/2026-08-21-roblox-region-slice.md` — executed.
 4. `docs/superpowers/plans/2026-08-21-roblox-scouting-slice.md` — executed.
-5. `docs/superpowers/plans/2026-08-21-roblox-battles-slice-a.md` — executed;
-   its "Out of scope" section defines slice B.
-6. `roblox/README.md` — the dev loop and the Studio traps.
-7. This file's "next moves" section.
+5. `docs/superpowers/plans/2026-08-21-roblox-battles-slice-a.md` — executed.
+6. `docs/superpowers/plans/2026-08-21-roblox-battles-slice-b.md` — executed;
+   its "Out of scope" section defines slice C (conquest + celebration).
+7. `roblox/README.md` — the dev loop and the Studio traps.
+8. This file's "next moves" section.
 
 ## What exists and works (verified, not assumed)
 
@@ -190,6 +192,73 @@ clean. The pre-existing gate-d warfare test passes unchanged — that is the
 evidence the refactor kept behaviour. **Not verified:** anything in Studio,
 and the Luau gate (Lune still missing).
 
+## Battles slice B (added 2026-08-21 night) — offline-proven, Studio-unproven
+
+Plan: `docs/superpowers/plans/2026-08-21-roblox-battles-slice-b.md`.
+Drills: `docs/superpowers/drills-battle-scene.md` (C1–C6, none run yet).
+
+**Adam asked for this with the 200-troop phone measurement still missing.** It
+is built to that: the budget is ADAPTIVE rather than guessed.
+`shared/BattleConfig.luau` starts at `MAX_SOLDIERS = 200`, samples its own
+frame time every two seconds, and culls rendered bodies until it holds
+`TARGET_FPS`, never below `MIN_SOLDIERS = 40`. That is safe **only** because
+nothing rendered can change an outcome — the maths is Gate D on the world
+server and arrives finished. When the measurement finally happens it is a
+config change, not a rebuild; drill C5 is written to capture it and to write
+`docs/superpowers/spike-200-troops.md`.
+
+- `client/BattleScene.luau` — a CLIENT module, so nothing it builds replicates
+  and 200 soldiers cost the network nothing; every client seeds its randomness
+  from `battle.seed`, so everyone sees the same fight with no syncing. Three
+  rules inherited from the spike: no Humanoids, six anchored parts per soldier,
+  ONE `workspace:BulkMoveTo` per frame for the whole field.
+- **Two phases, split exactly where the maths is.** While a battle is `open`
+  NOBODY dies — nothing has been decided, so the scene must not pretend. The
+  moment it resolves, each side fells the same share of bodies the outcome
+  killed, in seeded roster order, and the loser routs. Live view and replay are
+  therefore literally the same code.
+- **Three orderable squads** — vanguard / archers / riders — because those ARE
+  the world server's `CommandSquadId` values; a fourth name would be an order
+  the realm refuses. Each splits into up to `BLOCKS_PER_SQUAD` blocks, which is
+  what puts a dozen-odd formations on the field.
+- `CommandService` gains `battleOpen` / `battleOrder` / `battleResolve` /
+  `battleRetreat`. Battle commands act on a battle, not a village, so the
+  village-ownership guard is now scoped to the kinds that leave a village.
+  Order sequence numbers are counted locally and corrected from the realm's own
+  refusal, which names the number it wants.
+- `BattleSessionState` gains `attackerArmy`, `defenderArmy` and
+  `acceptedOrders` — without them a client cannot draw a battle that has not
+  been decided yet, and cannot show that attending earned anything.
+- `TILE_STUDS` / `WALL_HALF` moved into `shared/Config.luau` so the field forms
+  up on the same ground `SettlementBuilder` put the village on.
+- The demo tour now ATTENDS: opens the battle, takes the field, issues three
+  real squad orders, calls the charge, watches the ending. One Play press
+  carries slice B on camera (a `DemoBattle` attribute hook, twin of `DemoTab`).
+
+### The defect slice B had to fix before it could work at all
+
+**Attending was impossible in any world where time moves.** `battle.open`
+required the scout report's `targetVillageVersion` to equal the village's
+current `state_version` — but `accrueVillage` bumps `state_version` every time
+a village earns a single log of wood. A report went "stale" within minutes no
+matter what the defender did, so an attacker who **showed up** was refused
+while one who **did not** still got their battle fought by the slice-A
+deadline. Exactly backwards from spec §5's "showing up matters". Frozen-clock
+tests hid it completely, because nothing accrues when time does not move.
+
+`intelIsCurrent` replaces version equality: you must hold the report you claim
+(its version is the receipt), and what that report promised — the garrison and
+the wall an attack is planned around — must still be true. Resources earned
+meanwhile change nothing an attacker planned for. Both halves are tested.
+
+**Verified:** `npm run test:core` 19/19, `npm run test:roblox-layer` 29/29,
+`npm run test:gate-d` 43/43, all four gate checkers, and all three Rojo
+projects build. **Not verified:** anything in Studio, and the Luau gate.
+
+**NOT in slice B, named so nobody assumes it shipped:** conquest and the
+celebration — taking a village, noblemen, loyalty, the skippable spectacle.
+That is slice C.
+
 ## Proven live (2026-08-21, on video)
 
 A real Studio session founded `Dadisaking86` → `kingdom-5`, built the
@@ -214,6 +283,9 @@ recorded via ffmpeg and delivered to Adam. Evidence noted at the top of
   human has tapped the War tab.
 - The **entire battles slice A** in Studio: drills B1–B6 in
   `docs/superpowers/drills-battles.md`. Same story — offline green, unplayed.
+- The **entire battle scene (slice B)** in Studio: drills C1–C6 in
+  `docs/superpowers/drills-battle-scene.md`. **C5 is the 200-troop phone
+  measurement** — the number this project has owed for weeks.
 - **The Luau syntax gate did not run for the scouting slice.** Lune is not
   installed on this PC (checked: no `lune`, no rokit, no aftman — only `rojo`
   from winget), so `npm run check:luau` cannot execute here. The Luau in this
@@ -267,14 +339,13 @@ rebuilds `WorldGame-demo.rbxlx`, and opens the CURRENT Studio. Then press
    it FEELS is known. The fixture starts each village with 4 scouts, so S1–S4
    work immediately with no Stable. Install Lune while you are at it so
    `npm run check:luau` can gate Luau again.
-2. **Measure the 200-troop spike on a phone**, write
-   `docs/superpowers/spike-200-troops.md`. Publish the spike place PRIVATE.
-3. **Battles slice B** — what slice A deliberately left out: the 200-troop 3D
-   fight, attending live and commanding squads, the replay for battles you
-   missed, conquest (nobles, loyalty, a village changing hands) and the big
-   skippable celebration. Gate D math stays the authority. Do NOT start this
-   before move 2 — the phone number is what tells you how much fidelity the
-   scene can afford.
+2. **Measure the phone budget** and write `docs/superpowers/spike-200-troops.md`
+   — now drill C5, which measures the REAL battle scene rather than the
+   standalone spike. `BattleConfig.MAX_SOLDIERS` is set from the result.
+3. **Battles slice C — conquest and the celebration.** Noblemen, loyalty, a
+   village actually changing hands, and the big skippable spectacle spec §5
+   asks for. Nothing so far transfers ownership. `conquestWarVictoryPoints`
+   already exists in game-core and nothing calls it.
 4. **VPS pick + deploy** (~$5/mo, always-on) and secret management. Until
    then only Studio can reach the world server; published Roblox servers
    cannot call 127.0.0.1.
