@@ -40,6 +40,7 @@ type QueueRequest = {
 	troop: string?,
 	quantity: number?,
 	targetVillageId: string?,
+	plan: { [string]: string }?,
 }
 type QueueResult = { ok: boolean, message: string }
 
@@ -66,6 +67,55 @@ end
 
 local function isKnownTroop(troop: string?): boolean
 	return typeof(troop) == "string" and Buildings.TROOP_NAMES[troop] ~= nil
+end
+
+local function hasScoutReport(snapshot: any, targetVillageId: string): boolean
+	local reports = snapshot and snapshot.scoutReports
+	if typeof(reports) ~= "table" then
+		return false
+	end
+	for _, report in reports do
+		if tostring(report.targetVillageId) == targetVillageId then
+			return true
+		end
+	end
+	return false
+end
+
+-- Rebuilds the plan from the shared axes rather than trusting the client's
+-- table: an unknown value can never reach the world server, and a missing one
+-- falls back to that axis's first option instead of failing the whole order.
+local function sanitizePlan(plan: { [string]: string }?): { [string]: string }
+	local safe = Buildings.defaultAttackPlan()
+	if typeof(plan) ~= "table" then
+		return safe
+	end
+	for _, axis in Buildings.ATTACK_PLAN_AXES do
+		local chosen = plan[axis.key]
+		for _, option in axis.options do
+			if chosen == option then
+				safe[axis.key] = option
+				break
+			end
+		end
+	end
+	return safe
+end
+
+-- Everything in the village that can actually fight, scouts and noblemen
+-- excluded. Returns the army and its unit count.
+local function musterFrom(village: any): ({ [string]: number }, number)
+	local army: { [string]: number } = {}
+	local total = 0
+	for _, troop in Buildings.TROOP_ORDER do
+		local count = 0
+		if not Buildings.ATTACK_MUSTER_EXCLUDES[troop] then
+			count = math.max(math.floor(tonumber(village and village.army and village.army[troop]) or 0), 0)
+		end
+		army[troop] = count
+		total += count
+	end
+	return army, total
 end
 
 -- Returns (command, fingerprint, refusal). A refusal is a LOCAL, honest "no"
@@ -127,6 +177,42 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 		}, string.format("scout:%s:%s:%d", request.villageId, targetId, quantity), nil
 	end
 
+	if request.kind == "attack" then
+		if typeof(request.targetVillageId) ~= "string" then
+			return nil, nil, "Pick a village to attack."
+		end
+		local targetId = request.targetVillageId :: string
+		local target = findVillage(snapshot, targetId)
+		if not target then
+			return nil, nil, "That village is not on the map."
+		end
+		if target.kingdomId == kingdomId then
+			return nil, nil, "That is your own village."
+		end
+		-- The world server enforces this too (SCOUT_REQUIRED); saying it here
+		-- turns a round trip into an instant, honest answer.
+		if not hasScoutReport(snapshot, targetId) then
+			return nil, nil, "Scout them first — nobody attacks blind."
+		end
+		local from = findVillage(snapshot, request.villageId)
+		local army, total = musterFrom(from)
+		if total < 1 then
+			return nil, nil, "No fighting troops in this village."
+		end
+		local plan = sanitizePlan(request.plan)
+		return {
+			type = "march.launch",
+			payload = {
+				fromVillageId = request.villageId,
+				targetVillageId = targetId,
+				kind = "attack",
+				army = army,
+				plan = plan,
+			},
+		}, string.format("attack:%s:%s:%d:%s:%s:%s:%s",
+			request.villageId, targetId, total, plan.entry, plan.troops, plan.time, plan.style), nil
+	end
+
 	return nil, nil, nil
 end
 
@@ -184,7 +270,13 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 		end
 		if typeof(body) == "table" and body.type == "command.accepted" then
 			WorldSession.refetch(player)
-			result = { ok = true, message = if request.kind == "scout" then "Scouts are away." else "By your order." }
+			local success = "By your order."
+			if request.kind == "scout" then
+				success = "Scouts are away."
+			elseif request.kind == "attack" then
+				success = "The army marches."
+			end
+			result = { ok = true, message = success }
 			break
 		end
 		if typeof(body) == "table" and body.type == "command.rejected" then

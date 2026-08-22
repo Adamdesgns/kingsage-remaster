@@ -170,6 +170,53 @@ local function nearestForeign(home: any): any
 	return best
 end
 
+local function resolvedBattleCount(): number
+	local count = 0
+	for _, battle in ((snapshot and snapshot.battleSessions) or {}) do
+		if battle.outcome then
+			count += 1
+		end
+	end
+	return count
+end
+
+local function scoutedTargetId(): string?
+	for _, report in ((snapshot and snapshot.scoutReports) or {}) do
+		return tostring(report.targetVillageId)
+	end
+	return nil
+end
+
+-- One attack per session, after the scout report lands: enough to carry the
+-- whole chain on camera without emptying the village every loop.
+local function sendAttack(): boolean
+	local home = homeVillage()
+	if not home or resolvedBattleCount() > 0 then
+		return false
+	end
+	for _, march in ((snapshot and snapshot.marches) or {}) do
+		local status = tostring(march.status)
+		if tostring(march.kind) == "attack" and status ~= "complete" then
+			return false
+		end
+	end
+	local targetId = scoutedTargetId()
+	if not targetId then
+		return false
+	end
+	local ok = pcall(function()
+		queueCommand:InvokeServer({
+			kind = "attack",
+			villageId = tostring(home.id),
+			targetVillageId = targetId,
+			-- A deliberately non-default plan, so the recording proves the
+			-- plan travels with the order rather than being ignored.
+			plan = { entry = "West Ridge", troops = "Balanced Army", time = "Dawn", style = "Flanking Strike" },
+		})
+	end)
+	return ok
+end
+
 -- Returns true when a scout was actually dispatched.
 local function sendScouts(): boolean
 	local home = homeVillage()
@@ -242,6 +289,26 @@ task.spawn(function()
 			task.wait(1)
 			setTab("war")
 			task.wait(8)
+
+			-- --- and then the attack it made possible ---
+			local battlesBefore = resolvedBattleCount()
+			if sendAttack() then
+				-- "The army marches." + the attack countdown on the HUD.
+				task.wait(8)
+				walkTo(model, 0, 40, 8)
+				walkTo(model, 20, 30, 8)
+				-- Nobody attends: the world server fights it on its own and
+				-- the toast that lands is the point of the whole slice.
+				local waited = 0
+				while resolvedBattleCount() <= battlesBefore and waited < 240 do
+					waited += task.wait(2)
+				end
+				walkTo(model, 4, 20, 10)
+				holdPrompt(model, "WarTable", "TablePrompt")
+				task.wait(1)
+				setTab("war")
+				task.wait(10) -- the battle report card
+			end
 		else
 			task.wait(4)
 		end

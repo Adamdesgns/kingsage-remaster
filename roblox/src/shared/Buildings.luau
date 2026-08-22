@@ -66,6 +66,33 @@ Buildings.SCOUT_PRESET = {
 -- (server rule), so this is the whole army for that command.
 Buildings.SCOUT_PARTY = 1
 
+-- The four axes of an attack plan. Values MUST match game-core's BattlePlan
+-- exactly (contracts.ts) — the world server refuses anything else, and the
+-- client should never be able to compose an order the realm cannot read.
+-- Order of options is the order the tap-to-cycle button walks them.
+Buildings.ATTACK_PLAN_AXES = {
+	{ key = "entry", label = "Approach", options = { "West Ridge", "Main Breach", "East Woods" } },
+	{ key = "troops", label = "Formation", options = { "Vanguard Heavy", "Balanced Army", "Cavalry Wing" } },
+	{ key = "time", label = "Timing", options = { "Dawn", "Midday", "Night" } },
+	{ key = "style", label = "Style", options = { "Siege Push", "Flanking Strike", "Full Assault" } },
+}
+
+-- Troops an attack muster deliberately leaves at home. Scouts cannot fight
+-- (attack 0) and belong to reconnaissance; noblemen are the conquest piece and
+-- cost a fortune, so slice A never risks one on an ordinary raid.
+Buildings.ATTACK_MUSTER_EXCLUDES = {
+	scout = true,
+	noble = true,
+}
+
+function Buildings.defaultAttackPlan(): { [string]: string }
+	local plan = {}
+	for _, axis in Buildings.ATTACK_PLAN_AXES do
+		plan[axis.key] = axis.options[1]
+	end
+	return plan
+end
+
 function Buildings.displayName(building: string): string
 	return Buildings.NAMES[building] or building
 end

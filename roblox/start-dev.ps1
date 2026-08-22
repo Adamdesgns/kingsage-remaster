@@ -2,11 +2,13 @@
 # Right-click > Run with PowerShell (or: powershell -ExecutionPolicy Bypass -File roblox\start-dev.ps1)
 $repo = Split-Path $PSScriptRoot -Parent
 
-# 1. World server on 4178 (skip if already listening)
+# 1. World server on 4178 (skip if already listening).
+#    AUTO_RESOLVE 25s so an unattended attack settles inside a demo recording;
+#    production leaves it unset and gets the store default (2 minutes).
 $listening = Get-NetTCPConnection -LocalPort 4178 -State Listen -ErrorAction SilentlyContinue
 if (-not $listening) {
     Start-Process powershell -ArgumentList "-NoExit", "-Command",
-        "`$env:PORT='4178'; `$env:KINGSAGE_ROBLOX_KEY='dev-secret-local-0001'; Set-Location '$repo'; npm run start:world"
+        "`$env:PORT='4178'; `$env:KINGSAGE_ROBLOX_KEY='dev-secret-local-0001'; `$env:KINGSAGE_AUTO_RESOLVE_MS='25000'; Set-Location '$repo'; npm run start:world"
     Start-Sleep -Seconds 3
     Write-Host "world server started on 4178"
 } else {

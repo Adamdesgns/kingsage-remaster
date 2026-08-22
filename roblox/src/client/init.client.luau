@@ -278,6 +278,21 @@ local tableInfo: { centerX: number, centerZ: number, boundsHalf: number, village
 local tablePanel: Frame? = nil
 local activeTab: string = "village"
 
+-- The attack plan being composed at the table. Module-level so it survives the
+-- panel rebuild that happens on every heartbeat; it is display state only, and
+-- the Roblox server rebuilds the plan from the shared axes before sending it.
+local attackPlan: { [string]: string } = Buildings.defaultAttackPlan()
+
+-- Attacking commits every fighting troop in the village, so it takes two taps:
+-- the first arms that one target, the second sends. Arming lapses on its own.
+local ARM_SECONDS = 6
+local armedTargetId: string? = nil
+local armedAt = 0
+
+local function attackIsArmed(targetId: string): boolean
+	return armedTargetId == targetId and (os.clock() - armedAt) < ARM_SECONDS
+end
+
 local function exitTableView()
 	if not inTableView then
 		return
@@ -318,9 +333,9 @@ local function sectionHeader(parent: Instance, order: number, text: string): Tex
 	return header
 end
 
-local function noteRow(parent: Instance, order: number, text: string): TextLabel
+local function noteRow(parent: Instance, order: number, text: string, height: number?): TextLabel
 	local note = makeLabel(parent, "Note")
-	note.Size = UDim2.new(1, -8, 0, 26)
+	note.Size = UDim2.new(1, -8, 0, height or 26)
 	note.LayoutOrder = order
 	note.TextXAlignment = Enum.TextXAlignment.Left
 	note.TextTransparency = 0.4
@@ -357,6 +372,40 @@ local function actionRow(parent: Instance, order: number, text: string, buttonTe
 	button.Text = buttonText
 	button.Parent = row
 	button.Activated:Connect(onClick)
+	return row
+end
+
+type RowAction = { label: string, color: Color3, onClick: () -> () }
+
+-- A row carrying two buttons: label on the left, both actions on the right.
+local function dualActionRow(parent: Instance, order: number, text: string, left: RowAction, right: RowAction): Frame
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, -8, 0, 40)
+	row.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+	row.BackgroundTransparency = 0.2
+	row.LayoutOrder = order
+	row.Parent = parent
+
+	local nameLabel = makeLabel(row, "Name")
+	nameLabel.Size = UDim2.new(0.52, 0, 1, 0)
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.TextScaled = false
+	nameLabel.TextSize = 13
+	nameLabel.TextWrapped = true
+	nameLabel.Text = "  " .. text
+
+	for index, action in { left, right } do
+		local button = Instance.new("TextButton")
+		button.Size = UDim2.new(0.21, 0, 0.8, 0)
+		button.Position = UDim2.new(0.545 + (index - 1) * 0.225, 0, 0.1, 0)
+		button.BackgroundColor3 = action.color
+		button.TextColor3 = Color3.new(1, 1, 1)
+		button.Font = Enum.Font.GothamBold
+		button.TextScaled = true
+		button.Text = action.label
+		button.Parent = row
+		button.Activated:Connect(action.onClick)
+	end
 	return row
 end
 
@@ -409,9 +458,10 @@ end
 
 -- Every troop the report actually saw, in the canonical order. Zero counts are
 -- omitted: "no axemen observed" and "0 axemen" are not the same claim.
-local function armySummary(army: any): string
+local function armySummary(army: any, emptyText: string?): string
+	local nothing = emptyText or "no troops at home"
 	if typeof(army) ~= "table" then
-		return "nothing moving"
+		return nothing
 	end
 	local parts: { string } = {}
 	for _, troop in Buildings.TROOP_ORDER do
@@ -421,9 +471,48 @@ local function armySummary(army: any): string
 		end
 	end
 	if #parts == 0 then
-		return "no troops at home"
+		return nothing
 	end
 	return table.concat(parts, ", ")
+end
+
+-- Everything in this village that would march on an attack. Mirrors
+-- CommandService.musterFrom — if one changes, change both.
+local function musterCount(village: any): number
+	local total = 0
+	for _, troop in Buildings.TROOP_ORDER do
+		if not Buildings.ATTACK_MUSTER_EXCLUDES[troop] then
+			total += math.max(math.floor(tonumber(village and village.army and village.army[troop]) or 0), 0)
+		end
+	end
+	return total
+end
+
+local function hasReportFor(targetVillageId: string): boolean
+	local snapshot = latest.snapshot
+	local reports = snapshot and snapshot.scoutReports
+	if typeof(reports) ~= "table" then
+		return false
+	end
+	for _, report in reports do
+		if tostring(report.targetVillageId) == targetVillageId then
+			return true
+		end
+	end
+	return false
+end
+
+local function battleVerdict(battle: any, myKingdom: string?): string
+	local outcome = battle and battle.outcome
+	if not outcome then
+		return "In progress"
+	end
+	local iAttacked = tostring(battle.attackerKingdomId) == myKingdom
+	local iWon = (outcome.winner == "attacker") == iAttacked
+	if tostring(battle.status) == "retreated" then
+		return if iAttacked then "Withdrew" else "They withdrew"
+	end
+	return if iWon then "Victory" else "Defeat"
 end
 
 local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: string)
@@ -467,14 +556,23 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 	if #targets == 0 then
 		noteRow(scroll, nextOrder(), "No foreign settlements in this world yet.")
 	end
+	local muster = musterCount(village)
 	for _, target in targets do
 		local targetId = tostring(target.id)
-		local text = string.format("%s — %s · %d tiles",
-			tostring(target.name), kingdomNameFor(tostring(target.kingdomId)), math.floor(tileDistance(village, target) + 0.5))
-		local enabled = scoutsOnHand >= Buildings.SCOUT_PARTY
-		actionRow(scroll, nextOrder(), text, if enabled then "Scout" else "—",
-			if enabled then Color3.fromRGB(45, 60, 85) else Color3.fromRGB(45, 45, 45), function()
-				if not enabled then
+		local scouted = hasReportFor(targetId)
+		local text = string.format("%s — %s · %d tiles%s",
+			tostring(target.name), kingdomNameFor(tostring(target.kingdomId)),
+			math.floor(tileDistance(village, target) + 0.5),
+			if scouted then "" else "\n  not scouted")
+		local canScout = scoutsOnHand >= Buildings.SCOUT_PARTY
+		local canAttack = scouted and muster > 0
+		local armed = attackIsArmed(targetId)
+
+		dualActionRow(scroll, nextOrder(), text, {
+			label = if canScout then "Scout" else "—",
+			color = if canScout then Color3.fromRGB(45, 60, 85) else Color3.fromRGB(45, 45, 45),
+			onClick = function()
+				if not canScout then
 					toast("No scouts in this village — recruit some first.", false)
 					return
 				end
@@ -484,6 +582,65 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 					targetVillageId = targetId,
 					quantity = Buildings.SCOUT_PARTY,
 				})
+			end,
+		}, {
+			label = if armed then "SEND?" else "Attack",
+			color = if armed
+				then Color3.fromRGB(120, 45, 35)
+				else (if canAttack then Color3.fromRGB(80, 45, 40) else Color3.fromRGB(45, 45, 45)),
+			onClick = function()
+				if not scouted then
+					toast("Scout them first — nobody attacks blind.", false)
+					return
+				end
+				if muster < 1 then
+					toast("No fighting troops in this village.", false)
+					return
+				end
+				-- First tap arms, second sends: this commits the whole garrison.
+				if not attackIsArmed(targetId) then
+					armedTargetId = targetId
+					armedAt = os.clock()
+					toast(string.format("Tap again to send %d troops at %s.", muster, tostring(target.name)), true)
+					buildTablePanel()
+					-- Let the button say "Attack" again the moment it stops
+					-- meaning "SEND?", instead of at the next heartbeat.
+					task.delay(ARM_SECONDS + 0.1, function()
+						if inTableView and not attackIsArmed(targetId) then
+							buildTablePanel()
+						end
+					end)
+					return
+				end
+				armedTargetId = nil
+				invokeQueue({
+					kind = "attack",
+					villageId = villageId,
+					targetVillageId = targetId,
+					plan = attackPlan,
+				})
+			end,
+		})
+	end
+
+	-- --- attack plan ---
+	sectionHeader(scroll, nextOrder(), "ATTACK PLAN")
+	noteRow(scroll, nextOrder(), string.format(
+		"An attack musters every fighting troop here (%d) — scouts and noblemen stay home. The plan is fought even if you are offline when it lands.",
+		muster), 56)
+	for _, axis in Buildings.ATTACK_PLAN_AXES do
+		local current = attackPlan[axis.key] or axis.options[1]
+		actionRow(scroll, nextOrder(), string.format("%s: %s", axis.label, current), "Change",
+			Color3.fromRGB(45, 45, 60), function()
+				local nextIndex = 1
+				for index, option in axis.options do
+					if option == current then
+						nextIndex = (index % #axis.options) + 1
+						break
+					end
+				end
+				attackPlan[axis.key] = axis.options[nextIndex]
+				buildTablePanel()
 			end)
 	end
 
@@ -551,6 +708,71 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 			math.floor(tonumber(observed.wall) or 0),
 			math.floor(tonumber(observed.hq) or 0),
 			ageText(report.createdAt)
+		)
+	end
+
+	-- --- battle reports ---
+	-- The snapshot carries every battle this kingdom was in, as attacker OR
+	-- defender, so a raid on your own walls reads here too.
+	sectionHeader(scroll, nextOrder(), "BATTLE REPORTS")
+	local battles: { any } = {}
+	for _, battle in ((snapshot and snapshot.battleSessions) or {}) do
+		if battle.outcome then
+			table.insert(battles, battle)
+		end
+	end
+	table.sort(battles, function(left, right)
+		return tostring(left.resolvedAt or left.openedAt) > tostring(right.resolvedAt or right.openedAt)
+	end)
+	if #battles == 0 then
+		noteRow(scroll, nextOrder(), "No battles fought yet.")
+	end
+	for index, battle in battles do
+		if index > 4 then
+			break
+		end
+		local outcome = battle.outcome
+		local iAttacked = tostring(battle.attackerKingdomId) == kingdomId
+		local mine = if iAttacked then outcome.attackerCasualties else outcome.defenderCasualties
+		local theirs = if iAttacked then outcome.defenderCasualties else outcome.attackerCasualties
+		local loot = outcome.loot or { wood = 0, stone = 0, iron = 0 }
+		local lootTotal = math.floor((tonumber(loot.wood) or 0) + (tonumber(loot.stone) or 0) + (tonumber(loot.iron) or 0))
+		local yieldedCount = 0
+		for _, troop in Buildings.TROOP_ORDER do
+			yieldedCount += math.floor(tonumber(outcome.yielded and outcome.yielded[troop]) or 0)
+		end
+
+		local card = Instance.new("Frame")
+		card.Size = UDim2.new(1, -8, 0, 118)
+		card.BackgroundColor3 = if battleVerdict(battle, kingdomId) == "Victory"
+			then Color3.fromRGB(26, 34, 26)
+			else Color3.fromRGB(38, 26, 26)
+		card.BackgroundTransparency = 0.15
+		card.LayoutOrder = nextOrder()
+		card.Parent = scroll
+
+		local body = makeLabel(card, "Body")
+		body.Size = UDim2.new(1, -12, 1, -8)
+		body.Position = UDim2.new(0, 8, 0, 4)
+		body.TextXAlignment = Enum.TextXAlignment.Left
+		body.TextYAlignment = Enum.TextYAlignment.Top
+		body.TextScaled = false
+		body.TextSize = 14
+		body.TextWrapped = true
+		body.Text = string.format(
+			"%s — %s %s\nYour losses: %s\nTheir losses: %s\n%s%s",
+			battleVerdict(battle, kingdomId),
+			if iAttacked then "attack on" else "defence of",
+			villageLabel(tostring(battle.defenderVillageId)),
+			armySummary(mine, "none"),
+			armySummary(theirs, "none"),
+			if lootTotal > 0 then string.format("Plunder: %d resources\n", lootTotal) else "",
+			if yieldedCount > 0
+				then string.format("%d %s surrendered and now serve %s",
+					yieldedCount,
+					if yieldedCount == 1 then "soldier" else "soldiers",
+					if iAttacked then "you" else "them")
+				else ageText(battle.resolvedAt)
 		)
 	end
 end
@@ -699,19 +921,38 @@ end
 -- Report ids already seen, so a freshly arrived report toasts exactly once.
 -- Seeded silently from the first snapshot: rejoining must not replay history.
 local seenReports: { [string]: boolean } = {}
+local seenBattles: { [string]: boolean } = {}
 local seededReports = false
 
 local function announceNewReports(snapshot: any)
 	local reports = snapshot and snapshot.scoutReports
-	if typeof(reports) ~= "table" then
-		return
+	if typeof(reports) == "table" then
+		for _, report in reports do
+			local id = tostring(report.id)
+			if not seenReports[id] then
+				seenReports[id] = true
+				if seededReports then
+					toast(string.format("Scouts are back from %s.", tostring(report.targetVillageName)), true)
+				end
+			end
+		end
 	end
-	for _, report in reports do
-		local id = tostring(report.id)
-		if not seenReports[id] then
-			seenReports[id] = true
-			if seededReports then
-				toast(string.format("Scouts are back from %s.", tostring(report.targetVillageName)), true)
+
+	-- A battle can finish while you are anywhere in the world — including one
+	-- fought at your own walls by someone else's army, or one the server
+	-- resolved for you because you were not there.
+	local kingdomId = myKingdomId()
+	local battles = snapshot and snapshot.battleSessions
+	if typeof(battles) == "table" then
+		for _, battle in battles do
+			local id = tostring(battle.id)
+			if battle.outcome and not seenBattles[id] then
+				seenBattles[id] = true
+				if seededReports then
+					local verdict = battleVerdict(battle, kingdomId)
+					toast(string.format("%s at %s.", verdict, villageLabel(tostring(battle.defenderVillageId))),
+						verdict == "Victory")
+				end
 			end
 		end
 	end
