@@ -8,12 +8,15 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Buildings = require(ReplicatedStorage:WaitForChild("WorldShared"):WaitForChild("Buildings"))
+local worldShared = ReplicatedStorage:WaitForChild("WorldShared")
+local Buildings = require(worldShared:WaitForChild("Buildings"))
+local Config = require(worldShared:WaitForChild("Config"))
 
 local SettlementBuilder = {}
 
-local TILE = 220 -- studs per world-map tile (50x50 grid)
-local WALL_HALF = 55
+-- Shared with the battle scene, which has to form up on the same ground.
+local TILE = Config.TILE_STUDS
+local WALL_HALF = Config.WALL_HALF
 local BUILDING_FOOTPRINT = 12
 
 -- Fixed layout inside a settlement: gate faces +Z (south); main street runs

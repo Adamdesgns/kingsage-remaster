@@ -18,6 +18,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local shared = ReplicatedStorage:WaitForChild("WorldShared")
 local Buildings = require(shared:WaitForChild("Buildings"))
+local BattleConfig = require(shared:WaitForChild("BattleConfig"))
 local ApiClient = require(script.Parent:WaitForChild("ApiClient"))
 local WorldSession = require(script.Parent:WaitForChild("WorldSession"))
 
@@ -31,16 +32,31 @@ local COPY_OUTDATED = "The kingdom has been updated — rejoin to get the new ve
 local COPY_KEPT_CHANGING = "The world kept changing — try again."
 local REPEAT_SECONDS = 2
 
+-- Commands that act on a battle rather than on a village.
+local BATTLE_KINDS: { [string]: boolean } = {
+	battleOpen = true,
+	battleOrder = true,
+	battleResolve = true,
+	battleRetreat = true,
+}
+
 local CommandService = {}
 
 type QueueRequest = {
 	kind: string,
-	villageId: string,
+	-- Battle commands act on a battle, not a village, so this is optional.
+	villageId: string?,
 	building: string?,
 	troop: string?,
 	quantity: number?,
 	targetVillageId: string?,
 	plan: { [string]: string }?,
+	battleId: string?,
+	marchId: string?,
+	squad: string?,
+	x: number?,
+	y: number?,
+	atMs: number?,
 }
 type QueueResult = { ok: boolean, message: string }
 
@@ -118,13 +134,64 @@ local function musterFrom(village: any): ({ [string]: number }, number)
 	return army, total
 end
 
+-- Battle-order sequence per battle. The world server refuses anything but the
+-- next number, and the snapshot it comes from can be up to a heartbeat stale,
+-- so this Roblox server counts its own accepted orders. Every order for a
+-- battle passes through here, so the count is authoritative between syncs; a
+-- refusal still carries the real number and corrects it (see runQueue).
+local orderSequence: { [string]: number } = {}
+
+local function findBattle(snapshot: any, battleId: string): any
+	local battles = snapshot and snapshot.battleSessions
+	if typeof(battles) ~= "table" then
+		return nil
+	end
+	for _, battle in battles do
+		if tostring(battle.id) == battleId then
+			return battle
+		end
+	end
+	return nil
+end
+
+local function findMarch(snapshot: any, marchId: string): any
+	for _, march in ((snapshot and snapshot.marches) or {}) do
+		if tostring(march.id) == marchId then
+			return march
+		end
+	end
+	return nil
+end
+
+-- The scout report this player holds on a village, if any.
+local function reportFor(snapshot: any, villageId: string): any
+	for _, report in ((snapshot and snapshot.scoutReports) or {}) do
+		if tostring(report.targetVillageId) == villageId then
+			return report
+		end
+	end
+	return nil
+end
+
+local function nextSequence(battleId: string, battle: any): number
+	local known = math.max(math.floor(tonumber(battle and battle.acceptedOrders) or 0), 0)
+	local mine = orderSequence[battleId] or 0
+	local base = math.max(known, mine)
+	orderSequence[battleId] = base
+	return base + 1
+end
+
 -- Returns (command, fingerprint, refusal). A refusal is a LOCAL, honest "no"
 -- that saves a round trip; anything the client cannot know for certain is left
 -- to the world server, whose message is what the player then reads.
 local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: string): ({ [string]: any }?, string?, string?)
+	-- runQueue guarantees a real villageId for every kind below; the battle
+	-- kinds that legitimately have none are handled after them.
+	local villageId = villageId or ""
+
 	if request.kind == "build" and typeof(request.building) == "string" then
-		return { type = "village.build.queue", payload = { villageId = request.villageId, building = request.building } },
-			"build:" .. request.villageId .. ":" .. request.building,
+		return { type = "village.build.queue", payload = { villageId = villageId, building = request.building } },
+			"build:" .. villageId .. ":" .. request.building,
 			nil
 	end
 
@@ -134,8 +201,8 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 		end
 		local troop = request.troop :: string
 		local quantity = math.clamp(math.floor(tonumber(request.quantity) or 0), 1, 500)
-		return { type = "village.recruit.queue", payload = { villageId = request.villageId, troop = troop, quantity = quantity } },
-			"recruit:" .. request.villageId .. ":" .. troop .. ":" .. quantity,
+		return { type = "village.recruit.queue", payload = { villageId = villageId, troop = troop, quantity = quantity } },
+			"recruit:" .. villageId .. ":" .. troop .. ":" .. quantity,
 			nil
 	end
 
@@ -151,7 +218,7 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 		if target.kingdomId == kingdomId then
 			return nil, nil, "That is your own village."
 		end
-		local from = findVillage(snapshot, request.villageId)
+		local from = findVillage(snapshot, villageId)
 		local quantity = math.clamp(math.floor(tonumber(request.quantity) or Buildings.SCOUT_PARTY), 1, 50)
 		local onHand = math.floor(tonumber(from and from.army and from.army.scout) or 0)
 		if onHand < quantity then
@@ -169,12 +236,12 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 		return {
 			type = "march.launch",
 			payload = {
-				fromVillageId = request.villageId,
+				fromVillageId = villageId,
 				targetVillageId = targetId,
 				kind = "scout",
 				army = army,
 			},
-		}, string.format("scout:%s:%s:%d", request.villageId, targetId, quantity), nil
+		}, string.format("scout:%s:%s:%d", villageId, targetId, quantity), nil
 	end
 
 	if request.kind == "attack" then
@@ -194,7 +261,7 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 		if not hasScoutReport(snapshot, targetId) then
 			return nil, nil, "Scout them first — nobody attacks blind."
 		end
-		local from = findVillage(snapshot, request.villageId)
+		local from = findVillage(snapshot, villageId)
 		local army, total = musterFrom(from)
 		if total < 1 then
 			return nil, nil, "No fighting troops in this village."
@@ -203,14 +270,110 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 		return {
 			type = "march.launch",
 			payload = {
-				fromVillageId = request.villageId,
+				fromVillageId = villageId,
 				targetVillageId = targetId,
 				kind = "attack",
 				army = army,
 				plan = plan,
 			},
 		}, string.format("attack:%s:%s:%d:%s:%s:%s:%s",
-			request.villageId, targetId, total, plan.entry, plan.troops, plan.time, plan.style), nil
+			villageId, targetId, total, plan.entry, plan.troops, plan.time, plan.style), nil
+	end
+
+	-- ---- attending a battle (slice B) ----
+
+	if request.kind == "battleOpen" then
+		if typeof(request.marchId) ~= "string" then
+			return nil, nil, "No army is waiting at those walls."
+		end
+		local marchId = request.marchId :: string
+		local march = findMarch(snapshot, marchId)
+		if not march or tostring(march.status) ~= "awaiting_battle" then
+			return nil, nil, "That army has not reached the walls yet."
+		end
+		local targetId = tostring(march.targetVillageId)
+		local report = reportFor(snapshot, targetId)
+		if not report then
+			return nil, nil, "You hold no report on that village."
+		end
+		-- The world server refuses a report taken before the defender changed
+		-- (STALE_SCOUT_REPORT). Saying it here explains WHY, which its code
+		-- alone cannot: the player has to send scouts again.
+		local target = findVillage(snapshot, targetId)
+		local reportVersion = math.floor(tonumber(report.targetVillageVersion) or -1)
+		local currentVersion = math.floor(tonumber(target and target.stateVersion) or -1)
+		if currentVersion >= 0 and reportVersion ~= currentVersion then
+			return nil, nil, "They have changed since your report — scout again before you commit."
+		end
+		return {
+			type = "battle.open",
+			payload = {
+				marchId = marchId,
+				targetVillageVersion = reportVersion,
+				plan = sanitizePlan(request.plan),
+			},
+		}, "battleOpen:" .. marchId, nil
+	end
+
+	if request.kind == "battleOrder" then
+		if typeof(request.battleId) ~= "string" then
+			return nil, nil, "No battle to command."
+		end
+		local battleId = request.battleId :: string
+		local battle = findBattle(snapshot, battleId)
+		if not battle or tostring(battle.status) ~= "open" then
+			return nil, nil, "That battle is already decided."
+		end
+		local squad = tostring(request.squad)
+		local known = false
+		for _, definition in BattleConfig.SQUADS do
+			if definition.id == squad then
+				known = true
+				break
+			end
+		end
+		if not known then
+			return nil, nil, "No such squad."
+		end
+		local sequence = nextSequence(battleId, battle)
+		local x = math.clamp(math.floor(tonumber(request.x) or 0), 0, BattleConfig.ORDER_SPACE)
+		local y = math.clamp(math.floor(tonumber(request.y) or 0), 0, BattleConfig.ORDER_SPACE)
+		local atMs = math.clamp(math.floor(tonumber(request.atMs) or 0), 0, 600000)
+		return {
+			type = "battle.order",
+			payload = { battleId = battleId, sequence = sequence, squad = squad, x = x, y = y, atMs = atMs },
+		}, string.format("battleOrder:%s:%d", battleId, sequence), nil
+	end
+
+	if request.kind == "battleResolve" then
+		if typeof(request.battleId) ~= "string" then
+			return nil, nil, "No battle to settle."
+		end
+		local battleId = request.battleId :: string
+		local battle = findBattle(snapshot, battleId)
+		if not battle or tostring(battle.status) ~= "open" then
+			return nil, nil, "That battle is already decided."
+		end
+		return { type = "battle.resolve", payload = { battleId = battleId } }, "battleResolve:" .. battleId, nil
+	end
+
+	if request.kind == "battleRetreat" then
+		if typeof(request.battleId) ~= "string" then
+			return nil, nil, "No battle to leave."
+		end
+		local battleId = request.battleId :: string
+		local battle = findBattle(snapshot, battleId)
+		if not battle or tostring(battle.status) ~= "open" then
+			return nil, nil, "That battle is already decided."
+		end
+		return {
+			type = "battle.retreat",
+			payload = {
+				battleId = battleId,
+				sequence = nextSequence(battleId, battle),
+				atMs = math.clamp(math.floor(tonumber(request.atMs) or 0), 0, 600000),
+			},
+		}, "battleRetreat:" .. battleId, nil
 	end
 
 	return nil, nil, nil
@@ -238,15 +401,23 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 	if identity.outdated then
 		return { ok = false, message = COPY_OUTDATED }
 	end
-	if typeof(request) ~= "table" or typeof(request.villageId) ~= "string" then
+	if typeof(request) ~= "table" or typeof(request.kind) ~= "string" then
 		return { ok = false, message = "That order made no sense." }
 	end
-	-- Every command departs from a village this player owns, scouting
-	-- included: the target may be foreign, the muster ground never is.
-	if not ownsVillage(snapshot, identity.kingdomId, request.villageId) then
-		return { ok = false, message = "That is not your village." }
+	-- Anything that leaves a village departs from one this player owns —
+	-- scouting and attacking included: the target may be foreign, the muster
+	-- ground never is. Battle commands act on a battle instead, and the world
+	-- server checks that the battle belongs to this kingdom.
+	if not BATTLE_KINDS[request.kind] then
+		if typeof(request.villageId) ~= "string" then
+			return { ok = false, message = "That order made no sense." }
+		end
+		if not ownsVillage(snapshot, identity.kingdomId, request.villageId) then
+			return { ok = false, message = "That is not your village." }
+		end
 	end
 	local command, fingerprint, refusal = buildCommand(request, snapshot, identity.kingdomId)
+	-- reassigned by the INVALID_ORDER correction below
 	if refusal then
 		return { ok = false, message = refusal }
 	end
@@ -275,6 +446,17 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 				success = "Scouts are away."
 			elseif request.kind == "attack" then
 				success = "The army marches."
+			elseif request.kind == "battleOpen" then
+				success = "The lines are drawn."
+			elseif request.kind == "battleOrder" then
+				success = "Order carried."
+			elseif request.kind == "battleResolve" then
+				success = "The charge is called."
+			elseif request.kind == "battleRetreat" then
+				success = "Falling back."
+			end
+			if command.payload and command.payload.sequence and typeof(request.battleId) == "string" then
+				orderSequence[request.battleId] = command.payload.sequence
 			end
 			result = { ok = true, message = success }
 			break
@@ -290,6 +472,21 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 			elseif code == "WORLD_VERSION_CONFLICT" then
 				result = { ok = false, message = COPY_KEPT_CHANGING }
 				break
+			elseif code == "INVALID_ORDER" and attempt == 1 and typeof(request.battleId) == "string" then
+				-- The realm names the sequence it wants. Take it and try once
+				-- more, rather than making the player tap again for a number
+				-- they cannot see.
+				local told = tonumber(string.match(tostring(body.payload and body.payload.message or ""), "sequence (%d+)"))
+				if told then
+					orderSequence[request.battleId] = told - 1
+					local rebuilt, _rebuiltFingerprint = buildCommand(request, snapshot, identity.kingdomId)
+					if rebuilt then
+						command = rebuilt
+					end
+				else
+					result = { ok = false, message = tostring(body.payload and body.payload.message or "The realm refused that order.") }
+					break
+				end
 			else
 				result = { ok = false, message = tostring(body.payload and body.payload.message or "The realm refused that order.") }
 				break

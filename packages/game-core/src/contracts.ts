@@ -173,6 +173,22 @@ export type BattleSessionState = {
   status: BattleStatus;
   plan: BattlePlan;
   seed: string;
+  /**
+   * The armies as they stood when the battle was frozen. Both sides are safe
+   * to send: a battle is only ever in the snapshot of a kingdom that fought
+   * it, and by the time it opens the two armies are standing in front of each
+   * other. Without these a client cannot render the fight while it is still
+   * open, because the outcome (which carries survivors and casualties) does
+   * not exist yet.
+   */
+  attackerArmy: Army;
+  defenderArmy: Army;
+  /**
+   * Squad orders the world server has accepted for this battle. Each is worth
+   * a capped +2% to the attacker, so this is also the honest answer to "does
+   * attending actually do anything".
+   */
+  acceptedOrders: number;
   openedAt: string;
   resolvedAt: string | null;
   outcome: BattleOutcome | null;

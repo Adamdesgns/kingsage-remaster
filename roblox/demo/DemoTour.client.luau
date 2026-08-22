@@ -31,6 +31,19 @@ stateSync.OnClientEvent:Connect(function(payload: any)
 	end
 end)
 
+local function setAttribute(name: string, value: string)
+	local gui = player:FindFirstChild("PlayerGui")
+	local hud = gui and gui:FindFirstChild("WorldHud")
+	if not hud then
+		return
+	end
+	if hud:GetAttribute(name) == value then
+		hud:SetAttribute(name, nil)
+		task.wait()
+	end
+	hud:SetAttribute(name, value)
+end
+
 local function setTab(tab: string)
 	local gui = player:FindFirstChild("PlayerGui")
 	local hud = gui and gui:FindFirstChild("WorldHud")
@@ -217,6 +230,76 @@ local function sendAttack(): boolean
 	return ok
 end
 
+local function waitingMarch(): any
+	for _, march in ((snapshot and snapshot.marches) or {}) do
+		if tostring(march.status) == "awaiting_battle" and not march.battleId then
+			return march
+		end
+	end
+	return nil
+end
+
+local function openBattle(): any
+	for _, battle in ((snapshot and snapshot.battleSessions) or {}) do
+		if tostring(battle.status) == "open" then
+			return battle
+		end
+	end
+	return nil
+end
+
+local function invoke(request: { [string]: any }): boolean
+	return (pcall(function()
+		queueCommand:InvokeServer(request)
+	end))
+end
+
+-- Attend the fight rather than letting the deadline settle it: open the
+-- battle, take the field, give real squad orders (each one is worth a capped
+-- +2% and is visible on the panel), then call the charge. This is the whole
+-- of slice B on camera without a keyboard.
+local function attendBattle()
+	local march = waitingMarch()
+	if not march then
+		return
+	end
+	invoke({ kind = "battleOpen", marchId = tostring(march.id) })
+
+	local waited = 0
+	while not openBattle() and waited < 30 do
+		waited += task.wait(1)
+	end
+	local battle = openBattle()
+	if not battle then
+		return
+	end
+	setAttribute("DemoBattle", "enter")
+	task.wait(5) -- the armies form up and advance
+
+	-- Three orders, one per squad, spread across the field.
+	local points = {
+		{ squad = "vanguard", x = 2500, y = 3200 },
+		{ squad = "riders", x = 3900, y = 2600 },
+		{ squad = "archers", x = 1400, y = 2000 },
+	}
+	for _, order in points do
+		invoke({
+			kind = "battleOrder",
+			battleId = tostring(battle.id),
+			squad = order.squad,
+			x = order.x,
+			y = order.y,
+			atMs = 1000 * math.floor(waited + 5),
+		})
+		task.wait(3)
+	end
+
+	task.wait(4)
+	invoke({ kind = "battleResolve", battleId = tostring(battle.id) })
+	task.wait(12) -- casualties fall, the loser routs
+	setAttribute("DemoBattle", "leave")
+end
+
 -- Returns true when a scout was actually dispatched.
 local function sendScouts(): boolean
 	local home = homeVillage()
@@ -299,9 +382,16 @@ task.spawn(function()
 				walkTo(model, 20, 30, 8)
 				-- Nobody attends: the world server fights it on its own and
 				-- the toast that lands is the point of the whole slice.
+				-- Wait for the army to reach the walls, then ATTEND rather than
+				-- letting the deadline settle it — the point of slice B.
 				local waited = 0
-				while resolvedBattleCount() <= battlesBefore and waited < 240 do
+				while not waitingMarch() and resolvedBattleCount() <= battlesBefore and waited < 240 do
 					waited += task.wait(2)
+				end
+				attendBattle()
+				local settling = 0
+				while resolvedBattleCount() <= battlesBefore and settling < 240 do
+					settling += task.wait(2)
 				end
 				walkTo(model, 4, 20, 10)
 				holdPrompt(model, "WarTable", "TablePrompt")

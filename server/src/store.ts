@@ -867,10 +867,13 @@ export class SharedWorldStore {
       if (!marchRow || String(marchRow.kind) !== "attack" || String(marchRow.status) !== "awaiting_battle") {
         return this.reject(envelope.commandId, "MARCH_NOT_READY", "That attack has not reached the target or already entered battle.", currentVersion);
       }
-      if (!this.db.prepare(`
-        SELECT 1 FROM local_scout_reports
-        WHERE kingdom_id = ? AND target_village_id = ? AND target_village_version = ? LIMIT 1
-      `).get(player.kingdomId, String(marchRow.target_village_id), command.payload.targetVillageVersion)) {
+      if (!this.intelIsCurrent(
+        player.kingdomId,
+        String(marchRow.target_village_id),
+        Number(command.payload.targetVillageVersion),
+        String(marchRow.defender_army_json),
+        String(marchRow.defender_buildings_json),
+      )) {
         return this.reject(envelope.commandId, "STALE_SCOUT_REPORT", "The defender changed after your report. Scout again before opening battle.", currentVersion);
       }
       const plan = command.payload.plan;
@@ -1049,6 +1052,47 @@ export class SharedWorldStore {
       JOIN local_villages v ON v.id = b.defender_village_id
       WHERE b.id = ? AND b.world_id = ? AND b.attacker_kingdom_id = ?
     `).get(battleId, worldId, kingdomId) as DbRow | undefined;
+  }
+
+  /**
+   * Is the intel this player holds still worth attacking on?
+   *
+   * NOT a version equality check, and deliberately so. `state_version` bumps
+   * every time a village earns a single log of wood (see accrueVillage), so a
+   * scout report goes "stale" within minutes of being written no matter what
+   * the defender does. Enforcing version equality would mean an attacker could
+   * essentially never open a battle in a live world, while an attacker who
+   * simply did not show up would always get theirs fought by the deadline —
+   * exactly backwards from "showing up matters" (spec SS5). Frozen-clock tests
+   * hid this because nothing accrues when time does not move.
+   *
+   * The honest rule: the player must hold the report they claim (its version
+   * is the receipt), and what that report actually promised — the garrison and
+   * the wall an attack is planned around — must still be true. Resources the
+   * defender earned in the meantime change nothing an attacker planned for,
+   * and loot is taken from whatever is in the barn when the fight ends anyway.
+   */
+  private intelIsCurrent(
+    kingdomId: string,
+    villageId: string,
+    claimedVersion: number,
+    currentArmyJson: string,
+    currentBuildingsJson: string,
+  ): boolean {
+    const row = this.db.prepare(`
+      SELECT observed_army_json, observed_buildings_json FROM local_scout_reports
+      WHERE kingdom_id = ? AND target_village_id = ? AND target_village_version = ?
+      ORDER BY created_at DESC, id DESC LIMIT 1
+    `).get(kingdomId, villageId, claimedVersion) as DbRow | undefined;
+    if (!row) return false;
+    const observedArmy = parseJson<Army>(row.observed_army_json);
+    const currentArmy = parseJson<Army>(currentArmyJson);
+    for (const troop of TROOP_TYPES) {
+      if (observedArmy[troop] !== currentArmy[troop]) return false;
+    }
+    const observedWall = parseJson<BuildingLevels>(row.observed_buildings_json).wall;
+    const currentWall = parseJson<BuildingLevels>(currentBuildingsJson).wall;
+    return observedWall === currentWall;
   }
 
   /** The attack march joined to everything a battle needs from its target. */
@@ -1536,6 +1580,9 @@ export class SharedWorldStore {
       status: String(row.status) as BattleSessionState["status"],
       plan: parseJson(row.plan_json),
       seed: String(row.seed),
+      attackerArmy: parseJson(row.attacker_army_json),
+      defenderArmy: parseJson(row.defender_army_json),
+      acceptedOrders: Number(row.accepted_orders ?? 0),
       openedAt: String(row.opened_at),
       resolvedAt: row.resolved_at ? String(row.resolved_at) : null,
       outcome: row.outcome_json ? parseJson(row.outcome_json) : null,
@@ -1543,15 +1590,19 @@ export class SharedWorldStore {
   }
 
   private readBattle(battleId: string): BattleSessionState | null {
-    const row = this.db.prepare("SELECT * FROM local_battle_sessions WHERE id = ?").get(battleId) as DbRow | undefined;
+    const row = this.db.prepare(`
+      SELECT b.*, (SELECT COUNT(*) FROM local_battle_orders o WHERE o.battle_id = b.id) AS accepted_orders
+      FROM local_battle_sessions b WHERE b.id = ?
+    `).get(battleId) as DbRow | undefined;
     return row ? this.mapBattle(row) : null;
   }
 
   private readBattleSessions(kingdomId: string): BattleSessionState[] {
     return (this.db.prepare(`
-      SELECT * FROM local_battle_sessions
-      WHERE attacker_kingdom_id = ? OR defender_kingdom_id = ?
-      ORDER BY opened_at DESC, id DESC LIMIT 20
+      SELECT b.*, (SELECT COUNT(*) FROM local_battle_orders o WHERE o.battle_id = b.id) AS accepted_orders
+      FROM local_battle_sessions b
+      WHERE b.attacker_kingdom_id = ? OR b.defender_kingdom_id = ?
+      ORDER BY b.opened_at DESC, b.id DESC LIMIT 20
     `).all(kingdomId, kingdomId) as DbRow[]).map((row) => this.mapBattle(row));
   }
 

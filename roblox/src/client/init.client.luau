@@ -13,13 +13,18 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 local shared = ReplicatedStorage:WaitForChild("WorldShared")
 local Buildings = require(shared:WaitForChild("Buildings"))
+local BattleConfig = require(shared:WaitForChild("BattleConfig"))
 local TimeUtil = require(shared:WaitForChild("TimeUtil"))
+-- Sibling module: with init.client.luau, Rojo makes this folder the LocalScript
+-- and everything beside it a child of that script.
+local BattleScene = require(script:WaitForChild("BattleScene"))
 
 local remotes = ReplicatedStorage:WaitForChild("WorldRemotes")
 local stateSync = remotes:WaitForChild("StateSync") :: RemoteEvent
@@ -84,6 +89,18 @@ local function villageById(villageId: string?): any
 	for _, village in snapshot.world.villages do
 		if village.id == villageId then
 			return village
+		end
+	end
+	return nil
+end
+
+local function battleById(battleId: string?): any
+	if not battleId then
+		return nil
+	end
+	for _, battle in ((latest.snapshot and latest.snapshot.battleSessions) or {}) do
+		if tostring(battle.id) == battleId then
+			return battle
 		end
 	end
 	return nil
@@ -292,6 +309,10 @@ local armedAt = 0
 local function attackIsArmed(targetId: string): boolean
 	return armedTargetId == targetId and (os.clock() - armedAt) < ARM_SECONDS
 end
+
+-- Defined down in the battle-view section; declared here so a battle report
+-- card can offer to replay itself.
+local enterBattle: (battle: any) -> boolean
 
 local function exitTableView()
 	if not inTableView then
@@ -658,6 +679,20 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 				then string.format("%s returning from %s", what, where)
 				else string.format("%s → %s", what, where)
 			countdownRow(scroll, nextOrder(), heading, TimeUtil.isoToEpoch(march.arrivesAt))
+		elseif status == "awaiting_battle" then
+			moving += 1
+			local where = villageLabel(tostring(march.targetVillageId))
+			actionRow(scroll, nextOrder(), string.format("Army at the walls of %s", where), "Take field",
+				Color3.fromRGB(105, 45, 35), function()
+					if march.battleId then
+						local joined = battleById(tostring(march.battleId))
+						if joined then
+							enterBattle(joined)
+							return
+						end
+					end
+					invokeQueue({ kind = "battleOpen", marchId = tostring(march.id), plan = attackPlan })
+				end)
 		end
 	end
 	if moving == 0 then
@@ -743,7 +778,7 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 		end
 
 		local card = Instance.new("Frame")
-		card.Size = UDim2.new(1, -8, 0, 118)
+		card.Size = UDim2.new(1, -8, 0, 146)
 		card.BackgroundColor3 = if battleVerdict(battle, kingdomId) == "Victory"
 			then Color3.fromRGB(26, 34, 26)
 			else Color3.fromRGB(38, 26, 26)
@@ -751,8 +786,22 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 		card.LayoutOrder = nextOrder()
 		card.Parent = scroll
 
+		-- The same scene, from the same seed, as the one that played live.
+		local watch = Instance.new("TextButton")
+		watch.Size = UDim2.new(1, -16, 0, 26)
+		watch.Position = UDim2.new(0, 8, 1, -30)
+		watch.BackgroundColor3 = Color3.fromRGB(50, 50, 62)
+		watch.TextColor3 = Color3.new(1, 1, 1)
+		watch.Font = Enum.Font.GothamBold
+		watch.TextScaled = true
+		watch.Text = "Watch it play out"
+		watch.Parent = card
+		watch.Activated:Connect(function()
+			enterBattle(battle)
+		end)
+
 		local body = makeLabel(card, "Body")
-		body.Size = UDim2.new(1, -12, 1, -8)
+		body.Size = UDim2.new(1, -12, 1, -40)
 		body.Position = UDim2.new(0, 8, 0, 4)
 		body.TextXAlignment = Enum.TextXAlignment.Left
 		body.TextYAlignment = Enum.TextYAlignment.Top
@@ -917,6 +966,305 @@ if player.Character then
 	task.spawn(hookCharacter, player.Character)
 end
 
+-- ===== battle view (slice B) =====
+-- The scene is a rendering of maths that already happened on the world server.
+-- Nothing below can change an outcome: orders are sent to the realm and only
+-- count once IT accepts them, and the bodies on the field are drawn from the
+-- battle row, never the other way round.
+
+local inBattleView = false
+local battleViewId: string? = nil
+local battlePanel: Frame? = nil
+local selectedSquad: string = BattleConfig.SQUADS[1].id
+local orderInput: RBXScriptConnection? = nil
+
+-- A battle of mine that is still being fought.
+local function openBattle(): any
+	for _, battle in ((latest.snapshot and latest.snapshot.battleSessions) or {}) do
+		if tostring(battle.status) == "open" then
+			return battle
+		end
+	end
+	return nil
+end
+
+-- An army of mine standing at a wall with no battle joined yet.
+local function waitingMarch(): any
+	for _, march in ((latest.snapshot and latest.snapshot.marches) or {}) do
+		if tostring(march.status) == "awaiting_battle" and not march.battleId then
+			return march
+		end
+	end
+	return nil
+end
+
+local function battleAtMs(battle: any): number
+	local opened = TimeUtil.isoToEpoch(battle and battle.openedAt)
+	if not opened then
+		return 0
+	end
+	return math.clamp(math.floor((nowServerSeconds() - opened) * 1000), 0, 600000)
+end
+
+local buildBattlePanel: () -> ()
+
+local function exitBattle()
+	if not inBattleView then
+		return
+	end
+	inBattleView = false
+	battleViewId = nil
+	if orderInput then
+		orderInput:Disconnect()
+		orderInput = nil
+	end
+	if battlePanel then
+		battlePanel:Destroy()
+		battlePanel = nil
+	end
+	BattleScene.stop()
+	camera.CameraType = Enum.CameraType.Custom
+end
+
+-- Where on the field did they tap? The ray is intersected with the ground
+-- plane rather than raycast, so an order never misses because a soldier was
+-- standing in the way.
+local function fieldPointFrom(screenPosition: Vector2): Vector3?
+	local ray = camera:ViewportPointToRay(screenPosition.X, screenPosition.Y)
+	if math.abs(ray.Direction.Y) < 0.001 then
+		return nil
+	end
+	local distance = -ray.Origin.Y / ray.Direction.Y
+	if distance <= 0 then
+		return nil
+	end
+	return ray.Origin + ray.Direction * distance
+end
+
+local function sendOrder(point: Vector3)
+	local battle = battleById(battleViewId)
+	if not battle or tostring(battle.status) ~= "open" then
+		return
+	end
+	local x, y = BattleScene.orderSquad(selectedSquad, point)
+	invokeQueue({
+		kind = "battleOrder",
+		battleId = tostring(battle.id),
+		squad = selectedSquad,
+		x = x,
+		y = y,
+		atMs = battleAtMs(battle),
+	})
+end
+
+function enterBattle(battle: any): boolean
+	local village = villageById(tostring(battle and battle.defenderVillageId))
+	if not battle or not village then
+		toast("That battlefield is not on your map yet.", false)
+		return false
+	end
+	exitTableView()
+	if not BattleScene.start(battle, village) then
+		return false
+	end
+	inBattleView = true
+	battleViewId = tostring(battle.id)
+	selectedSquad = BattleConfig.SQUADS[1].id
+
+	local center = BattleScene.center()
+	camera.CameraType = Enum.CameraType.Scriptable
+	camera.CFrame = CFrame.lookAt(center + Vector3.new(0, 118, 128), center)
+
+	orderInput = UserInputService.InputBegan:Connect(function(input, processed)
+		if processed or not inBattleView then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		local point = fieldPointFrom(Vector2.new(input.Position.X, input.Position.Y))
+		if point then
+			sendOrder(point)
+		end
+	end)
+
+	buildBattlePanel()
+	return true
+end
+
+function buildBattlePanel()
+	if battlePanel then
+		battlePanel:Destroy()
+		battlePanel = nil
+	end
+	if not inBattleView then
+		return
+	end
+	local battle = battleById(battleViewId)
+	if not battle then
+		return
+	end
+	local live = tostring(battle.status) == "open"
+	local kingdomId = myKingdomId()
+	local iAttack = tostring(battle.attackerKingdomId) == kingdomId
+
+	local panel = Instance.new("Frame")
+	panel.Name = "BattlePanel"
+	panel.Size = UDim2.new(1, 0, 0, 132)
+	panel.Position = UDim2.new(0, 0, 1, -132)
+	panel.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
+	panel.BackgroundTransparency = 0.2
+	panel.Parent = gui
+	battlePanel = panel
+
+	local heading = makeLabel(panel, "Heading")
+	heading.Size = UDim2.new(1, -16, 0, 26)
+	heading.Position = UDim2.new(0, 8, 0, 4)
+	heading.TextXAlignment = Enum.TextXAlignment.Left
+	heading.TextScaled = false
+	heading.TextSize = 16
+	local orders = math.floor(tonumber(battle.acceptedOrders) or 0)
+	if live then
+		heading.Text = string.format(
+			"%s — %s · %d orders carried (+%d%%) · %d on the field",
+			if iAttack then "Your assault on" else "Defence of",
+			villageLabel(tostring(battle.defenderVillageId)),
+			orders,
+			math.min(orders * 2, 12),
+			BattleScene.renderedCount()
+		)
+	else
+		heading.Text = string.format("%s — %s",
+			battleVerdict(battle, kingdomId), villageLabel(tostring(battle.defenderVillageId)))
+	end
+
+	local hint = makeLabel(panel, "Hint")
+	hint.Size = UDim2.new(1, -16, 0, 20)
+	hint.Position = UDim2.new(0, 8, 0, 28)
+	hint.TextXAlignment = Enum.TextXAlignment.Left
+	hint.TextScaled = false
+	hint.TextSize = 13
+	hint.TextTransparency = 0.35
+	hint.Text = if live and iAttack
+		then string.format("Pick a squad, then tap the ground to send it. %s selected.", BattleScene.squadLabel(selectedSquad))
+		else "The realm has already settled this. You are watching it play out."
+
+	local bar = Instance.new("Frame")
+	bar.Size = UDim2.new(1, -16, 0, 44)
+	bar.Position = UDim2.new(0, 8, 0, 52)
+	bar.BackgroundTransparency = 1
+	bar.Parent = panel
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = bar
+
+	local function barButton(text: string, color: Color3, width: number, onClick: () -> ())
+		local button = Instance.new("TextButton")
+		button.Size = UDim2.new(width, -6, 1, 0)
+		button.BackgroundColor3 = color
+		button.TextColor3 = Color3.new(1, 1, 1)
+		button.Font = Enum.Font.GothamBold
+		button.TextScaled = true
+		button.Text = text
+		button.Parent = bar
+		button.Activated:Connect(onClick)
+	end
+
+	if live and iAttack then
+		for _, squad in BattleConfig.SQUADS do
+			local chosen = squad.id == selectedSquad
+			barButton(squad.label, if chosen then squad.color else Color3.fromRGB(40, 40, 48), 0.2, function()
+				selectedSquad = squad.id
+				buildBattlePanel()
+			end)
+		end
+		barButton("Charge", Color3.fromRGB(115, 60, 40), 0.2, function()
+			invokeQueue({ kind = "battleResolve", battleId = tostring(battle.id) })
+		end)
+		barButton("Fall back", Color3.fromRGB(60, 50, 45), 0.2, function()
+			invokeQueue({ kind = "battleRetreat", battleId = tostring(battle.id), atMs = battleAtMs(battle) })
+		end)
+	end
+
+	local leave = Instance.new("TextButton")
+	leave.Size = UDim2.new(1, -16, 0, 30)
+	leave.Position = UDim2.new(0, 8, 1, -34)
+	leave.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+	leave.TextColor3 = Color3.new(1, 1, 1)
+	leave.Font = Enum.Font.GothamBold
+	leave.TextScaled = true
+	leave.Text = if live then "Leave the field (the battle goes on)" else "Done watching"
+	leave.Parent = panel
+	leave.Activated:Connect(exitBattle)
+end
+
+-- The one banner that pulls you into a fight. Always visible, because on a
+-- phone a battle you have to go looking for is a battle you miss.
+local battleCall = Instance.new("TextButton")
+battleCall.Name = "BattleCall"
+battleCall.Size = UDim2.new(0, 360, 0, 34)
+battleCall.Position = UDim2.new(0.5, -180, 0, 46)
+battleCall.BackgroundColor3 = Color3.fromRGB(105, 45, 35)
+battleCall.BackgroundTransparency = 0.1
+battleCall.TextColor3 = Color3.new(1, 1, 1)
+battleCall.Font = Enum.Font.GothamBold
+battleCall.TextScaled = true
+battleCall.Text = ""
+battleCall.Visible = false
+battleCall.Parent = gui
+
+local function refreshBattleCall()
+	if inBattleView or latest.status ~= "online" then
+		battleCall.Visible = false
+		return
+	end
+	local battle = openBattle()
+	if battle then
+		battleCall.Text = "⚔  Take the field at " .. villageLabel(tostring(battle.defenderVillageId))
+		battleCall.Visible = true
+		return
+	end
+	local march = waitingMarch()
+	if march then
+		battleCall.Text = "⚔  Your army waits at " .. villageLabel(tostring(march.targetVillageId))
+		battleCall.Visible = true
+		return
+	end
+	battleCall.Visible = false
+end
+
+battleCall.Activated:Connect(function()
+	local battle = openBattle()
+	if battle then
+		enterBattle(battle)
+		return
+	end
+	local march = waitingMarch()
+	if march then
+		-- Opening the battle is a real command; the scene starts when the
+		-- realm confirms it and the next snapshot carries the battle row.
+		invokeQueue({ kind = "battleOpen", marchId = tostring(march.id), plan = attackPlan })
+	end
+end)
+
+-- QA/demo hook, twin of DemoTab and used only by the self-driving tour: one
+-- script cannot fire another script's Button.Activated, so the tour asks for
+-- the battle view by attribute. "enter" takes the field on whatever battle is
+-- open, "leave" steps off it. Nothing in the real game sets it, and it carries
+-- no authority — it presses a button a player could press.
+gui:GetAttributeChangedSignal("DemoBattle"):Connect(function()
+	local wanted = gui:GetAttribute("DemoBattle")
+	if wanted == "enter" and not inBattleView then
+		local battle = openBattle()
+		if battle then
+			enterBattle(battle)
+		end
+	elseif wanted == "leave" then
+		exitBattle()
+	end
+end)
+
 -- ===== HUD refresh =====
 -- Report ids already seen, so a freshly arrived report toasts exactly once.
 -- Seeded silently from the first snapshot: rejoining must not replay history.
@@ -1024,6 +1372,17 @@ local function refreshHud()
 	-- while at the table, the panel must track the same fresh state
 	if inTableView then
 		buildTablePanel()
+	end
+
+	-- and the battlefield must track the battle row: the moment it stops being
+	-- "open" the maths exists, and the scene may finally show an ending.
+	refreshBattleCall()
+	if inBattleView then
+		local battle = battleById(battleViewId)
+		if battle then
+			BattleScene.update(battle)
+			buildBattlePanel()
+		end
 	end
 end
 
