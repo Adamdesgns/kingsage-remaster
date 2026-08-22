@@ -1,18 +1,20 @@
 # Kingsmarch (Roblox) — chat handoff, 2026-08-21
 
 Read this first in a fresh chat. Code beats this note; then fix the note.
-Everything below is committed and pushed on `main` (tip `7f474c9`). The design
+Everything below is committed and pushed on `main` (tip `2d32422`). The design
 gate is CLOSED — the spec is approved and slice one is built, reviewed, and
 proven live on video. This is now ordinary forward development.
 
 ## The one-line state
 
-The village loop is real and running on the authoritative world server; the
-region world, scouting, the attack round-trip (battles slice A) and the battle
-scene itself (battles slice B) have all shipped — **every one of them
-offline-verified and NONE of them ever run in Studio**. Eighteen drills are
-written across four files and zero have been run. The next rung is conquest
-(slice C), but the thing actually owed is one press of Play.
+The village loop, the region world, scouting, the attack round-trip (slice A)
+and the battle scene (slice B) have all shipped — and as of tonight **the whole
+chain has RUN in Studio**: scout → attack → open battle → squad orders →
+charge, unattended, from one press of Play. Nine of the eighteen drills now
+carry dated PASS lines. Getting there cost two fatal defects that no offline
+test could have found (see the run section below). What is still owed: the
+**200-troop phone measurement** (drill C5) and the by-eye halves. Next rung is
+conquest (slice C).
 
 ## Names and identity
 
@@ -258,6 +260,57 @@ projects build. **Not verified:** anything in Studio, and the Luau gate.
 **NOT in slice B, named so nobody assumes it shipped:** conquest and the
 celebration — taking a village, noblemen, loyalty, the skippable spectacle.
 That is slice C.
+
+## FIRST FULL STUDIO RUN — 2026-08-21, 22:10–22:15 (Claude drove, screen access granted)
+
+**It ran.** One press of Play, the self-driving tour, nobody at the keyboard —
+scout → attack → open battle → three squad orders → charge, all accepted by the
+world server, all confirmed in the database afterwards.
+
+```
+22:11:28 accepted scout          22:12:35 accepted battleOrder (x3)
+22:12:00 accepted attack         22:12:48 accepted battleResolve
+22:12:30 accepted battleOpen     22:13:27 refused build: cannot afford  (a real game rule)
+```
+
+Database after the run: scout report on Ember Crown Keep observing **30
+spearmen** while world state still showed it fogged; battle **resolved**,
+winner defender, **orderBonus 0.06 from 3 orders** — exactly what the offline
+test predicted; notification *"Defeat. 2 survivors are returning home."*;
+return march complete. The War tab listed all five neighbours nearest-first
+with tile distances correct to the tile, every row marked *not scouted*, no
+foreign level or count anywhere.
+
+Results are logged per drill in `drills-scouting.md`, `drills-battles.md` and
+`drills-battle-scene.md`. Passed: **S1, S2, S3, B1, B2 (scouted half), C1, C2,
+C3, C4 (maths half)**. Still owed: S4–S6, B4–B6, C5 (**the phone
+measurement**), C6, and every "read it with your eyes" half.
+
+### Two fatal defects, neither findable offline (fixed in `2d32422`)
+
+1. **Every player spawned in the void and fell forever.** The region is placed
+   from map coordinates, so it sits thousands of studs from the origin — the
+   ground spans X 620..8840, Z 2380..9280 and Roblox's default spawn is
+   (0,0,0), outside it. The arrival teleport was best-effort and latched
+   `teleported[player] = true` BEFORE it ran, so a character that was not ready
+   yet was stranded permanently. Nothing else could happen: you cannot `MoveTo`
+   a falling avatar. Arrival is now reliable and a rescue loop returns anyone
+   under the world to their gate.
+2. **Every village command posted an empty `villageId`.** A regression from the
+   battles-slice-A type narrowing: the find-and-replace that swapped
+   `request.villageId` for a local also rewrote the line it had just injected,
+   leaving `local villageId = villageId or ""` — a self-reference resolving to
+   nil. Every build, recruit, scout and attack sent `""` and the world server
+   correctly refused it. **Offline tests could never catch this**: they call the
+   API directly and never go through `CommandService`.
+
+### And the reason the second one took so long
+
+A refused order used to be invisible — a three-second toast and nothing in
+Output. A whole play session could pass with NOTHING reaching the realm and no
+way to tell why. **Every order now logs itself, accepted or refused, with the
+village it named.** That single line is what turned an unexplained dead session
+into a five-minute diagnosis.
 
 ## Proven live (2026-08-21, on video)
 

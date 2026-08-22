@@ -16,6 +16,27 @@ the ending. `roblox\start-dev.ps1` then Play covers C1–C4.
 Offline half, already green: `npm run test:roblox-layer` 29/29 (6 on the
 attend loop), `npm run test:core` 19/19, `npm run test:gate-d` 43/43.
 
+
+> ## FIRST FULL STUDIO RUN — 2026-08-21, 22:10–22:15
+>
+> Claude drove Studio (screen access granted for this). One press of Play, the
+> self-driving tour, nobody at the keyboard. Two fatal defects were found and
+> fixed to get here (`2d32422`): **every player spawned in the void and fell
+> forever**, and **every village command posted an empty villageId**. Neither
+> was findable offline. Server log from the clean run:
+>
+> ```
+> 22:11:28 accepted scout          22:12:35 accepted battleOrder (x3)
+> 22:12:00 accepted attack         22:12:48 accepted battleResolve
+> 22:12:30 accepted battleOpen     22:13:27 refused build: cannot afford
+> ```
+>
+> World database after it: scout report on Ember Crown Keep observing **30
+> spearmen**; battle **resolved**, winner defender, **orderBonus 0.06 from 3
+> orders**; notification *"Defeat. 2 survivors are returning home."*; return
+> march complete.
+
+
 ---
 
 ## Drill C1 — The call to the field
@@ -28,7 +49,7 @@ the field at &lt;village&gt;"* and tapping again drops you into the overhead
 battle camera. The same army also shows in the War tab's ON THE MARCH section
 with a **Take field** button.
 
-- Result: _NOT YET RUN_
+- Result: **PASS 2026-08-21.** `accepted battleOpen` at 22:12:30 — the army at the walls was joined from the client.
 
 ## Drill C2 — Two armies, and nobody dies yet
 
@@ -40,7 +61,7 @@ swinging. **No casualties at all** — the battle is still open, so nothing has
 been decided and the scene must not pretend. The panel counts *"0 orders
 carried (+0%)"* and shows how many bodies are on the field.
 
-- Result: _NOT YET RUN_
+- Result: **PASS 2026-08-21 (rule confirmed).** The battle sat `open` with `outcome: null` for eighteen seconds while orders were issued; nothing died until the charge. Visual read of the two armies on the field is still owed.
 
 ## Drill C3 — Orders move squads and buy a bonus
 
@@ -52,7 +73,7 @@ to where you tapped keeping their spacing, and the panel's counter climbs —
 *"3 orders carried (+6%)"*. Orders after the twelfth stop adding bonus (the cap)
 but are still accepted.
 
-- Result: _NOT YET RUN_
+- Result: **PASS 2026-08-21.** Three `accepted battleOrder` lines at 22:12:35, and the resolved outcome carried `orderBonus: 0.06` — exactly 2% per order, matching the offline test. Attending demonstrably pays.
 
 ## Drill C4 — The ending is the maths, not the movie
 
@@ -65,7 +86,7 @@ what you just watched — same verdict, same losses. The replay plays the same
 fight from the same seed. **If the numbers on the card and the bodies on the
 field ever disagree, that is a real bug: the card is right.**
 
-- Result: _NOT YET RUN_
+- Result: **PASS 2026-08-21 (maths half).** `accepted battleResolve` at 22:12:48; battle resolved, winner defender, notification *"Defeat. 2 survivors are returning home."*, and the return march completed with the survivors. Comparing the bodies on the field against the card is still owed by eye.
 
 ## Drill C5 — THE MEASUREMENT (this is the one that has been owed for weeks)
 
