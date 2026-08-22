@@ -1,0 +1,342 @@
+/**
+ * KingsAge combat — the real thing.
+ *
+ * Everything here is derived from `docs/superpowers/specs/
+ * 2026-08-22-combat-and-army-design.md`, which in turn comes from Gameforge's
+ * still-live KingsAge help pages. The engine our game shipped with was a flat
+ * power sum: a *different, simpler game* that happened to share KingsAge's
+ * economy curves. This module replaces the maths, not the fiction.
+ *
+ * Tag discipline is carried over from the spec and MUST be preserved:
+ *   [CONFIRMED] — stated by an official source, cross-checked twice.
+ *   [INFERRED]  — reconstructed; reproduces official data but never published.
+ *   [OURS]      — our decision, owed to nobody.
+ *   [SIM]       — awaiting measurement in the live KingsAge battle simulator.
+ */
+
+export type CombatClass = "infantry" | "cavalry" | "archer";
+
+export type UnitId =
+  | "militia" | "spear" | "sword" | "axe" | "archer" | "scout"
+  | "lightCavalry" | "heavyCavalry" | "ram" | "trebuchet" | "noble";
+
+export type UnitDefinition = {
+  id: UnitId;
+  name: string;
+  /**
+   * [INFERRED] — and this is the single biggest inference in the whole design.
+   * KingsAge never published which units defend as which class; this table is
+   * reconstructed from the unit IDs KingsAge inherited from Tribal Wars.
+   *
+   * The Spy is `null`: it fights its own battle before the main one and is
+   * never part of the three-class split.
+   *
+   * [SIM] Run block 1 of `docs/design/2026-08-22-simulator-run-sheet.md` to
+   * replace this column with measured fact. Correcting a unit is a one-line
+   * change here and nowhere else — that is deliberate.
+   */
+  combatClass: CombatClass | null;
+  attack: number;
+  defInfantry: number;
+  defCavalry: number;
+  defArcher: number;
+  /** Minutes per tile. HIGHER IS SLOWER. An army marches at its maximum. */
+  speed: number;
+  carry: number;
+  population: number;
+};
+
+/** [CONFIRMED] every number below except `combatClass`. */
+export const UNITS: Record<UnitId, UnitDefinition> = {
+  militia:      { id: "militia",      name: "Farmer's Militia", combatClass: "infantry", attack:  20, defInfantry:   40, defCavalry:   30, defArcher:    5, speed: 20, carry:  5, population:   1 },
+  spear:        { id: "spear",        name: "Squire",           combatClass: "infantry", attack:  50, defInfantry:  100, defCavalry:  200, defArcher:  300, speed: 18, carry: 25, population:   1 },
+  sword:        { id: "sword",        name: "Templar",          combatClass: "infantry", attack: 100, defInfantry:  300, defCavalry:  100, defArcher:  200, speed: 22, carry: 15, population:   1 },
+  axe:          { id: "axe",          name: "Berserker",        combatClass: "infantry", attack: 350, defInfantry:   70, defCavalry:   50, defArcher:   50, speed: 18, carry: 10, population:   1 },
+  archer:       { id: "archer",       name: "Long-bow",         combatClass: "archer",   attack: 150, defInfantry:  400, defCavalry:  150, defArcher:  100, speed: 18, carry: 10, population:   1 },
+  scout:        { id: "scout",        name: "Spy",              combatClass: null,       attack:   1, defInfantry:   10, defCavalry:    5, defArcher:    7, speed:  9, carry:  0, population:   2 },
+  lightCavalry: { id: "lightCavalry", name: "Crusader",         combatClass: "cavalry",  attack: 900, defInfantry:  200, defCavalry:  300, defArcher:  300, speed: 10, carry: 80, population:   4 },
+  heavyCavalry: { id: "heavyCavalry", name: "Black Knight",     combatClass: "cavalry",  attack: 600, defInfantry: 1500, defCavalry: 1000, defArcher: 1000, speed: 11, carry: 50, population:   6 },
+  ram:          { id: "ram",          name: "Battering Ram",    combatClass: "infantry", attack: 100, defInfantry:  100, defCavalry:  200, defArcher:   20, speed: 30, carry:  0, population:   5 },
+  trebuchet:    { id: "trebuchet",    name: "Trebuchet",        combatClass: "infantry", attack: 500, defInfantry:  400, defCavalry:  100, defArcher:  200, speed: 30, carry:  0, population:   8 },
+  noble:        { id: "noble",        name: "Count",            combatClass: "infantry", attack: 100, defInfantry:  300, defCavalry:  100, defArcher:  200, speed: 35, carry:  0, population: 100 },
+};
+
+export const UNIT_ORDER: readonly UnitId[] = [
+  "militia", "spear", "sword", "axe", "archer", "scout",
+  "lightCavalry", "heavyCavalry", "ram", "trebuchet", "noble",
+];
+
+/** A force. Absent units are zero, so callers write only what they brought. */
+export type Force = Partial<Record<UnitId, number>>;
+
+export type ByClass = { infantry: number; cavalry: number; archer: number };
+
+/**
+ * Step 1 of the round: attacker strength per class.
+ *
+ * [CONFIRMED] The split is by ATTACK VALUE — not population, not headcount.
+ * That distinction is load-bearing: a 1-population Berserker (350 attack)
+ * commands more of the battle than a 6-population Black Knight per unit of
+ * population spent.
+ */
+export function attackByClass(force: Force): ByClass {
+  const totals: ByClass = { infantry: 0, cavalry: 0, archer: 0 };
+  for (const id of UNIT_ORDER) {
+    const count = force[id] ?? 0;
+    if (count <= 0) continue;
+    const unit = UNITS[id];
+    if (unit.combatClass === null) continue; // Spies fight their own battle.
+    totals[unit.combatClass] += count * unit.attack;
+  }
+  return totals;
+}
+
+/**
+ * [CONFIRMED] KingsAge: `1.04 ^ level` — 100% at level 0 rising to 220% at
+ * level 20.
+ *
+ * Our shipped wall was `1 + 0.08 x level`: linear, reaching 260% at level 20,
+ * which is stronger than either source game AND wrong in shape. Tribal Wars
+ * uses 1.037; we take KingsAge's 1.04 because that is the game we are copying.
+ */
+export function wallFactor(wallLevel: number): number {
+  return Math.pow(1.04, Math.max(0, wallLevel));
+}
+
+/**
+ * [CONFIRMED for Tribal Wars], [SIM] for KingsAge — its help never mentions
+ * base defence at all. A settlement defends itself with no troops in it, which
+ * is precisely why a lone Count dies attacking an empty village.
+ *
+ * [CONFIRMED] razing the wall to 0 leaves the floor of 20 standing.
+ */
+export function baseDefence(wallLevel: number): number {
+  return 20 + 50 * Math.max(0, wallLevel);
+}
+
+/** [CONFIRMED] The night bonus doubles defence between 00:00 and 08:00. */
+export const NIGHT_BONUS_MULTIPLIER = 2;
+
+/**
+ * Step 2 of the round — and the heart of the whole system.
+ *
+ * The defending army is **cloned**, not divided. Every defender appears in all
+ * three sub-battles, weighted by the attacker's attack-value share for that
+ * class, and defends with its stat *against that class*. The three defence
+ * values are never collapsed into one number, which is exactly what our old
+ * flat-power model did.
+ *
+ * [CONFIRMED] the night bonus scales troop defence but NOT the base floor.
+ * [SIM] whether `wallFactor` also multiplies the base floor is undocumented —
+ * runs 4.4/4.5 of the simulator run sheet settle it. Until then we follow the
+ * official pseudocode literally: it does not.
+ */
+export function defenceByClass(input: {
+  defender: Force;
+  shares: ByClass;
+  wallLevel: number;
+  nightBonus: boolean;
+}): ByClass {
+  const wall = wallFactor(input.wallLevel);
+  const night = input.nightBonus ? NIGHT_BONUS_MULTIPLIER : 1;
+  const floor = baseDefence(input.wallLevel);
+
+  const result: ByClass = { infantry: 0, cavalry: 0, archer: 0 };
+  for (const combatClass of ["infantry", "cavalry", "archer"] as const) {
+    const share = input.shares[combatClass];
+    if (share <= 0) continue;
+
+    let troops = 0;
+    for (const id of UNIT_ORDER) {
+      const count = input.defender[id] ?? 0;
+      if (count <= 0) continue;
+      const unit = UNITS[id];
+      if (unit.combatClass === null) continue; // Spies fight their own battle.
+      const versus = combatClass === "infantry" ? unit.defInfantry
+        : combatClass === "cavalry" ? unit.defCavalry
+        : unit.defArcher;
+      troops += count * share * versus;
+    }
+    result[combatClass] = troops * wall * night + floor * share;
+  }
+  return result;
+}
+
+/**
+ * [OURS] Cap rounds to bound server work. Real battles converge in 1-3; the cap
+ * only ever bites on a near-perfect stalemate.
+ * [SIM] confirm the real engine has no lower cap.
+ */
+export const MAX_ROUNDS = 10;
+
+/** [CONFIRMED] two independent ways. The exponent is not a tuning knob. */
+export const CASUALTY_EXPONENT = 1.5;
+
+export type BattleSide = "attacker" | "defender";
+
+export type KingsAgeBattleResult = {
+  winner: BattleSide;
+  rounds: number;
+  attackerSurvivors: Record<UnitId, number>;
+  defenderSurvivors: Record<UnitId, number>;
+  attackerCasualties: Record<UnitId, number>;
+  defenderCasualties: Record<UnitId, number>;
+};
+
+function toCounts(force: Force): Record<UnitId, number> {
+  return UNIT_ORDER.reduce((out, id) => {
+    out[id] = Math.max(0, force[id] ?? 0);
+    return out;
+  }, {} as Record<UnitId, number>);
+}
+
+/** Survivors always round DOWN, so the engine can never manufacture a soldier. */
+function settle(counts: Record<UnitId, number>): Record<UnitId, number> {
+  return UNIT_ORDER.reduce((out, id) => {
+    out[id] = Math.floor(counts[id] + 1e-9);
+    return out;
+  }, {} as Record<UnitId, number>);
+}
+
+function fightingUnits(counts: Record<UnitId, number>): number {
+  return UNIT_ORDER.reduce(
+    (total, id) => (UNITS[id].combatClass === null ? total : total + counts[id]),
+    0,
+  );
+}
+
+/**
+ * A KingsAge battle is three battles at once.
+ *
+ * The defending army is cloned into three fractional sub-armies split by the
+ * ATTACKER's attack-value share per class. Three independent battles resolve in
+ * parallel, in rounds, each side losing `(loser/winner)^1.5`. The three defence
+ * values are never collapsed into one.
+ *
+ * This is the mechanic our shipped engine got wrong, and getting it wrong is
+ * what made every troop interchangeable: with one flat defence number, the only
+ * question a player ever had to answer was "how much attack can I afford", and
+ * the answer was always Axemen.
+ */
+export function resolveBattleKingsAge(input: {
+  attacker: Force;
+  defender: Force;
+  wallLevel: number;
+  nightBonus?: boolean;
+  /** [CONFIRMED] floors a giant's attack on a small player at 30%. */
+  morale?: number;
+  /** [CONFIRMED] +/-25%. Pass 0 for a deterministic battle. */
+  luck?: number;
+}): KingsAgeBattleResult {
+  const attackerStart = toCounts(input.attacker);
+  const defenderStart = toCounts(input.defender);
+  let attacker = { ...attackerStart };
+  let defender = { ...defenderStart };
+
+  const morale = input.morale ?? 1;
+  const luck = input.luck ?? 0;
+  const modifier = morale * (1 + luck);
+
+  let rounds = 0;
+  while (rounds < MAX_ROUNDS && fightingUnits(attacker) > 0) {
+    rounds += 1;
+
+    const raw = attackByClass(attacker);
+    const attack: ByClass = {
+      infantry: raw.infantry * modifier,
+      cavalry: raw.cavalry * modifier,
+      archer: raw.archer * modifier,
+    };
+    const totalAttack = attack.infantry + attack.cavalry + attack.archer;
+    if (totalAttack <= 0) break;
+
+    const shares: ByClass = {
+      infantry: attack.infantry / totalAttack,
+      cavalry: attack.cavalry / totalAttack,
+      archer: attack.archer / totalAttack,
+    };
+    const defence = defenceByClass({
+      defender,
+      shares,
+      wallLevel: input.wallLevel,
+      nightBonus: input.nightBonus ?? false,
+    });
+
+    // Three independent battles, resolved in parallel off the SAME snapshot.
+    //
+    // NOTE for anyone tempted to simplify this: `share[c]` appears on BOTH
+    // sides, so it cancels in the win/lose comparison -
+    //   A[c] = share[c] x totalAttack
+    //   D[c] = share[c] x (fullArmyDefence_vs_c x wall x night + base)
+    // which means each sub-battle really asks "total attack vs the WHOLE
+    // garrison's defence at this class". The split does not decide who wins a
+    // sub-battle; it decides how heavily each sub-battle weighs in the
+    // casualties. Both facts matter and neither is obvious. Do not "optimise"
+    // the share out - the casualty weighting needs it.
+    const attackerLoss: ByClass = { infantry: 0, cavalry: 0, archer: 0 };
+    let defenderLossFraction = 0;
+    for (const combatClass of ["infantry", "cavalry", "archer"] as const) {
+      const a = attack[combatClass];
+      const d = defence[combatClass];
+      if (a <= 0) continue;
+      if (a > d) {
+        // [OURS] strictly greater - a tie resolves to the defender.
+        attackerLoss[combatClass] = Math.pow(d / a, CASUALTY_EXPONENT);
+        defenderLossFraction += shares[combatClass] * 1;
+      } else {
+        attackerLoss[combatClass] = 1;
+        defenderLossFraction += shares[combatClass] * Math.pow(a / d, CASUALTY_EXPONENT);
+      }
+    }
+
+    const survivingDefenderFraction = Math.max(0, 1 - defenderLossFraction);
+    for (const id of UNIT_ORDER) {
+      const unit = UNITS[id];
+      if (unit.combatClass !== null) {
+        attacker[id] = attacker[id] * (1 - attackerLoss[unit.combatClass]);
+        defender[id] = defender[id] * survivingDefenderFraction;
+      }
+    }
+
+    if (fightingUnits(defender) < 1 || fightingUnits(attacker) < 1) break;
+  }
+
+  const attackerSurvivors = settle(attacker);
+  const defenderSurvivors = settle(defender);
+  // The attacker must clear the field AND still be standing on it. An attacker
+  // wiped out by an empty settlement's base defence has taken nothing - both
+  // sides at zero is a defender hold, not a conquest.
+  const attackerHolds = fightingUnits(attackerSurvivors) > 0;
+  const fieldCleared = fightingUnits(defenderSurvivors) < 1;
+  const winner: BattleSide = attackerHolds && fieldCleared ? "attacker" : "defender";
+
+  return {
+    winner,
+    rounds,
+    attackerSurvivors,
+    defenderSurvivors,
+    attackerCasualties: UNIT_ORDER.reduce((out, id) => {
+      out[id] = attackerStart[id] - attackerSurvivors[id];
+      return out;
+    }, {} as Record<UnitId, number>),
+    defenderCasualties: UNIT_ORDER.reduce((out, id) => {
+      out[id] = defenderStart[id] - defenderSurvivors[id];
+      return out;
+    }, {} as Record<UnitId, number>),
+  };
+}
+
+/**
+ * [CONFIRMED] An army marches at its SLOWEST unit. Speed is minutes per tile,
+ * so the column is pinned by the maximum.
+ *
+ * This is a real strategic texture we currently do not have: a Trebuchet in the
+ * baggage train (30) drags a Crusader raid (10) to a third of its pace, which
+ * is why siege goes in its own wave.
+ */
+export function armySpeed(force: Force): number {
+  return UNIT_ORDER.reduce(
+    (slowest, id) => ((force[id] ?? 0) > 0 ? Math.max(slowest, UNITS[id].speed) : slowest),
+    0,
+  );
+}
