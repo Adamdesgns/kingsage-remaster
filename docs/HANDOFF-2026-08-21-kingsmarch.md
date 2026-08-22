@@ -1,20 +1,119 @@
 # Kingsmarch (Roblox) — chat handoff, 2026-08-21
 
-Read this first in a fresh chat. Code beats this note; then fix the note.
-Everything below is committed and pushed on `main` (tip `2d32422`). The design
-gate is CLOSED — the spec is approved and slice one is built, reviewed, and
-proven live on video. This is now ordinary forward development.
+# ═══ START HERE ═══
 
-## The one-line state
+**Game:** Kingsmarch — the KingsAge remaster, rebuilt on Roblox against a
+Node/TypeScript world server that holds all authority.
+**Repo:** `C:\Users\steam\Projects\apps\kingsage-remaster`, branch `main`,
+tip `8e5f909`, everything pushed.
+**Never ship the name "KingsAge"** — it belongs to the 2008 original's owners.
+"Kingsmarch" is Adam's provisional working title.
 
-The village loop, the region world, scouting, the attack round-trip (slice A)
-and the battle scene (slice B) have all shipped — and as of tonight **the whole
-chain has RUN in Studio**: scout → attack → open battle → squad orders →
-charge, unattended, from one press of Play. Nine of the eighteen drills now
-carry dated PASS lines. Getting there cost two fatal defects that no offline
-test could have found (see the run section below). What is still owed: the
-**200-troop phone measurement** (drill C5) and the by-eye halves. Next rung is
-conquest (slice C).
+## The one thing to resolve before writing more code
+
+**The `roblox-design-team` skill was never used, and this game has no Canonical
+Project Brief.** The skill (`~/.claude/skills/roblox-design-team/`) says to use
+it *before approving anything for building*, and its first instruction is to
+load `docs/design/CANONICAL-BRIEF.md` from the game's repo — **which does not
+exist here.** Its own rule for that case: say so and build the brief with Adam
+first, don't design against an imagined brief. That did not happen.
+
+Five design calls were therefore made solo and have had no specialist lens and
+no red team. They all work and are proven, but each one shapes how the game
+plays:
+
+1. **An attack musters the entire fighting garrison** — no partial army
+   selection. Chosen for simplicity.
+2. **Three orderable squads** (vanguard / archers / riders) where spec §5 asks
+   for "~10–20 squads that think". Justified by matching the server's
+   `CommandSquadId` vocabulary — but that is a spec tension resolved unilaterally.
+3. **Surrender at 3× power**, and the defender's survivors defect to the
+   attacker. Marked PROPOSED; nobody reviewed it.
+4. **A two-minute deadline** after which the server fights your battle without you.
+5. **The unplanned-attack fallback plan**, and the new intel-currency rule
+   (report matches garrison + wall, rather than village version).
+
+**Adam was asked which he wants first — build the Canonical Brief, or run the
+design team over just those five — and has not answered yet. Get that answer
+before building further.** Do not rip out working code; validate or adjust it.
+
+## State: it RAN, for the first time
+
+Four slices are built, pushed, and — as of 2026-08-21 22:10–22:15 — **proven in
+Studio**: village loop, region world, scouting, the attack round-trip (slice A),
+and the battle scene (slice B). One press of Play, self-driving tour, nobody at
+the keyboard: scout → attack → open battle → three squad orders → charge, every
+command accepted, all confirmed in the world database.
+
+**Nine of eighteen drills now carry dated PASS lines** (S1–S3, B1–B2, C1–C4) in
+`docs/superpowers/drills-*.md`.
+
+Getting there cost two fatal defects that no offline test could have found, both
+fixed in `2d32422` — players **spawned in the void and fell forever**, and every
+village command **posted an empty `villageId`**. Full write-ups below.
+
+## What is still owed
+
+- **Drill C5 — the 200-troop phone measurement.** The only thing that needs a
+  phone. `BattleConfig.MAX_SOLDIERS` is set from it. Until then the budget is
+  adaptive (starts 200, culls to hold 30fps, floor 40) which is safe *only*
+  because rendering decides nothing.
+- Drills S4–S6, B4–B6, C6, and the "read it with your eyes" half of C2/C4.
+- **Troops have never been seen.** The battle scene builds six-part anchored
+  soldiers and the maths is confirmed, but nobody has watched the bodies draw.
+  Cheapest outstanding check.
+- **`npm run check:luau` still cannot run — Lune is not installed on this PC.**
+- Conquest (slice C), VPS deploy, name vetting, art.
+
+## What it looks like today
+
+Grey boxes with floating labels, by design (spec §7). Villages, buildings, walls,
+gate, war table and fog silhouettes are all real and correctly placed from map
+coordinates. No art pass has ever been scheduled. Claude's suggestion, not yet
+approved: a **silhouette pass** (distinct shape/roof/colour per building so a
+Timber Camp reads as one without its label) before any mesh work — cheap, and it
+stops the game looking like a debug scene. That is a design-team question.
+
+## Environment as left (2026-08-21 22:20)
+
+- World server **running on 4178** with `KINGSAGE_ROBLOX_KEY=dev-secret-local-0001`
+  and `KINGSAGE_AUTO_RESOLVE_MS=25000`, logging to
+  `%TEMP%\kingsage-world.log`. Migration 0006 is applied to the live dev DB.
+- `rojo serve` **running on 34872** (demo project), Studio connected to it.
+- Studio open on `roblox/WorldGame-demo.rbxlx`; the play session is **stopped**.
+- Ports 4174/4177 host older processes — leave them alone.
+
+⚠️ `docs/superpowers/plans/2026-08-21-roblox-conquest-slice-c.md` appeared during
+that session and was **not written by Claude** — almost certainly Codex. It got
+swept into a docs commit by a broad `git add docs`. Nothing was overwritten, but
+treat it as Codex's and do not rewrite it.
+
+## New environment traps from the live run
+
+- **Studio can go windowless**: alive and foregrounded, every window reporting
+  invisible, with a stuck "Lighting Technology Migration" dialog. Screen-control
+  clicks are refused because nothing clickable is in front. Recovery: kill it,
+  `rojo build` the place fresh, relaunch from the newest
+  `%LOCALAPPDATA%\Roblox\Versions\**\RobloxStudioBeta.exe`, and click
+  **Ignore** on Auto-Recovery (never Delete).
+- **Connect the Rojo plugin mid-session** rather than rebuilding the .rbxlx
+  Studio has open — that is what made the debug loop fast.
+- **A refused order used to be invisible** (3-second toast, nothing in Output).
+  Every order now logs itself accepted or refused with the village it named.
+  Keep that; it turned an unexplainable dead session into a 5-minute diagnosis.
+
+## Where to read (in order)
+
+1. This START HERE block.
+2. `docs/superpowers/specs/2026-08-20-roblox-world-is-the-game-design.md` — the
+   approved design, authority for every rule.
+3. The four executed plans in `docs/superpowers/plans/` (slice one, region,
+   scouting, battles A, battles B).
+4. `docs/superpowers/drills-*.md` — what has and has not been proven, with dates.
+5. `roblox/README.md` — dev loop and Studio traps.
+6. Everything below this block — the detailed history of each slice.
+
+# ═══ END START HERE ═══
 
 ## Names and identity
 
