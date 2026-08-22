@@ -196,10 +196,22 @@ function toCounts(force: Force): Record<UnitId, number> {
   }, {} as Record<UnitId, number>);
 }
 
-/** Survivors always round DOWN, so the engine can never manufacture a soldier. */
-function settle(counts: Record<UnitId, number>): Record<UnitId, number> {
+/**
+ * Survivors round to NEAREST, never above what was sent.
+ *
+ * Flooring looks safer and is not. A single Count who loses 5% of himself
+ * floors to zero and dies in a battle he barely fought - and conquest rides on
+ * Counts arriving in ones and twos, so flooring silently makes conquest
+ * unreachable in play. It punishes exactly the small elite stacks the game is
+ * built around, on every single battle, in the attacker's disfavour.
+ *
+ * Nearest is unbiased instead of biased, and the `Math.min` keeps the property
+ * that actually matters: the engine can never return more soldiers than were
+ * sent.
+ */
+function settle(counts: Record<UnitId, number>, sent: Record<UnitId, number>): Record<UnitId, number> {
   return UNIT_ORDER.reduce((out, id) => {
-    out[id] = Math.floor(counts[id] + 1e-9);
+    out[id] = Math.min(sent[id], Math.max(0, Math.round(counts[id])));
     return out;
   }, {} as Record<UnitId, number>);
 }
@@ -233,6 +245,13 @@ export function resolveBattleKingsAge(input: {
   morale?: number;
   /** [CONFIRMED] +/-25%. Pass 0 for a deterministic battle. */
   luck?: number;
+  /**
+   * Armour. [OURS, Adam 2026-08-22] The Smithy upgrades armour, so our troop
+   * levels scale DEFENCE ONLY - attack stays purely about what you brought.
+   * KingsAge itself has no combat research; this is the system Adam's Smithy
+   * ruling rescued rather than deleted.
+   */
+  defenceMultiplier?: number;
 }): KingsAgeBattleResult {
   const attackerStart = toCounts(input.attacker);
   const defenderStart = toCounts(input.defender);
@@ -261,12 +280,18 @@ export function resolveBattleKingsAge(input: {
       cavalry: attack.cavalry / totalAttack,
       archer: attack.archer / totalAttack,
     };
-    const defence = defenceByClass({
+    const rawDefence = defenceByClass({
       defender,
       shares,
       wallLevel: input.wallLevel,
       nightBonus: input.nightBonus ?? false,
     });
+    const armour = input.defenceMultiplier ?? 1;
+    const defence: ByClass = {
+      infantry: rawDefence.infantry * armour,
+      cavalry: rawDefence.cavalry * armour,
+      archer: rawDefence.archer * armour,
+    };
 
     // Three independent battles, resolved in parallel off the SAME snapshot.
     //
@@ -307,8 +332,8 @@ export function resolveBattleKingsAge(input: {
     if (fightingUnits(defender) < 1 || fightingUnits(attacker) < 1) break;
   }
 
-  const attackerSurvivors = settle(attacker);
-  const defenderSurvivors = settle(defender);
+  const attackerSurvivors = settle(attacker, attackerStart);
+  const defenderSurvivors = settle(defender, defenderStart);
   // The attacker must clear the field AND still be standing on it. An attacker
   // wiped out by an empty settlement's base defence has taken nothing - both
   // sides at zero is a defender hold, not a conquest.

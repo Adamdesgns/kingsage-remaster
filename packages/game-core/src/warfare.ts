@@ -1,5 +1,12 @@
 import { TROOPS, TROOP_ORDER } from "./economy.ts";
 import {
+  attackByClass,
+  defenceByClass,
+  resolveBattleKingsAge,
+  type ByClass,
+  type Force,
+} from "./combat.ts";
+import {
   emptyArmy,
   type Army,
   type BattleOutcome,
@@ -151,6 +158,37 @@ export function surrenderYield(input: {
 }
 
 /**
+ * The share of a routed garrison that lays down arms instead of dying, once the
+ * attack was overwhelming enough to make surrender the obvious choice.
+ * [OURS] - tune here, not in logic.
+ */
+export const SURRENDER_PRISONER_SHARE = 0.25;
+
+/**
+ * Prisoners, after slice 1b.
+ *
+ * The old rule collected the defender's SURVIVORS. That worked against a flat
+ * power sum, which left a beaten garrison partly intact. The real KingsAge
+ * engine does not: when the attacker wins a sub-battle the defenders in it are
+ * wiped, so an overwhelming win leaves nobody standing and `surrenderYield`
+ * quietly became unreachable - it could only ever fire on a NARROW win, which
+ * is precisely the fight where a garrison would not surrender.
+ *
+ * So prisoners now come out of the dead. Men who would have been killed lay
+ * down arms instead; they are removed from the casualty list and march home
+ * with the attacker. The world still never gains a soldier - the same men are
+ * merely counted once, on the other side. That preserves the designed intent
+ * ("intimidation over annihilation can pay in soldiers") under maths that
+ * would otherwise have deleted it.
+ */
+function takePrisoners(defenderCasualties: Army, share: number): Army {
+  return TROOP_ORDER.reduce((prisoners, troop) => {
+    prisoners[troop] = Math.floor(Math.max(0, defenderCasualties[troop]) * share);
+    return prisoners;
+  }, emptyArmy());
+}
+
+/**
  * Spec SS1's long game: "take over the world one settlement at a time."
  *
  * Every Nobleman who SURVIVES a winning attack shakes the target's loyalty.
@@ -167,6 +205,57 @@ export function loyaltyDrop(seed: string, index: number): number {
   return LOYALTY_DROP_MIN + Math.floor(hashFraction(`${seed}:noble:${index}`) * (span + 1));
 }
 
+/**
+ * Armour, as a single defence multiplier. [OURS - Adam, 2026-08-22]
+ *
+ * KingsAge has NO combat research, so our troop levels 1-10 had no home in the
+ * new model until Adam's Smithy ruling gave them one: they are armour, and
+ * armour is defence only. Attack stays purely about what you brought.
+ *
+ * Averaged across the troops actually STANDING in the garrison, so upgrading
+ * armour for units you do not field buys nothing.
+ */
+function armourMultiplier(defender: Army, levels: TroopLevels): number {
+  let units = 0;
+  let weighted = 0;
+  for (const troop of TROOP_ORDER) {
+    const count = defender[troop];
+    if (count <= 0) continue;
+    units += count;
+    weighted += count * (1 + Math.max(0, levels[troop] - 1) * 0.08);
+  }
+  return units > 0 ? weighted / units : 1;
+}
+
+function toForce(army: Army): Force {
+  return TROOP_ORDER.reduce((force, troop) => {
+    force[troop] = army[troop];
+    return force;
+  }, {} as Force);
+}
+
+function toArmy(counts: Record<string, number>): Army {
+  return TROOP_ORDER.reduce((army, troop) => {
+    army[troop] = Math.max(0, counts[troop] ?? 0);
+    return army;
+  }, emptyArmy());
+}
+
+/**
+ * The live battle path, now running the REAL KingsAge engine.
+ *
+ * Before slice 1b this was a flat power sum: one attack number against one
+ * defence number. That is neither KingsAge nor Tribal Wars - both split the
+ * battle by unit class - and it is why every troop in this game was
+ * interchangeable. With a single defence number the only question a player ever
+ * had to answer was "how much attack can I afford", and the answer was always
+ * Axemen.
+ *
+ * What survives from the old model, because it is OURS and not the source
+ * game's: the battle plan, the order bonus for showing up and commanding, the
+ * seeded variance, the loot rule and the surrender rule. Those multiply the
+ * attack; the class maths decides the fight.
+ */
 export function resolveBattle(input: {
   attacker: Army;
   defender: Army;
@@ -182,29 +271,87 @@ export function resolveBattle(input: {
   const planFactor = 0.96 + planScore * 0.235;
   const orderBonus = Math.min(0.12, Math.max(0, input.acceptedOrders) * 0.02);
   const variance = 0.94 + hashFraction(input.seed) * 0.12;
-  const attackerPower = Math.max(1, armyPower(input.attacker, input.attackerLevels, "attack") * planFactor * (1 + orderBonus) * variance);
-  const defenderPower = Math.max(1, armyPower(input.defender, input.defenderLevels, "defense") * (1 + Math.max(0, input.defenderWallLevel) * 0.08) * (2 - variance));
-  const attackerWon = attackerPower >= defenderPower;
-  const attackerLossRatio = attackerWon
-    ? clamp((defenderPower / attackerPower) * 0.42, 0.12, 0.55)
-    : clamp((defenderPower / attackerPower) * 0.72, 0.6, 0.96);
-  const defenderLossRatio = attackerWon
-    ? clamp((attackerPower / defenderPower) * 0.68, 0.55, 0.95)
-    : clamp((attackerPower / defenderPower) * 0.32, 0.08, 0.5);
-  const attackerSurvivors = scaleArmy(input.attacker, 1 - attackerLossRatio, `${input.seed}:attacker`);
-  const defenderSurvivors = scaleArmy(input.defender, 1 - defenderLossRatio, `${input.seed}:defender`);
-  const loot = attackerWon ? calculateLoot(input.defenderResources, attackerSurvivors) : { wood: 0, stone: 0, iron: 0 };
-  const winner = attackerWon ? ("attacker" as const) : ("defender" as const);
+
+  // Everything the commander contributes scales ATTACK. Nothing here touches
+  // the class split itself - a good plan does not turn cavalry into infantry.
+  const attackMultiplier = planFactor * (1 + orderBonus) * variance;
+  const armour = armourMultiplier(input.defender, input.defenderLevels);
+
+  const attackerForce = toForce(input.attacker);
+  const defenderForce = toForce(input.defender);
+
+  const result = resolveBattleKingsAge({
+    attacker: attackerForce,
+    defender: defenderForce,
+    wallLevel: input.defenderWallLevel,
+    nightBonus: false,
+    morale: attackMultiplier,
+    luck: 0,
+    defenceMultiplier: armour,
+  });
+
+  const attackerSurvivors = toArmy(result.attackerSurvivors);
+  const defenderSurvivors = toArmy(result.defenderSurvivors);
+  const attackerWon = result.winner === "attacker";
+  const loot = attackerWon
+    ? calculateLoot(input.defenderResources, attackerSurvivors)
+    : { wood: 0, stone: 0, iron: 0 };
+
+  // Power figures for the surrender rule only. The engine never collapses the
+  // three defences into one, so this weights them the way the battle did -
+  // by the attacker's own class shares.
+  const raw = attackByClass(attackerForce);
+  const totalAttack = (raw.infantry + raw.cavalry + raw.archer) * attackMultiplier;
+  const shares: ByClass = totalAttack > 0
+    ? {
+      infantry: (raw.infantry * attackMultiplier) / totalAttack,
+      cavalry: (raw.cavalry * attackMultiplier) / totalAttack,
+      archer: (raw.archer * attackMultiplier) / totalAttack,
+    }
+    : { infantry: 1, cavalry: 0, archer: 0 };
+  const facedRaw = defenceByClass({
+    defender: defenderForce,
+    shares,
+    wallLevel: input.defenderWallLevel,
+    nightBonus: false,
+  });
+  const facedDefence = (facedRaw.infantry + facedRaw.cavalry + facedRaw.archer) * armour;
+
+  let defenderCasualties = armyCasualties(input.defender, defenderSurvivors);
+
+  // Surrender. Try the standing-survivors rule first - it still fires on the
+  // narrow wins the engine leaves partly intact - and fall back to taking
+  // prisoners out of the casualties when the rout was total.
+  let yielded = surrenderYield({
+    winner: result.winner,
+    attackerPower: totalAttack,
+    defenderPower: facedDefence,
+    defenderSurvivors,
+  });
+  const overwhelming = result.winner === "attacker"
+    && facedDefence > 0
+    && totalAttack >= facedDefence * SURRENDER_POWER_RATIO;
+  if (overwhelming && armyUnitCount(yielded) < 1) {
+    yielded = takePrisoners(defenderCasualties, SURRENDER_PRISONER_SHARE);
+    // A prisoner is not also a corpse. Taking them off the casualty list is
+    // what keeps the settlement's bookkeeping honest, because the store
+    // removes casualties AND prisoners from the garrison.
+    defenderCasualties = TROOP_ORDER.reduce((remaining, troop) => {
+      remaining[troop] = Math.max(0, defenderCasualties[troop] - yielded[troop]);
+      return remaining;
+    }, emptyArmy());
+  }
+
   return {
-    winner,
+    winner: result.winner,
     attackerSurvivors,
     defenderSurvivors,
     attackerCasualties: armyCasualties(input.attacker, attackerSurvivors),
-    defenderCasualties: armyCasualties(input.defender, defenderSurvivors),
+    defenderCasualties,
     loot,
     planScore,
     orderBonus,
-    yielded: surrenderYield({ winner, attackerPower, defenderPower, defenderSurvivors }),
+    yielded,
   };
 }
 

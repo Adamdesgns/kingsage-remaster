@@ -7,6 +7,7 @@ import {
   emptyArmy,
   initialTroopLevels,
   resolveBattle,
+  UNPLANNED_ATTACK_PLAN,
   retreatSurvivors,
   subtractArmy,
 } from "../src/index.ts";
@@ -58,4 +59,51 @@ test("battle resolution and retreat are deterministic", () => {
   };
   assert.deepEqual(resolveBattle(input), resolveBattle(input));
   assert.deepEqual(retreatSurvivors(army, 45_000, 2, "retreat"), retreatSurvivors(army, 45_000, 2, "retreat"));
+});
+
+test("the live battle path decides by unit class, not a flat power sum", () => {
+  // Slice 1b: resolveBattle now runs the real KingsAge engine. Two armies with
+  // the SAME raw attack against the SAME garrison, differing only in class -
+  // under the old flat power sum they were interchangeable.
+  const levels = initialTroopLevels();
+  const defender = { ...emptyArmy(), spear: 1000 }; // 100 vs infantry, 200 vs cavalry
+  const shared = {
+    defender,
+    attackerLevels: levels,
+    defenderLevels: levels,
+    defenderWallLevel: 0,
+    defenderResources: { wood: 100, stone: 100, iron: 100 },
+    plan: UNPLANNED_ATTACK_PLAN,
+    acceptedOrders: 0,
+    seed: "class-matters",
+  };
+
+  const foot = resolveBattle({ ...shared, attacker: { ...emptyArmy(), axe: 400 } });
+  const horse = resolveBattle({ ...shared, attacker: { ...emptyArmy(), lightCavalry: 156 } });
+
+  assert.equal(foot.winner, "attacker", "Berserkers should break a Squire wall");
+  assert.equal(horse.winner, "defender", "Squires are built to stop cavalry");
+});
+
+test("armour raises defence without touching attack", () => {
+  const defender = { ...emptyArmy(), spear: 1000 };
+  const attacker = { ...emptyArmy(), axe: 400 };
+  const shared = {
+    attacker,
+    defender,
+    attackerLevels: initialTroopLevels(),
+    defenderWallLevel: 0,
+    defenderResources: { wood: 0, stone: 0, iron: 0 },
+    plan: UNPLANNED_ATTACK_PLAN,
+    acceptedOrders: 0,
+    seed: "armour",
+  };
+  const bare = resolveBattle({ ...shared, defenderLevels: initialTroopLevels() });
+  const armoured = resolveBattle({
+    ...shared,
+    defenderLevels: Object.fromEntries(Object.keys(initialTroopLevels()).map((t) => [t, 10])) as any,
+  });
+
+  assert.equal(bare.winner, "attacker");
+  assert.equal(armoured.winner, "defender", "ten levels of armour should hold a wall the bare garrison lost");
 });

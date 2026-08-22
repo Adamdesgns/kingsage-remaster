@@ -86,7 +86,9 @@ test("a losing attacker is wiped and the defender pays the exponent instead", ()
 
   assert.equal(result.winner, "defender");
   assert.equal(result.attackerSurvivors.axe, 0);
-  assert.equal(result.defenderSurvivors.spear, 910);
+  // 1000 x (1 - 0.08908) = 910.92, and survivors round to NEAREST - see the
+  // note on settle(): flooring here would also have killed every lone Count.
+  assert.equal(result.defenderSurvivors.spear, 911);
 });
 
 test("a tie resolves to the defender", () => {
@@ -200,4 +202,46 @@ test("a garrison of Spies is not a free village", () => {
     nightBonus: false,
   });
   assert.equal(defence.cavalry, 500 * 5 + 20);
+});
+
+test("armour scales defence only, never attack", () => {
+  // Adam's ruling: the Smithy upgrades ARMOUR. KingsAge has no combat research
+  // at all, so our old troop levels (+8% to both attack and defence) become
+  // defence-only. Attack stays purely about what you brought.
+  const bare = resolveBattleKingsAge({ attacker: { axe: 300 }, defender: { spear: 1000 }, wallLevel: 0 });
+  const armoured = resolveBattleKingsAge({
+    attacker: { axe: 300 },
+    defender: { spear: 1000 },
+    wallLevel: 0,
+    defenceMultiplier: 1.5,
+  });
+
+  assert.equal(bare.winner, "attacker");     // 105,000 vs 100,020
+  assert.equal(armoured.winner, "defender"); // 105,000 vs 150,020
+});
+
+test("a lone Count survives a walkover", () => {
+  // Flooring survivors annihilates small elite stacks: a single Count losing 5%
+  // of himself floors to zero and dies in a battle he barely fought. Conquest
+  // rides on Counts arriving in ones and twos, so this is not a rounding
+  // nicety - it silently makes conquest unreachable in play.
+  const result = resolveBattleKingsAge({
+    attacker: { axe: 400, noble: 1 },
+    defender: { spear: 5 },
+    wallLevel: 0,
+  });
+
+  assert.equal(result.winner, "attacker");
+  assert.equal(result.attackerSurvivors.noble, 1, "the Count died to a rounding rule, not to the enemy");
+});
+
+test("rounding never returns more soldiers than were sent", () => {
+  const result = resolveBattleKingsAge({
+    attacker: { axe: 7, spear: 3, noble: 1 },
+    defender: { spear: 2 },
+    wallLevel: 0,
+  });
+  assert.ok(result.attackerSurvivors.axe <= 7);
+  assert.ok(result.attackerSurvivors.spear <= 3);
+  assert.ok(result.attackerSurvivors.noble <= 1);
 });
