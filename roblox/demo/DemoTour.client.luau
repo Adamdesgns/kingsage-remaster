@@ -222,6 +222,12 @@ local function sendAttack(): boolean
 		return false
 	end
 	attackedThisSession = true
+	-- Ride with Noblemen whenever this village has any. A dev world seeded with
+	-- KINGSAGE_DEV_SEED_NOBLES therefore walks the CONQUEST path on camera
+	-- rather than the raid path — same command, the declaration is what differs.
+	-- With no Noblemen on hand it stays an ordinary raid, so a plain dev world
+	-- records exactly what it did before.
+	local nobles = math.floor(tonumber(home.army and home.army.noble) or 0)
 	local ok = pcall(function()
 		queueCommand:InvokeServer({
 			kind = "attack",
@@ -230,8 +236,13 @@ local function sendAttack(): boolean
 			-- A deliberately non-default plan, so the recording proves the
 			-- plan travels with the order rather than being ignored.
 			plan = { entry = "West Ridge", troops = "Balanced Army", time = "Dawn", style = "Flanking Strike" },
+			withNobles = nobles > 0,
 		})
 	end)
+	if ok then
+		print(string.format("[Demo] attack sent at %s (%s)", targetId,
+			if nobles > 0 then string.format("CONQUEST — %d noblemen ride", nobles) else "raid"))
+	end
 	return ok
 end
 
@@ -398,6 +409,16 @@ task.spawn(function()
 				while resolvedBattleCount() <= battlesBefore and settling < 240 do
 					settling += task.wait(2)
 				end
+				-- If that battle took the village, the celebration is firing
+				-- right now. Stand still and let it play out on camera rather
+				-- than walking off mid-firework; it clears itself after
+				-- Config.CELEBRATION.DURATION.
+				local celebrating = player:FindFirstChild("PlayerGui")
+					and (player.PlayerGui :: any):FindFirstChild("ConquestCelebration")
+				if celebrating then
+					print("[Demo] a village changed hands — filming the celebration")
+					task.wait(9)
+				end
 				walkTo(model, 4, 20, 10)
 				holdPrompt(model, "WarTable", "TablePrompt")
 				task.wait(1)
@@ -414,4 +435,4 @@ task.spawn(function()
 	end
 end)
 
-print("[Demo] self-driving tour active (walk, build, recruit, war table, scout)")
+print("[Demo] self-driving tour active (walk, build, recruit, war table, scout, attack, conquest)")

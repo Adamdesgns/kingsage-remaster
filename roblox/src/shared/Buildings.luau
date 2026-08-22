@@ -66,6 +66,16 @@ Buildings.SCOUT_PRESET = {
 -- (server rule), so this is the whole army for that command.
 Buildings.SCOUT_PARTY = 1
 
+-- Third preset, same discipline: the label and the payload come from one
+-- table, so the button can never lie about what it charges. Noblemen need an
+-- Academy (game-core: TROOPS.noble.recruiter = "academy", recruiterLevel 1)
+-- and cost 2800/3000/3500 — one at a time is the only honest button.
+Buildings.NOBLE_PRESET = {
+	troop = "noble",
+	quantity = 1,
+	label = "Recruit 1 Nobleman",
+}
+
 -- The four axes of an attack plan. Values MUST match game-core's BattlePlan
 -- exactly (contracts.ts) — the world server refuses anything else, and the
 -- client should never be able to compose an order the realm cannot read.
@@ -77,13 +87,59 @@ Buildings.ATTACK_PLAN_AXES = {
 	{ key = "style", label = "Style", options = { "Siege Push", "Flanking Strike", "Full Assault" } },
 }
 
--- Troops an attack muster deliberately leaves at home. Scouts cannot fight
--- (attack 0) and belong to reconnaissance; noblemen are the conquest piece and
--- cost a fortune, so slice A never risks one on an ordinary raid.
+-- Troops an attack muster ALWAYS leaves at home. Scouts cannot fight
+-- (attack 0) and belong to reconnaissance, so no attack ever takes them.
 Buildings.ATTACK_MUSTER_EXCLUDES = {
 	scout = true,
+}
+
+-- Noblemen are the conquest piece and nothing else. They cost a fortune, only
+-- a SURVIVOR can shake a village's loyalty, and one is consumed outright when
+-- it falls (world server: applyConquest). So they never ride on an ordinary
+-- raid — only on an attack the player has explicitly declared a conquest.
+Buildings.CONQUEST_ONLY = {
 	noble = true,
 }
+
+-- The ONE rule for what marches on an attack. CommandService builds the army
+-- from it and the war table counts with it, so the number on the button can
+-- never disagree with the army that actually leaves.
+function Buildings.mustersOnAttack(troop: string, withNobles: boolean?): boolean
+	if Buildings.ATTACK_MUSTER_EXCLUDES[troop] then
+		return false
+	end
+	if Buildings.CONQUEST_ONLY[troop] then
+		return withNobles == true
+	end
+	return true
+end
+
+-- Builds the army an attack actually sends, from a village's army table.
+-- This lives in SHARED on purpose: the Roblox server dispatches this exact
+-- table to the world server, and the war table shows a count derived from the
+-- same call. Mirrored copies of this rule are how a button ends up promising
+-- one army while another one marches.
+--
+-- Returns (army, fighting, nobles). `fighting` deliberately excludes noblemen,
+-- so "no fighting troops here" keeps meaning what it says even on a conquest.
+function Buildings.musterFrom(army: { [string]: any }?, withNobles: boolean?): ({ [string]: number }, number, number)
+	local muster: { [string]: number } = {}
+	local fighting = 0
+	local nobles = 0
+	for _, troop in Buildings.TROOP_ORDER do
+		local count = 0
+		if Buildings.mustersOnAttack(troop, withNobles) then
+			count = math.max(math.floor(tonumber(army and army[troop]) or 0), 0)
+		end
+		muster[troop] = count
+		if Buildings.CONQUEST_ONLY[troop] then
+			nobles += count
+		else
+			fighting += count
+		end
+	end
+	return muster, fighting, nobles
+end
 
 function Buildings.defaultAttackPlan(): { [string]: string }
 	local plan = {}

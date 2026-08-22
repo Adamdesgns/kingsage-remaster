@@ -25,6 +25,7 @@ local TimeUtil = require(shared:WaitForChild("TimeUtil"))
 -- Sibling module: with init.client.luau, Rojo makes this folder the LocalScript
 -- and everything beside it a child of that script.
 local BattleScene = require(script:WaitForChild("BattleScene"))
+local Celebration = require(script:WaitForChild("Celebration"))
 
 local remotes = ReplicatedStorage:WaitForChild("WorldRemotes")
 local stateSync = remotes:WaitForChild("StateSync") :: RemoteEvent
@@ -306,8 +307,20 @@ local ARM_SECONDS = 6
 local armedTargetId: string? = nil
 local armedAt = 0
 
+-- Whether the next attack rides with noblemen — i.e. whether it is a conquest
+-- attempt rather than a raid. Display state only; the Roblox server decides
+-- what actually musters, and only when the request says so plainly.
+local rideWithNobles = false
+
 local function attackIsArmed(targetId: string): boolean
 	return armedTargetId == targetId and (os.clock() - armedAt) < ARM_SECONDS
+end
+
+-- Changing what an armed attack MEANS must never be silently inherited by the
+-- second tap: flipping the conquest toggle disarms, so nobody sends noblemen
+-- they armed a plain raid for.
+local function disarmAttack()
+	armedTargetId = nil
 end
 
 -- Defined down in the battle-view section; declared here so a battle report
@@ -497,16 +510,14 @@ local function armySummary(army: any, emptyText: string?): string
 	return table.concat(parts, ", ")
 end
 
--- Everything in this village that would march on an attack. Mirrors
--- CommandService.musterFrom — if one changes, change both.
-local function musterCount(village: any): number
-	local total = 0
-	for _, troop in Buildings.TROOP_ORDER do
-		if not Buildings.ATTACK_MUSTER_EXCLUDES[troop] then
-			total += math.max(math.floor(tonumber(village and village.army and village.army[troop]) or 0), 0)
-		end
-	end
-	return total
+-- Everything in this village that would march on an attack. Counted by the
+-- SAME shared function CommandService builds the dispatched army from, so the
+-- number on the button cannot drift from the army that actually leaves.
+-- Returns (fighting troops, noblemen available).
+local function musterCount(village: any): (number, number)
+	local _, fighting = Buildings.musterFrom(village and village.army, false)
+	local _, _, nobles = Buildings.musterFrom(village and village.army, true)
+	return fighting, nobles
 end
 
 local function hasReportFor(targetVillageId: string): boolean
@@ -577,7 +588,8 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 	if #targets == 0 then
 		noteRow(scroll, nextOrder(), "No foreign settlements in this world yet.")
 	end
-	local muster = musterCount(village)
+	local muster, noblesOnHand = musterCount(village)
+	local conquering = rideWithNobles and noblesOnHand > 0
 	for _, target in targets do
 		local targetId = tostring(target.id)
 		local scouted = hasReportFor(targetId)
@@ -605,10 +617,13 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 				})
 			end,
 		}, {
-			label = if armed then "SEND?" else "Attack",
+			label = if armed then (if conquering then "CONQUER?" else "SEND?")
+				else (if conquering then "Conquer" else "Attack"),
 			color = if armed
 				then Color3.fromRGB(120, 45, 35)
-				else (if canAttack then Color3.fromRGB(80, 45, 40) else Color3.fromRGB(45, 45, 45)),
+				else (if canAttack
+					then (if conquering then Color3.fromRGB(105, 80, 30) else Color3.fromRGB(80, 45, 40))
+					else Color3.fromRGB(45, 45, 45)),
 			onClick = function()
 				if not scouted then
 					toast("Scout them first — nobody attacks blind.", false)
@@ -618,11 +633,15 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 					toast("No fighting troops in this village.", false)
 					return
 				end
-				-- First tap arms, second sends: this commits the whole garrison.
+				-- First tap arms, second sends: this commits the whole garrison,
+				-- and on a conquest a nobleman who is never coming back.
 				if not attackIsArmed(targetId) then
 					armedTargetId = targetId
 					armedAt = os.clock()
-					toast(string.format("Tap again to send %d troops at %s.", muster, tostring(target.name)), true)
+					toast(if conquering
+						then string.format("Tap again to send %d troops and %d nobleman at %s — this is a conquest.",
+							muster, noblesOnHand, tostring(target.name))
+						else string.format("Tap again to send %d troops at %s.", muster, tostring(target.name)), true)
 					buildTablePanel()
 					-- Let the button say "Attack" again the moment it stops
 					-- meaning "SEND?", instead of at the next heartbeat.
@@ -639,16 +658,46 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 					villageId = villageId,
 					targetVillageId = targetId,
 					plan = attackPlan,
+					withNobles = conquering,
 				})
 			end,
 		})
 	end
 
+	-- --- noblemen: the only way a village ever changes hands ---
+	sectionHeader(scroll, nextOrder(), string.format("NOBLEMEN  ·  %d on hand", noblesOnHand))
+	if noblesOnHand < 1 then
+		noteRow(scroll, nextOrder(),
+			"Only a surviving nobleman can break a village's loyalty and take it. They are trained at an Academy (level 1) and cost a fortune.", 56)
+		actionRow(scroll, nextOrder(), Buildings.NOBLE_PRESET.label, "Recruit", Color3.fromRGB(85, 70, 30), function()
+			invokeQueue({
+				kind = "recruit",
+				villageId = villageId,
+				troop = Buildings.NOBLE_PRESET.troop,
+				quantity = Buildings.NOBLE_PRESET.quantity,
+			})
+		end)
+	else
+		noteRow(scroll, nextOrder(), if rideWithNobles
+			then "Noblemen RIDE. Each survivor breaks 20–35 loyalty; at zero the village is yours, and one nobleman stays behind as its lord."
+			else "Noblemen stay home. Turn this on to attempt a conquest rather than a raid.", 56)
+		actionRow(scroll, nextOrder(),
+			if rideWithNobles then "Conquest: noblemen ride" else "Raid: noblemen stay home",
+			if rideWithNobles then "Stand down" else "Ride",
+			if rideWithNobles then Color3.fromRGB(105, 80, 30) else Color3.fromRGB(50, 50, 60), function()
+				rideWithNobles = not rideWithNobles
+				-- The armed target was armed for a DIFFERENT order.
+				disarmAttack()
+				buildTablePanel()
+			end)
+	end
+
 	-- --- attack plan ---
 	sectionHeader(scroll, nextOrder(), "ATTACK PLAN")
 	noteRow(scroll, nextOrder(), string.format(
-		"An attack musters every fighting troop here (%d) — scouts and noblemen stay home. The plan is fought even if you are offline when it lands.",
-		muster), 56)
+		"An attack musters every fighting troop here (%d) — scouts always stay home%s. The plan is fought even if you are offline when it lands.",
+		muster,
+		if conquering then string.format(", and %d nobleman rides", noblesOnHand) else " and so do noblemen"), 56)
 	for _, axis in Buildings.ATTACK_PLAN_AXES do
 		local current = attackPlan[axis.key] or axis.options[1]
 		actionRow(scroll, nextOrder(), string.format("%s: %s", axis.label, current), "Change",
@@ -1272,6 +1321,13 @@ local seenReports: { [string]: boolean } = {}
 local seenBattles: { [string]: boolean } = {}
 local seededReports = false
 
+-- Every village id this kingdom held as of the last snapshot. A village that
+-- appears here for the first time AFTER the join seed just changed hands, and
+-- that is the only signal the celebration needs — the world server has already
+-- settled the conquest, so the client is reacting to a fact, not deciding one.
+local ownedVillages: { [string]: boolean } = {}
+local seededOwnership = false
+
 local function announceNewReports(snapshot: any)
 	local reports = snapshot and snapshot.scoutReports
 	if typeof(reports) == "table" then
@@ -1305,6 +1361,29 @@ local function announceNewReports(snapshot: any)
 		end
 	end
 	seededReports = true
+
+	-- A village that is newly mine changed hands in my favour. Never fires on
+	-- the join seed: the first snapshot is simply what I already own, and a
+	-- rejoin must not replay every conquest I have ever made.
+	local villages = snapshot and snapshot.world and snapshot.world.villages
+	if kingdomId and typeof(villages) == "table" then
+		local nowOwned: { [string]: boolean } = {}
+		local taken: string? = nil
+		for _, village in villages do
+			if tostring(village.kingdomId) == kingdomId then
+				local id = tostring(village.id)
+				nowOwned[id] = true
+				if seededOwnership and not ownedVillages[id] then
+					taken = tostring(village.name)
+				end
+			end
+		end
+		ownedVillages = nowOwned
+		seededOwnership = true
+		if taken then
+			Celebration.play(taken)
+		end
+	end
 end
 
 local function refreshHud()

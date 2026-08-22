@@ -62,8 +62,90 @@ village command **posted an empty `villageId`**. Full write-ups below.
 - **Troops have never been seen.** The battle scene builds six-part anchored
   soldiers and the maths is confirmed, but nobody has watched the bodies draw.
   Cheapest outstanding check.
-- **`npm run check:luau` still cannot run — Lune is not installed on this PC.**
+- ~~`npm run check:luau` cannot run — Lune is not installed.~~ **WRONG, corrected
+  2026-08-22.** Lune 0.10.5 *is* installed and on the user PATH; the session
+  that checked had a stale PATH and concluded from `where lune` that it was
+  missing. Both Luau gates run: `npm run check:luau` (21 files compile) and the
+  new `npm run check:luau-rules` (14 shared rules, RUN not just parsed).
 - Conquest (slice C), VPS deploy, name vetting, art.
+
+## Slice C — CONQUEST (2026-08-22) — offline-proven, Studio-unproven
+
+Plan: `docs/superpowers/plans/2026-08-21-roblox-conquest-slice-c.md` (Codex's).
+Drills: `docs/superpowers/drills-conquest.md` (**D1-D7**, none run yet — D1-D6
+are C-numbered in the plan but C1-C6 already belong to the battle scene).
+
+**The server half was already done and, unusually, already tested** — eight
+tests in `server/test/roblox-conquest.test.ts` covering all six of the plan's
+requirements plus two more. `applyConquest` in `store.ts` transfers the village
+inside the settlement transaction, resets loyalty to 25, disperses the garrison,
+consumes one Nobleman, re-seats a lost capital and kills a landless kingdom.
+
+**But none of it could ever fire from a play session.** Two blockers, now gone:
+
+1. `ATTACK_MUSTER_EXCLUDES` kept Noblemen home on *every* attack, so a march
+   could never carry one. `applyConquest` was unreachable code.
+2. There was no way to recruit a Nobleman — the war table had presets for
+   spearmen and scouts only.
+
+What shipped:
+
+- `Buildings.mustersOnAttack` / `Buildings.musterFrom` — the muster rule AND
+  the army construction now live in ONE shared function that the Roblox server
+  dispatches from and the war table counts with. It was about to become a third
+  mirrored copy, and mirrored copies are how a button promises one army while
+  another marches.
+- Conquest is an **explicit declaration**, never inferred: only a request that
+  literally says `withNobles = true` conscripts one. A nil or a truthy string
+  reads as a raid. The nobleman count is in the double-tap fingerprint, so a
+  raid and a conquest on the same target are different intents.
+- War table **NOBLEMEN** section: count on hand, Recruit 1 Nobleman, and a
+  Raid/Conquest toggle. **Flipping the toggle disarms an armed attack** — the
+  second tap must never inherit a meaning the first did not arm.
+- `client/Celebration.luau` — banner, fireworks, coin shower, Skip. Client-only
+  so it costs the network nothing; no Humanoids, one `BulkMoveTo` per frame, a
+  hard part ceiling, and a generation counter so Skip kills shells still waiting
+  to burst. Only the Skip button is `Active`, so it never eats a prompt tap. It
+  bursts around the PLAYER, not the conquered keep — villages are thousands of
+  studs apart, so bursting over the keep would make winning look like empty sky.
+- The client fires it when a village id is **newly** in the owned set, never on
+  the join seed, so a rejoin does not replay every conquest ever made.
+
+**New offline coverage that did not exist before:**
+
+- `roblox/scripts/rules-check.luau` — the first Luau in this project ever
+  *executed* by a test. Fourteen shared rules including the exact army table
+  that ships to the world server. Mutation-checked: making Noblemen ride on
+  every raid fails it 2/14 and exits 1.
+- A **wave campaign** test. Nothing covered it: every existing conquest test
+  either posed loyalty low enough for one Nobleman or landed the claim in a
+  single attack, so nothing proved loyalty *persists between attacks* — which
+  conquest depends on entirely. It does, and a campaign lands in 3-5.
+
+**Verified:** 21 Luau files compile, 14 rules pass, 19 core, 53 server, 39
+roblox-layer (x3 clean), all four gate checkers, all three rojo builds.
+**Not verified:** anything in Studio. D1-D7 are unrun.
+
+### ⚠️ The open design question this slice uncovered
+
+**A fresh kingdom cannot conquer anyone, and there is no on-ramp.**
+
+Conquest needs 3-5 Noblemen (loyalty 100, 20-35 off per survivor) at 2800/3000/
+3500 and 900s each, behind an Academy. That is a fine genre-standard commitment
+curve. The problem is the target: **every fixture village carries the identical
+30 spear / 12 sword / 10 archer garrison behind an identical wall** — including
+the two the store renames "Unclaimed Hold", which are just open player seats,
+not weak neutrals. A starting army attacking a peer *loses* (proven live:
+*"Defeat. 2 survivors are returning home."*).
+
+So "take over the world one settlement at a time" has no first rung. Tribal
+Wars solves this with barbarian villages. **This is a design-team question, not
+a call to make solo** — it is exactly the kind of decision the handoff already
+flags five of. Flagged, not decided.
+
+Meanwhile `KINGSAGE_DEV_SEED_NOBLES` (dev only, unset in production, tested
+both ways) seeds Noblemen so the path can be *walked* and proven.
+`start-dev.ps1` sets it to 5.
 
 ## What it looks like today
 

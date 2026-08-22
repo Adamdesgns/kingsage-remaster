@@ -188,6 +188,20 @@ type StoreOptions = {
    * enough that showing up is a real choice.
    */
   autoResolveMs?: number;
+  /**
+   * DEV ONLY. Seeds this many Noblemen into every village at world creation.
+   *
+   * Conquest is deliberately a long commitment: loyalty starts at 100 and each
+   * surviving Nobleman shakes it by 20-35, so taking a village needs three to
+   * five of them at 900s and ~2800/3000/3500 each. That is the design working,
+   * but it also means the conquest path cannot be walked in a play session or
+   * a recording, and an unwalkable path is an unproven one.
+   *
+   * Unset (the default, and every production boot) seeds nothing and the
+   * fixture's own armies stand. This never changes a rule — only the starting
+   * garrison of a throwaway dev world.
+   */
+  devSeedNobles?: number;
   now?: () => Date;
 };
 
@@ -268,6 +282,7 @@ export class SharedWorldStore {
   readonly marchDurationMs?: number;
   readonly returnDurationMs?: number;
   readonly autoResolveMs: number;
+  private readonly devSeedNobles: number;
   readonly now: () => Date;
   private readonly listeners = new Set<(event: StoredWorldEvent) => void>();
 
@@ -279,6 +294,7 @@ export class SharedWorldStore {
     this.marchDurationMs = options.marchDurationMs;
     this.returnDurationMs = options.returnDurationMs;
     this.autoResolveMs = options.autoResolveMs ?? DEFAULT_AUTO_RESOLVE_MS;
+    this.devSeedNobles = Math.max(0, Math.floor(options.devSeedNobles ?? 0));
     this.now = options.now ?? (() => new Date());
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.migrate();
@@ -349,6 +365,12 @@ export class SharedWorldStore {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const [index, village] of fixture.villages.entries()) {
+        // See StoreOptions.devSeedNobles: off in production, and it adds to the
+        // garrison rather than replacing it, so nothing else about the fixture
+        // shifts underneath the tests that depend on it.
+        const army = this.devSeedNobles > 0
+          ? { ...village.army, noble: (village.army.noble ?? 0) + this.devSeedNobles }
+          : village.army;
         insertVillage.run(
           village.id,
           village.worldId,
@@ -360,7 +382,7 @@ export class SharedWorldStore {
           village.loyalty,
           JSON.stringify(village.resources),
           JSON.stringify(village.buildings),
-          JSON.stringify(village.army),
+          JSON.stringify(army),
           village.stateVersion,
         );
       }
