@@ -13,6 +13,27 @@ import {
 
 const COLORS = ["#f0c057", "#62b7dc", "#d85f55", "#6cc58a", "#a882d8", "#d28b55"] as const;
 const AI_NAMES = ["Warlord Kaas", "Ember Crown", "Verdant Pact", "The Ashen Court"] as const;
+const FREEHOLD_NAMES = ["Millers Rest", "Thornhollow", "Saltmarsh Freehold", "Crowfoot Landing"] as const;
+
+/**
+ * [CONFIRMED] KingsAge runs abandoned settlements as the official on-ramp:
+ * taking one does NOT burn beginner conquest protection, while attacking a real
+ * player does. Named **Freeholds** here [OURS].
+ *
+ * They matter more to us than to the source game. A kingdom now starts with no
+ * troops at all, and every player capital carries an identical garrison - so
+ * without Freeholds there is literally nothing in the world a new player can
+ * take, and "take over the world one settlement at a time" has no first rung.
+ */
+export const FREEHOLD_COUNT = FREEHOLD_NAMES.length;
+
+/**
+ * Reachable, but never free. A first rung has to cost something or it teaches
+ * the player nothing about war. Ten Squires defend at 250 against an early
+ * Berserker army attacking at ~1000, so it is a comfortable first win and a
+ * real one.
+ */
+export const FREEHOLD_GARRISON = { ...emptyArmy(), spear: 10 };
 
 function hashSeed(value: string): number {
   let hash = 2166136261;
@@ -87,11 +108,15 @@ export function createTwoPlayerWorldFixture(options: TwoPlayerFixtureOptions = {
     { id: "player-adam", kingdomName: "Crown of Adam" },
     { id: "player-rival", kingdomName: "Northwatch" },
   ];
-  const sites = selectCapitalSites(seed, 2 + AI_NAMES.length);
+  // One draw for every settlement in the world, so no Freehold lands on a capital.
+  const sites = selectCapitalSites(seed, 2 + AI_NAMES.length + FREEHOLD_COUNT);
   const kingdoms: KingdomState[] = [];
   const villages: VillageState[] = [];
 
-  for (let index = 0; index < sites.length; index += 1) {
+  // Capitals only. `sites` also carries Freehold sites on the end, so this must
+  // NOT walk sites.length - doing so invents nameless kingdoms.
+  const capitalCount = players.length + AI_NAMES.length;
+  for (let index = 0; index < capitalCount; index += 1) {
     const human = index < players.length ? players[index] : null;
     const kingdomId = `kingdom-${index + 1}`;
     const villageId = `village-${index + 1}-capital`;
@@ -123,6 +148,43 @@ export function createTwoPlayerWorldFixture(options: TwoPlayerFixtureOptions = {
       resources: { wood: 1_200, stone: 1_000, iron: 800 },
       buildings: defaultBuildings(),
       army: startingArmy(),
+      stateVersion: 0,
+    });
+  }
+
+  // Freeholds: abandoned settlements, never a claimable seat, always conquerable.
+  for (let index = 0; index < FREEHOLD_COUNT; index += 1) {
+    const kingdomId = `freehold-${index + 1}`;
+    const villageId = `village-freehold-${index + 1}`;
+    const site = sites[2 + AI_NAMES.length + index];
+    assertCoordinate(site.x, site.y);
+    kingdoms.push({
+      id: kingdomId,
+      worldId,
+      name: FREEHOLD_NAMES[index],
+      color: "#8d8578",
+      seatKind: "freehold",
+      controllerPlayerId: null,
+      capitalVillageId: villageId,
+      allianceId: null,
+      troopLevels: initialTroopLevels(),
+      warVictoryPoints: 0,
+      villagesConquered: 0,
+      alive: true,
+    });
+    villages.push({
+      id: villageId,
+      worldId,
+      kingdomId,
+      name: FREEHOLD_NAMES[index],
+      x: site.x,
+      y: site.y,
+      isCapital: true,
+      loyalty: 100,
+      // Poorer than a player capital - nobody has been running it.
+      resources: { wood: 400, stone: 350, iron: 250 },
+      buildings: { ...defaultBuildings(), wall: 0, barracks: 0 },
+      army: { ...FREEHOLD_GARRISON },
       stateVersion: 0,
     });
   }

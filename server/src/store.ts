@@ -323,6 +323,35 @@ export class SharedWorldStore {
       this.db.exec(readFileSync(migrationPath, "utf8"));
       this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)").run(version, this.now().toISOString());
     }
+    this.migrateFreeholdSeatKind();
+  }
+
+  /**
+   * Migration 0007, run CONDITIONALLY.
+   *
+   * Every other migration is IF NOT EXISTS and replays harmlessly on each boot.
+   * 0007 cannot be: SQLite has no way to alter a CHECK constraint, so widening
+   * `seat_kind` to accept 'freehold' means rebuilding the table - copy, drop,
+   * rename. Replaying that unconditionally would churn the kingdoms table on
+   * every single startup.
+   *
+   * So we read the live schema and act only if the old constraint is still
+   * there. Checking the schema rather than the migrations table is deliberate:
+   * a row saying "applied" is a claim, while the constraint text is the fact,
+   * and this project has already been bitten twice by trusting a claim over the
+   * thing itself.
+   */
+  private migrateFreeholdSeatKind(): void {
+    const row = this.db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'local_kingdoms'",
+    ).get() as DbRow | undefined;
+    if (!row) return;
+    if (String(row.sql).includes("'freehold'")) return;
+
+    const migrationPath = fileURLToPath(new URL("../db/migrations/0007_freeholds.sql", import.meta.url));
+    this.db.exec(readFileSync(migrationPath, "utf8"));
+    this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)")
+      .run(7, this.now().toISOString());
   }
 
   private seedWorld(): void {
@@ -341,15 +370,23 @@ export class SharedWorldStore {
         INSERT INTO local_kingdoms(
           id, world_id, name, color, seat_kind, controller_player_id, capital_village_id,
           troop_levels_json, war_victory_points, villages_conquered, alive
-        ) VALUES (?, ?, ?, ?, 'ai', NULL, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
       `);
       for (const [index, kingdom] of fixture.kingdoms.entries()) {
-        const initialName = index < 2 ? `Frontier March ${index + 1}` : kingdom.name;
+        const initialName = kingdom.seatKind !== "freehold" && index < 2 ? `Frontier March ${index + 1}` : kingdom.name;
         insertKingdom.run(
           kingdom.id,
           kingdom.worldId,
           initialName,
           kingdom.color,
+          // A freshly seeded world has no players in it, so every CAPITAL is an
+          // open seat regardless of what the fixture nominally calls it - the
+          // fixture's two "human" kingdoms are placeholders, not occupants.
+          // Freeholds are the one kind that must survive verbatim: findOpenSeat()
+          // claims 'ai' rows, so a Freehold stamped 'ai' would be handed to a
+          // player as their starting kingdom - seating them inside the very
+          // thing the game wants them to conquer.
+          kingdom.seatKind === "freehold" ? "freehold" : "ai",
           kingdom.capitalVillageId,
           JSON.stringify(kingdom.troopLevels),
           kingdom.warVictoryPoints,
@@ -375,7 +412,7 @@ export class SharedWorldStore {
           village.id,
           village.worldId,
           village.kingdomId,
-          index < 2 ? `Unclaimed Hold ${index + 1}` : village.name,
+          index < 2 ? `Open Seat ${index + 1}` : village.name,
           village.x,
           village.y,
           village.isCapital ? 1 : 0,

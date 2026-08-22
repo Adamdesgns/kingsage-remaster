@@ -53,7 +53,14 @@ export type BattlePlan = {
 };
 
 export type WorldStatus = "forming" | "active" | "won" | "archived" | "paused";
-export type SeatKind = "human" | "ai";
+/**
+ * "ai" is an OPEN PLAYER SEAT, not a robot opponent - `findOpenSeat()` claims
+ * exactly these. "freehold" is an abandoned settlement: never claimable, always
+ * conquerable, and the designed first rung for a kingdom that starts with no
+ * troops. Adding it to this union is what keeps a new player from being seated
+ * INTO the thing they are supposed to take.
+ */
+export type SeatKind = "human" | "ai" | "freehold";
 export type ChatChannelKind = "global" | "world" | "alliance";
 
 export type WorldState = {
