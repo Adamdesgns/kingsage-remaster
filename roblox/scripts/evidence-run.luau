@@ -98,6 +98,31 @@ check("foreign silhouettes exist (the world has neighbors)", shellCount > 0, tos
 check("wilderness built", workspace:FindFirstChild("Wilderness") ~= nil and #workspace.Wilderness:GetChildren() > 1)
 check("one full settlement per present player (single-village slice)", fullCount == #Players:GetPlayers(), string.format("%d full / %d players", fullCount, #Players:GetPlayers()))
 
+-- scouting slice: the shared contract the war table's War tab depends on.
+-- Requiring a ModuleScript from a REAL server script is safe (one VM, one
+-- cached instance) — it is only the command bar that hands back a second copy.
+local sharedFolder = ReplicatedStorage:FindFirstChild("WorldShared")
+local buildingsModule = sharedFolder and sharedFolder:FindFirstChild("Buildings")
+check("WorldShared.Buildings exists", buildingsModule ~= nil)
+if buildingsModule and buildingsModule:IsA("ModuleScript") then
+	local okRequire, Buildings = pcall(require, buildingsModule)
+	check("Buildings module loads", okRequire, tostring(Buildings))
+	if okRequire and typeof(Buildings) == "table" then
+		check("Buildings.TROOP_ORDER lists all 8 troops",
+			typeof(Buildings.TROOP_ORDER) == "table" and #Buildings.TROOP_ORDER == 8,
+			tostring(typeof(Buildings.TROOP_ORDER) == "table" and #Buildings.TROOP_ORDER or "nil"))
+		check("Buildings.SCOUT_PRESET is bound label+payload",
+			typeof(Buildings.SCOUT_PRESET) == "table"
+				and Buildings.SCOUT_PRESET.troop == "scout"
+				and typeof(Buildings.SCOUT_PRESET.quantity) == "number"
+				and typeof(Buildings.SCOUT_PRESET.label) == "string")
+		check("Buildings.SCOUT_PARTY is a positive whole number",
+			typeof(Buildings.SCOUT_PARTY) == "number" and Buildings.SCOUT_PARTY >= 1
+				and Buildings.SCOUT_PARTY == math.floor(Buildings.SCOUT_PARTY),
+			tostring(Buildings.SCOUT_PARTY))
+	end
+end
+
 print(string.format("[EVIDENCE] ---- automated: %d PASS, %d FAIL ----", pass, fail))
 print([[
 [EVIDENCE] BY-HAND CHECKLIST (docs/superpowers/drills-slice-one.md has full steps):
@@ -109,4 +134,15 @@ print([[
   6. Sabotage drill: stop the world server -> prompts grey, banner shows, orders refuse honestly;
      restart it -> everything trues up, nothing lost, nothing spent.
   7. Phone drill: private place, real phone -> join, walk, prompt, table, readable HUD.
+
+[EVIDENCE] SCOUTING DRILLS (docs/superpowers/drills-scouting.md has full steps):
+  8. War tab: at the table, tap "War" -> scouts-on-hand count, every foreign village
+     listed nearest-first with its realm and tile distance, no levels shown for any of them.
+  9. Send scouts -> toast "Scouts are away.", scouts-on-hand drops by one, a countdown row
+     appears in BOTH the War tab and the HUD queue panel.
+ 10. Arrival -> toast "Scouts are back from <village>.", a report card shows the target's
+     real army/resources/Rampart+HQ, and the march flips to "Scouts returning".
+ 11. Fog still holds: nothing outside that report card ever shows a foreign level or count.
+ 12. Zero scouts -> the Scout buttons read "—" and refuse honestly; the "Recruit 2 Scouts"
+     row appears and (with no Stable) the realm's own refusal is what the player reads.
 ]])

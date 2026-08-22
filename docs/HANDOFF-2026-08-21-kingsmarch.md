@@ -8,8 +8,9 @@ proven live on video. This is now ordinary forward development.
 ## The one-line state
 
 The village loop is real and running on the authoritative world server; the
-region world (neighbors + wilderness + fog) shipped today; the next rung is
-**scouting from the war table**, then battles.
+region world (neighbors + wilderness + fog) shipped today; **scouting from the
+war table shipped tonight, offline-verified but never run in Studio**; the next
+rung is battles.
 
 ## Names and identity
 
@@ -76,6 +77,45 @@ region world (neighbors + wilderness + fog) shipped today; the next rung is
 - `scripts/syntax-check.luau` — `npm run check:luau`, compiles all 17 Luau
   files with the real compiler via Lune. Rojo alone never parses them.
 
+## Scouting slice (added 2026-08-21 night) — offline-proven, Studio-unproven
+
+Plan: `docs/superpowers/plans/2026-08-21-roblox-scouting-slice.md`.
+Drills: `docs/superpowers/drills-scouting.md` (S1–S6, none run yet).
+
+**The world server needed no changes.** `march.launch` with `kind: "scout"`,
+`materializeDueMarches` writing `ScoutReportState`, and the fog in
+`getSnapshot` were all already there and correct — checked by reading before
+writing anything. This slice is new verbs and views over data already in hand.
+
+- `shared/Buildings.luau` — `TROOP_ORDER` (mirrors game-core), `SCOUT_PRESET`,
+  `SCOUT_PARTY`, `troopName()`.
+- `server/CommandService.luau` — `kind = "scout"` builds the `march.launch`
+  command with a scouts-only army; fingerprint `scout:<from>:<target>:<qty>`
+  so all four existing double-tap layers cover it unchanged. Local honest
+  refusals (unknown target, own village, not enough scouts) save a round trip;
+  everything else stays the world server's call.
+- `client/init.client.luau` — the war table now has **Village** and **War**
+  tabs. War shows scouts on hand, every foreign village nearest-first with
+  realm and tile distance, live march countdowns, and report cards (real army
+  troop-by-troop, resources, Rampart/HQ, age). Marches also appear in the HUD
+  queue panel. One toast per genuinely new report, seeded silently on join so
+  a rejoin never replays history.
+- `server/test/roblox-scouting.test.ts` — 6 tests through the real
+  `/api/roblox/*` routes. The load-bearing one: **the same snapshot that
+  carries a scout report still shows that village fogged.**
+
+**Verified:** `npm run test:roblox-layer` 16/16, `npm run test:gate-d` 30/30
+plus all four gate checkers. **Not verified:** anything in Studio, and the
+Luau syntax gate (see the trap below).
+
+**Defect found and fixed in passing:** `CommandService` used `math.trunc`,
+which is not in Luau's math library — the recruit path would have thrown and
+been swallowed by the `pcall` in `CommandService.queue`, surfacing to the
+player as *"The realm didn't answer."* Replaced with `math.floor` (identical
+here, since quantities are clamped ≥ 1). It was the only use in either Roblox
+repo. Worth confirming in Studio that recruiting now works, since it may never
+have.
+
 ## Proven live (2026-08-21, on video)
 
 A real Studio session founded `Dadisaking86` → `kingdom-5`, built the
@@ -95,6 +135,13 @@ recorded via ffmpeg and delivered to Adam. Evidence noted at the top of
   battle slice's fidelity assumptions.
 - The region world has not been walked in Studio yet — it was built after the
   recording; the currently-open Studio window still holds the older build.
+- The **entire scouting slice** in Studio: drills S1–S6 in
+  `docs/superpowers/drills-scouting.md`. Its offline half is green, but no
+  human has tapped the War tab.
+- **The Luau syntax gate did not run for the scouting slice.** Lune is not
+  installed on this PC (checked: no `lune`, no rokit, no aftman — only `rojo`
+  from winget), so `npm run check:luau` cannot execute here. The Luau in this
+  slice is hand-checked only until Lune is installed or Studio parses it.
 
 ## How to run it (the loop that works)
 
@@ -119,7 +166,15 @@ rebuilds `WorldGame-demo.rbxlx`, and opens the CURRENT Studio. Then press
   Delete — it wipes recovery files that may belong to Blockshore).
 - **Never test service internals from the Studio command bar** — it returns a
   second, uninitialised copy of every module and prints confident false
-  failures. Use gameplay, the HUD, or the evidence-run script.
+  failures. Use gameplay, the HUD, or the evidence-run script. (A real
+  ServerScript is fine: `evidence-run.luau` now requires `Buildings` that way.)
+- **Lune is not installed on this PC**, so `npm run check:luau` cannot run
+  here even though the repo advertises it. Only `rojo` is present (winget).
+  Say the gate did not run rather than implying it did.
+- **`math.trunc` does not exist in Luau.** It was in `CommandService` and would
+  have thrown inside a `pcall`, showing the player "The realm didn't answer."
+  Use `math.floor`/`math.round`; Blockshore's Luau never uses `math.trunc`
+  either.
 - **Adam is usually NOT at the PC** — he works from his phone. Anything that
   needs a keypress or a screen-control grant will sit unanswered for hours.
   He has denied computer-use access three times; do not keep asking. Prefer
@@ -131,15 +186,11 @@ rebuilds `WorldGame-demo.rbxlx`, and opens the CURRENT Studio. Then press
 
 ## Next moves, in order
 
-1. **Scouting from the war table (in progress, nothing written yet).** The
-   server already has everything: `march.launch` with `kind: "scout"` →
-   `MarchState` → `ScoutReportState` (target name, observed army/resources/
-   buildings) in the snapshot. Roblox side needs: a target list in the table
-   panel (foreign villages from the snapshot), a "Send scout" command, a
-   marches panel showing travel countdowns, and a report view. The village's
-   `army.scout` count is the gate — if the fixture starts with zero scouts,
-   recruit-a-scout must exist first (check `packages/game-core/src` fixture
-   and `troopRequirementProblem`).
+1. **Run the scouting drills in Studio** (`docs/superpowers/drills-scouting.md`,
+   S1–S6, ~10 minutes). The slice is built and offline-green; nothing about how
+   it FEELS is known. The fixture starts each village with 4 scouts, so S1–S4
+   work immediately with no Stable. Install Lune while you are at it so
+   `npm run check:luau` can gate Luau again.
 2. **Measure the 200-troop spike on a phone**, write
    `docs/superpowers/spike-200-troops.md`. Publish the spike place PRIVATE.
 3. **Battles slice** — the design's biggest piece: march → attend live or get

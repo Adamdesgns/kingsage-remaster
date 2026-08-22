@@ -33,36 +33,101 @@ local REPEAT_SECONDS = 2
 
 local CommandService = {}
 
-type QueueRequest = { kind: string, villageId: string, building: string?, troop: string?, quantity: number? }
+type QueueRequest = {
+	kind: string,
+	villageId: string,
+	building: string?,
+	troop: string?,
+	quantity: number?,
+	targetVillageId: string?,
+}
 type QueueResult = { ok: boolean, message: string }
 
 local inFlight: { [Player]: boolean } = {}
 local lastCompleted: { [Player]: { fingerprint: string, at: number, result: QueueResult } } = {}
 
-local function ownsVillage(snapshot: any, kingdomId: string, villageId: string): boolean
+local function findVillage(snapshot: any, villageId: string): any
 	local villages = snapshot and snapshot.world and snapshot.world.villages
 	if typeof(villages) ~= "table" then
-		return false
+		return nil
 	end
 	for _, village in villages do
-		if village.id == villageId and village.kingdomId == kingdomId then
-			return true
+		if village.id == villageId then
+			return village
 		end
 	end
-	return false
+	return nil
 end
 
-local function buildCommand(request: QueueRequest): ({ [string]: any }?, string?)
+local function ownsVillage(snapshot: any, kingdomId: string, villageId: string): boolean
+	local village = findVillage(snapshot, villageId)
+	return village ~= nil and village.kingdomId == kingdomId
+end
+
+local function isKnownTroop(troop: string?): boolean
+	return typeof(troop) == "string" and Buildings.TROOP_NAMES[troop] ~= nil
+end
+
+-- Returns (command, fingerprint, refusal). A refusal is a LOCAL, honest "no"
+-- that saves a round trip; anything the client cannot know for certain is left
+-- to the world server, whose message is what the player then reads.
+local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: string): ({ [string]: any }?, string?, string?)
 	if request.kind == "build" and typeof(request.building) == "string" then
 		return { type = "village.build.queue", payload = { villageId = request.villageId, building = request.building } },
-			"build:" .. request.villageId .. ":" .. request.building
+			"build:" .. request.villageId .. ":" .. request.building,
+			nil
 	end
-	if request.kind == "recruit" and typeof(request.troop) == "string" then
-		local quantity = math.clamp(math.trunc(tonumber(request.quantity) or 0), 1, 500)
-		return { type = "village.recruit.queue", payload = { villageId = request.villageId, troop = request.troop, quantity = quantity } },
-			"recruit:" .. request.villageId .. ":" .. request.troop .. ":" .. quantity
+
+	if request.kind == "recruit" then
+		if not isKnownTroop(request.troop) then
+			return nil, nil, "No such troop."
+		end
+		local troop = request.troop :: string
+		local quantity = math.clamp(math.floor(tonumber(request.quantity) or 0), 1, 500)
+		return { type = "village.recruit.queue", payload = { villageId = request.villageId, troop = troop, quantity = quantity } },
+			"recruit:" .. request.villageId .. ":" .. troop .. ":" .. quantity,
+			nil
 	end
-	return nil, nil
+
+	if request.kind == "scout" then
+		if typeof(request.targetVillageId) ~= "string" then
+			return nil, nil, "Pick a village to scout."
+		end
+		local targetId = request.targetVillageId :: string
+		local target = findVillage(snapshot, targetId)
+		if not target then
+			return nil, nil, "That village is not on the map."
+		end
+		if target.kingdomId == kingdomId then
+			return nil, nil, "That is your own village."
+		end
+		local from = findVillage(snapshot, request.villageId)
+		local quantity = math.clamp(math.floor(tonumber(request.quantity) or Buildings.SCOUT_PARTY), 1, 50)
+		local onHand = math.floor(tonumber(from and from.army and from.army.scout) or 0)
+		if onHand < quantity then
+			return nil, nil, if onHand == 0
+				then "No scouts in this village — recruit some first."
+				else string.format("Only %d scout%s here.", onHand, if onHand == 1 then "" else "s")
+		end
+		-- A scout march may carry scouts ONLY (world-server rule); send exactly
+		-- that shape and nothing else, so it can never be refused for form.
+		local army: { [string]: number } = {}
+		for _, troop in Buildings.TROOP_ORDER do
+			army[troop] = 0
+		end
+		army.scout = quantity
+		return {
+			type = "march.launch",
+			payload = {
+				fromVillageId = request.villageId,
+				targetVillageId = targetId,
+				kind = "scout",
+				army = army,
+			},
+		}, string.format("scout:%s:%s:%d", request.villageId, targetId, quantity), nil
+	end
+
+	return nil, nil, nil
 end
 
 local function postOnce(robloxUserId: number, expectedWorldVersion: number, command: { [string]: any }): (boolean, any)
@@ -90,10 +155,15 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 	if typeof(request) ~= "table" or typeof(request.villageId) ~= "string" then
 		return { ok = false, message = "That order made no sense." }
 	end
+	-- Every command departs from a village this player owns, scouting
+	-- included: the target may be foreign, the muster ground never is.
 	if not ownsVillage(snapshot, identity.kingdomId, request.villageId) then
 		return { ok = false, message = "That is not your village." }
 	end
-	local command, fingerprint = buildCommand(request)
+	local command, fingerprint, refusal = buildCommand(request, snapshot, identity.kingdomId)
+	if refusal then
+		return { ok = false, message = refusal }
+	end
 	if not command or not fingerprint then
 		return { ok = false, message = "That order made no sense." }
 	end
@@ -114,7 +184,7 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 		end
 		if typeof(body) == "table" and body.type == "command.accepted" then
 			WorldSession.refetch(player)
-			result = { ok = true, message = "By your order." }
+			result = { ok = true, message = if request.kind == "scout" then "Scouts are away." else "By your order." }
 			break
 		end
 		if typeof(body) == "table" and body.type == "command.rejected" then

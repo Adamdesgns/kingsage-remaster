@@ -33,15 +33,30 @@ Roblox server → HTTP → world server (spec: `../docs/superpowers/specs/2026-0
   on confident FAILs against a working game. Test through gameplay, the HUD,
   in-game admin commands, or `scripts/evidence-run.luau` pasted as a real
   ServerScript.
-- Drills live in `../docs/superpowers/drills-slice-one.md` — run them, record
-  results with dates.
+- Drills live in `../docs/superpowers/drills-slice-one.md` and
+  `../docs/superpowers/drills-scouting.md` — run them, record results with dates.
+- ⚠️ **The Luau syntax gate needs Lune, which is NOT installed on this PC**
+  (only `rojo`, from winget). `npm run check:luau` therefore cannot run here;
+  until Lune is installed, Luau changes are hand-checked plus whatever Studio
+  reports on sync. Do not claim that gate ran when it did not.
 
 ## Layout
 
 - `default.project.json` — Rojo tree (server/client/shared, streaming enabled)
 - `src/server/` — ApiClient (only HTTP speaker), WorldSession (join + 10s
-  batched heartbeat), SettlementBuilder (grey-box village from live state),
-  CommandService (idempotent build/recruit), WarTable
-- `src/client/` — HUD, timers (display-only, from server timestamps), war
-  table camera, failure banners
+  batched heartbeat), SettlementBuilder (region renderer: own villages full,
+  foreign ones fog silhouettes), CommandService (idempotent build / recruit /
+  scout march), WarTable
+- `src/client/` — HUD (resources, queues AND marches on one countdown ticker),
+  war table camera with its **Village** and **War** tabs (scout targets,
+  marches, scout reports), failure banners
 - `spike.project.json` + `spike/` — standalone 200-troop performance spike
+
+## The fog rule
+
+Foreign villages arrive from the world server with `resources`, `buildings`
+and `army` zeroed (`server/src/store.ts`, `getSnapshot`). Nothing on the Roblox
+side may present those zeros as observations, and nothing may display a
+neighbour's real numbers except a scout report the player earned. The offline
+test `server/test/roblox-scouting.test.ts` pins this: the snapshot that
+delivers a report still shows the scouted village fogged.

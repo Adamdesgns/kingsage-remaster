@@ -2,3 +2,4 @@ SecretConfig.luau
 *.rbxlx
 *.rbxl
 sourcemap.json
+*.rbxlx.lock

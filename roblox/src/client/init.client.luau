@@ -1,8 +1,14 @@
 --!strict
--- The player's window onto the realm: HUD (resources, queues with
+-- The player's window onto the realm: HUD (resources, queues and marches with
 -- display-only countdowns from server timestamps), toasts, the war table's
--- overhead command view, and honest failure states (holding scene, reconnect
--- banner, outdated-version gate). Nothing here is authoritative.
+-- overhead command view with its Village and War tabs, and honest failure
+-- states (holding scene, reconnect banner, outdated-version gate). Nothing
+-- here is authoritative.
+--
+-- Fog rule (spec §4): foreign villages arrive from the world server with their
+-- resources, buildings and army zeroed. NOTHING in this file may display those
+-- zeroed fields as if they were observations — a neighbour's real strength is
+-- only ever read out of a scout report the player earned.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -36,6 +42,11 @@ local function nowServerSeconds(): number
 	return workspace:GetServerTimeNow() + latest.clockOffset
 end
 
+local function myKingdomId(): string?
+	local snapshot = latest.snapshot
+	return snapshot and snapshot.kingdom and tostring(snapshot.kingdom.id) or nil
+end
+
 local function myCapital(): any
 	local snapshot = latest.snapshot
 	if not snapshot or not snapshot.world or not snapshot.kingdom then
@@ -63,6 +74,70 @@ local function myVillage(villageId: string?): any
 		end
 	end
 	return myCapital()
+end
+
+local function villageById(villageId: string?): any
+	local snapshot = latest.snapshot
+	if not villageId or not snapshot or not snapshot.world then
+		return nil
+	end
+	for _, village in snapshot.world.villages do
+		if village.id == villageId then
+			return village
+		end
+	end
+	return nil
+end
+
+local function villageLabel(villageId: string?): string
+	local village = villageById(villageId)
+	return village and tostring(village.name) or "an unknown place"
+end
+
+local function kingdomNameFor(kingdomId: string?): string
+	local snapshot = latest.snapshot
+	local kingdoms = snapshot and snapshot.world and snapshot.world.kingdoms
+	if typeof(kingdoms) == "table" then
+		for _, kingdom in kingdoms do
+			if kingdom.id == kingdomId then
+				return tostring(kingdom.name)
+			end
+		end
+	end
+	return "an unknown realm"
+end
+
+-- Map distance in tiles between two villages, for "how far is that raid".
+local function tileDistance(a: any, b: any): number
+	if not a or not b then
+		return 0
+	end
+	local dx = (tonumber(a.x) or 0) - (tonumber(b.x) or 0)
+	local dy = (tonumber(a.y) or 0) - (tonumber(b.y) or 0)
+	return math.sqrt(dx * dx + dy * dy)
+end
+
+local function clockText(seconds: number): string
+	local whole = math.max(math.floor(seconds), 0)
+	if whole >= 3600 then
+		return string.format("%d:%02d:%02d", whole // 3600, (whole % 3600) // 60, whole % 60)
+	end
+	return string.format("%d:%02d", whole // 60, whole % 60)
+end
+
+local function ageText(iso: string?): string
+	local at = TimeUtil.isoToEpoch(iso)
+	if not at then
+		return "just now"
+	end
+	local elapsed = math.max(nowServerSeconds() - at, 0)
+	if elapsed < 90 then
+		return "just now"
+	end
+	if elapsed < 3600 then
+		return string.format("%d min ago", math.floor(elapsed / 60))
+	end
+	return string.format("%d h ago", math.floor(elapsed / 3600))
 end
 
 -- ===== root gui =====
@@ -98,7 +173,7 @@ resourceLabel.Text = ""
 -- queue panel
 local queuePanel = Instance.new("Frame")
 queuePanel.Name = "Queues"
-queuePanel.Size = UDim2.new(0, 300, 0, 130)
+queuePanel.Size = UDim2.new(0, 300, 0, 160)
 queuePanel.Position = UDim2.new(1, -308, 0, 8)
 queuePanel.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 queuePanel.BackgroundTransparency = 0.35
@@ -107,9 +182,11 @@ local queueList = Instance.new("UIListLayout")
 queueList.SortOrder = Enum.SortOrder.LayoutOrder
 queueList.Parent = queuePanel
 
--- live queue rows for the 1 Hz ticker (plain table; no per-frame instance walks)
-type QueueRow = { label: TextLabel, baseText: string, completesAt: number?, lastShown: number? }
-local queueRows: { QueueRow } = {}
+-- live countdown rows for the 1 Hz ticker (plain tables; no per-frame
+-- instance walks). queueRows = the HUD panel, panelRows = the war table.
+type CountdownRow = { label: TextLabel, baseText: string, completesAt: number?, lastShown: number? }
+local queueRows: { CountdownRow } = {}
+local panelRows: { CountdownRow } = {}
 
 -- toasts
 local toastFrame = Instance.new("Frame")
@@ -199,6 +276,7 @@ local camera = workspace.CurrentCamera
 local inTableView = false
 local tableInfo: { centerX: number, centerZ: number, boundsHalf: number, villageId: string? }? = nil
 local tablePanel: Frame? = nil
+local activeTab: string = "village"
 
 local function exitTableView()
 	if not inTableView then
@@ -206,14 +284,16 @@ local function exitTableView()
 	end
 	inTableView = false
 	tableInfo = nil
+	activeTab = "village"
 	camera.CameraType = Enum.CameraType.Custom
 	if tablePanel then
 		tablePanel:Destroy()
 		tablePanel = nil
 	end
+	table.clear(panelRows)
 end
 
-local function invokeQueue(request: { [string]: string | number })
+local function invokeQueue(request: { [string]: any })
 	task.spawn(function()
 		local ok, result = pcall(function()
 			return queueCommand:InvokeServer(request)
@@ -226,63 +306,82 @@ local function invokeQueue(request: { [string]: string | number })
 	end)
 end
 
-local function buildTablePanel()
-	if tablePanel then
-		tablePanel:Destroy()
-		tablePanel = nil
-	end
-	local village = myVillage(tableInfo and tableInfo.villageId)
-	if not village then
-		return
-	end
-	local villageId = tostring(village.id)
+-- ---- war-table row helpers (shared by both tabs) ----
 
-	local panel = Instance.new("Frame")
-	panel.Name = "TablePanel"
-	panel.Size = UDim2.new(0, 340, 1, -120)
-	panel.Position = UDim2.new(0, 8, 0, 84)
-	panel.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
-	panel.BackgroundTransparency = 0.15
-	panel.Parent = gui
-	tablePanel = panel
+local function sectionHeader(parent: Instance, order: number, text: string): TextLabel
+	local header = makeLabel(parent, "Header")
+	header.Size = UDim2.new(1, -8, 0, 26)
+	header.LayoutOrder = order
+	header.TextXAlignment = Enum.TextXAlignment.Left
+	header.TextTransparency = 0.25
+	header.Text = "  " .. text
+	return header
+end
 
-	local scroll = Instance.new("ScrollingFrame")
-	scroll.Size = UDim2.new(1, 0, 1, -48)
-	scroll.CanvasSize = UDim2.new(0, 0, 0, #Buildings.ORDER * 40 + 60)
-	scroll.BackgroundTransparency = 1
-	scroll.ScrollBarThickness = 6
-	scroll.Parent = panel
-	local layout = Instance.new("UIListLayout")
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 4)
-	layout.Parent = scroll
+local function noteRow(parent: Instance, order: number, text: string): TextLabel
+	local note = makeLabel(parent, "Note")
+	note.Size = UDim2.new(1, -8, 0, 26)
+	note.LayoutOrder = order
+	note.TextXAlignment = Enum.TextXAlignment.Left
+	note.TextTransparency = 0.4
+	note.TextScaled = false
+	note.TextSize = 14
+	note.TextWrapped = true
+	note.Text = "  " .. text
+	return note
+end
 
+-- A row with a label on the left and an action button on the right.
+local function actionRow(parent: Instance, order: number, text: string, buttonText: string, color: Color3, onClick: () -> ()): Frame
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, -8, 0, 36)
+	row.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+	row.BackgroundTransparency = 0.2
+	row.LayoutOrder = order
+	row.Parent = parent
+
+	local nameLabel = makeLabel(row, "Name")
+	nameLabel.Size = UDim2.new(0.6, 0, 1, 0)
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.TextScaled = false
+	nameLabel.TextSize = 14
+	nameLabel.Text = "  " .. text
+
+	local button = Instance.new("TextButton")
+	button.Size = UDim2.new(0.35, 0, 0.85, 0)
+	button.Position = UDim2.new(0.63, 0, 0.075, 0)
+	button.BackgroundColor3 = color
+	button.TextColor3 = Color3.new(1, 1, 1)
+	button.Font = Enum.Font.GothamBold
+	button.TextScaled = true
+	button.Text = buttonText
+	button.Parent = row
+	button.Activated:Connect(onClick)
+	return row
+end
+
+-- A read-only row whose text ticks down to a server timestamp.
+local function countdownRow(parent: Instance, order: number, text: string, completesAt: number?): TextLabel
+	local label = makeLabel(parent, "Countdown")
+	label.Size = UDim2.new(1, -8, 0, 28)
+	label.LayoutOrder = order
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextScaled = false
+	label.TextSize = 14
+	label.Text = "  " .. text
+	table.insert(panelRows, { label = label, baseText = text, completesAt = completesAt, lastShown = nil })
+	return label
+end
+
+local buildTablePanel: () -> ()
+
+local function buildVillageTab(scroll: ScrollingFrame, village: any, villageId: string)
 	for index, building in Buildings.ORDER do
-		local row = Instance.new("Frame")
-		row.Size = UDim2.new(1, -8, 0, 36)
-		row.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-		row.BackgroundTransparency = 0.2
-		row.LayoutOrder = index
-		row.Parent = scroll
-
 		local level = tonumber(village.buildings and village.buildings[building]) or 0
-		local nameLabel = makeLabel(row, "Name")
-		nameLabel.Size = UDim2.new(0.6, 0, 1, 0)
-		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-		nameLabel.Text = string.format("  %s  Lv %d", Buildings.displayName(building), level)
-
-		local upgrade = Instance.new("TextButton")
-		upgrade.Size = UDim2.new(0.35, 0, 0.85, 0)
-		upgrade.Position = UDim2.new(0.63, 0, 0.075, 0)
-		upgrade.BackgroundColor3 = Color3.fromRGB(50, 70, 50)
-		upgrade.TextColor3 = Color3.new(1, 1, 1)
-		upgrade.Font = Enum.Font.GothamBold
-		upgrade.TextScaled = true
-		upgrade.Text = "Upgrade"
-		upgrade.Parent = row
-		upgrade.Activated:Connect(function()
-			invokeQueue({ kind = "build", villageId = villageId, building = building })
-		end)
+		actionRow(scroll, index, string.format("%s  Lv %d", Buildings.displayName(building), level), "Upgrade",
+			Color3.fromRGB(50, 70, 50), function()
+				invokeQueue({ kind = "build", villageId = villageId, building = building })
+			end)
 	end
 
 	local recruitRow = Instance.new("Frame")
@@ -306,6 +405,239 @@ local function buildTablePanel()
 			quantity = Buildings.RECRUIT_PRESET.quantity,
 		})
 	end)
+end
+
+-- Every troop the report actually saw, in the canonical order. Zero counts are
+-- omitted: "no axemen observed" and "0 axemen" are not the same claim.
+local function armySummary(army: any): string
+	if typeof(army) ~= "table" then
+		return "nothing moving"
+	end
+	local parts: { string } = {}
+	for _, troop in Buildings.TROOP_ORDER do
+		local count = math.floor(tonumber(army[troop]) or 0)
+		if count > 0 then
+			table.insert(parts, string.format("%d %s", count, Buildings.troopName(troop)))
+		end
+	end
+	if #parts == 0 then
+		return "no troops at home"
+	end
+	return table.concat(parts, ", ")
+end
+
+local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: string)
+	local snapshot = latest.snapshot
+	local kingdomId = myKingdomId()
+	local order = 0
+	local function nextOrder(): number
+		order += 1
+		return order
+	end
+
+	-- --- send scouts ---
+	local scoutsOnHand = math.floor(tonumber(village.army and village.army.scout) or 0)
+	sectionHeader(scroll, nextOrder(), string.format("SEND SCOUTS  ·  %d on hand", scoutsOnHand))
+
+	if scoutsOnHand < Buildings.SCOUT_PARTY then
+		noteRow(scroll, nextOrder(), "No scouts here. Scouts are trained at a Stable (level 1).")
+		actionRow(scroll, nextOrder(), Buildings.SCOUT_PRESET.label, "Recruit", Color3.fromRGB(60, 50, 80), function()
+			invokeQueue({
+				kind = "recruit",
+				villageId = villageId,
+				troop = Buildings.SCOUT_PRESET.troop,
+				quantity = Buildings.SCOUT_PRESET.quantity,
+			})
+		end)
+	end
+
+	local targets: { any } = {}
+	local villages = snapshot and snapshot.world and snapshot.world.villages
+	if typeof(villages) == "table" and kingdomId then
+		for _, candidate in villages do
+			if candidate.kingdomId ~= kingdomId then
+				table.insert(targets, candidate)
+			end
+		end
+	end
+	table.sort(targets, function(left, right)
+		return tileDistance(village, left) < tileDistance(village, right)
+	end)
+
+	if #targets == 0 then
+		noteRow(scroll, nextOrder(), "No foreign settlements in this world yet.")
+	end
+	for _, target in targets do
+		local targetId = tostring(target.id)
+		local text = string.format("%s — %s · %d tiles",
+			tostring(target.name), kingdomNameFor(tostring(target.kingdomId)), math.floor(tileDistance(village, target) + 0.5))
+		local enabled = scoutsOnHand >= Buildings.SCOUT_PARTY
+		actionRow(scroll, nextOrder(), text, if enabled then "Scout" else "—",
+			if enabled then Color3.fromRGB(45, 60, 85) else Color3.fromRGB(45, 45, 45), function()
+				if not enabled then
+					toast("No scouts in this village — recruit some first.", false)
+					return
+				end
+				invokeQueue({
+					kind = "scout",
+					villageId = villageId,
+					targetVillageId = targetId,
+					quantity = Buildings.SCOUT_PARTY,
+				})
+			end)
+	end
+
+	-- --- on the march ---
+	local marches = (snapshot and snapshot.marches) or {}
+	sectionHeader(scroll, nextOrder(), "ON THE MARCH")
+	local moving = 0
+	for _, march in marches do
+		local status = tostring(march.status)
+		if status == "outbound" or status == "returning" then
+			moving += 1
+			local what = if tostring(march.kind) == "scout" then "Scouts" else "Army"
+			local where = villageLabel(tostring(march.targetVillageId))
+			local heading = if status == "returning"
+				then string.format("%s returning from %s", what, where)
+				else string.format("%s → %s", what, where)
+			countdownRow(scroll, nextOrder(), heading, TimeUtil.isoToEpoch(march.arrivesAt))
+		end
+	end
+	if moving == 0 then
+		noteRow(scroll, nextOrder(), "Nobody is on the road.")
+	end
+
+	-- --- scout reports ---
+	sectionHeader(scroll, nextOrder(), "SCOUT REPORTS")
+	local reports = (snapshot and snapshot.scoutReports) or {}
+	local sorted: { any } = {}
+	for _, report in reports do
+		table.insert(sorted, report)
+	end
+	table.sort(sorted, function(left, right)
+		return tostring(left.createdAt) > tostring(right.createdAt)
+	end)
+	if #sorted == 0 then
+		noteRow(scroll, nextOrder(), "None yet. Send scouts at a neighbour to learn what they hold.")
+	end
+	for index, report in sorted do
+		if index > 5 then
+			break
+		end
+		local card = Instance.new("Frame")
+		card.Size = UDim2.new(1, -8, 0, 124)
+		card.BackgroundColor3 = Color3.fromRGB(26, 30, 26)
+		card.BackgroundTransparency = 0.15
+		card.LayoutOrder = nextOrder()
+		card.Parent = scroll
+
+		local body = makeLabel(card, "Body")
+		body.Size = UDim2.new(1, -12, 1, -8)
+		body.Position = UDim2.new(0, 8, 0, 4)
+		body.TextXAlignment = Enum.TextXAlignment.Left
+		body.TextYAlignment = Enum.TextYAlignment.Top
+		body.TextScaled = false
+		body.TextSize = 14
+		body.TextWrapped = true
+		local observed = report.observedBuildings or {}
+		body.Text = string.format(
+			"%s  (%s)\n%s\nWood %d · Stone %d · Iron %d\nRampart Lv %d · Headquarters Lv %d\nseen %s",
+			tostring(report.targetVillageName),
+			tostring(report.targetKingdomName),
+			armySummary(report.observedArmy),
+			math.floor(tonumber(report.observedResources and report.observedResources.wood) or 0),
+			math.floor(tonumber(report.observedResources and report.observedResources.stone) or 0),
+			math.floor(tonumber(report.observedResources and report.observedResources.iron) or 0),
+			math.floor(tonumber(observed.wall) or 0),
+			math.floor(tonumber(observed.hq) or 0),
+			ageText(report.createdAt)
+		)
+	end
+end
+
+function buildTablePanel()
+	-- The panel is rebuilt on every heartbeat so it can never show stale
+	-- state. Carry the scroll position across, or a player reading a scout
+	-- report gets yanked to the top every 10 seconds.
+	local keptScroll: Vector2? = nil
+	if tablePanel then
+		local previous = tablePanel:FindFirstChild("Body")
+		if previous and previous:IsA("ScrollingFrame") then
+			keptScroll = previous.CanvasPosition
+		end
+		tablePanel:Destroy()
+		tablePanel = nil
+	end
+	table.clear(panelRows)
+	local village = myVillage(tableInfo and tableInfo.villageId)
+	if not village then
+		return
+	end
+	local villageId = tostring(village.id)
+
+	local panel = Instance.new("Frame")
+	panel.Name = "TablePanel"
+	panel.Size = UDim2.new(0, 340, 1, -120)
+	panel.Position = UDim2.new(0, 8, 0, 84)
+	panel.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
+	panel.BackgroundTransparency = 0.15
+	panel.Parent = gui
+	tablePanel = panel
+
+	-- tab bar
+	local tabs = Instance.new("Frame")
+	tabs.Name = "Tabs"
+	tabs.Size = UDim2.new(1, 0, 0, 36)
+	tabs.BackgroundTransparency = 1
+	tabs.Parent = panel
+	local function makeTab(name: string, label: string, xScale: number)
+		local button = Instance.new("TextButton")
+		button.Name = name
+		button.Size = UDim2.new(0.5, -6, 1, -6)
+		button.Position = UDim2.new(xScale, 4, 0, 3)
+		button.BackgroundColor3 = if activeTab == name then Color3.fromRGB(55, 65, 90) else Color3.fromRGB(28, 28, 36)
+		button.TextColor3 = Color3.new(1, 1, 1)
+		button.Font = Enum.Font.GothamBold
+		button.TextScaled = true
+		button.Text = label
+		button.Parent = tabs
+		button.Activated:Connect(function()
+			if activeTab ~= name then
+				activeTab = name
+				buildTablePanel()
+			end
+		end)
+	end
+	makeTab("village", "Village", 0)
+	makeTab("war", "War", 0.5)
+
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = "Body"
+	scroll.Size = UDim2.new(1, 0, 1, -92)
+	scroll.Position = UDim2.new(0, 0, 0, 40)
+	scroll.CanvasSize = UDim2.new()
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.BackgroundTransparency = 1
+	scroll.ScrollBarThickness = 6
+	scroll.Parent = panel
+	local layout = Instance.new("UIListLayout")
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, 4)
+	layout.Parent = scroll
+
+	if activeTab == "war" then
+		buildWarTab(scroll, village, villageId)
+	else
+		buildVillageTab(scroll, village, villageId)
+	end
+	if keptScroll then
+		-- after the rows exist, so the canvas is tall enough to accept it
+		task.defer(function()
+			if scroll.Parent then
+				scroll.CanvasPosition = keptScroll :: Vector2
+			end
+		end)
+	end
 
 	local leave = Instance.new("TextButton")
 	leave.Size = UDim2.new(1, -8, 0, 40)
@@ -325,6 +657,7 @@ enterTable.OnClientEvent:Connect(function(info: { centerX: number, centerZ: numb
 	end
 	inTableView = true
 	tableInfo = info
+	activeTab = "village"
 	camera.CameraType = Enum.CameraType.Scriptable
 	-- fixed overhead vantage, clamped by construction to this settlement
 	local center = Vector3.new(info.centerX, 0, info.centerZ)
@@ -350,6 +683,28 @@ if player.Character then
 end
 
 -- ===== HUD refresh =====
+-- Report ids already seen, so a freshly arrived report toasts exactly once.
+-- Seeded silently from the first snapshot: rejoining must not replay history.
+local seenReports: { [string]: boolean } = {}
+local seededReports = false
+
+local function announceNewReports(snapshot: any)
+	local reports = snapshot and snapshot.scoutReports
+	if typeof(reports) ~= "table" then
+		return
+	end
+	for _, report in reports do
+		local id = tostring(report.id)
+		if not seenReports[id] then
+			seenReports[id] = true
+			if seededReports then
+				toast(string.format("Scouts are back from %s.", tostring(report.targetVillageName)), true)
+			end
+		end
+	end
+	seededReports = true
+end
+
 local function refreshHud()
 	local capital = myCapital()
 	if capital and capital.resources then
@@ -379,9 +734,21 @@ local function refreshHud()
 	end
 	for _, job in (snapshot.recruitmentJobs or {}) do
 		table.insert(entries, {
-			text = string.format("%d %s", tonumber(job.quantity) or 0, Buildings.TROOP_NAMES[job.troop] or job.troop),
+			text = string.format("%d %s", tonumber(job.quantity) or 0, Buildings.troopName(job.troop)),
 			completesAt = TimeUtil.isoToEpoch(job.completesAt),
 		})
+	end
+	-- Marches share the queue panel: anything of yours that is "not here yet"
+	-- belongs in one place, so the HUD never hides a wave in transit.
+	for _, march in (snapshot.marches or {}) do
+		local status = tostring(march.status)
+		if status == "outbound" or status == "returning" then
+			local what = if tostring(march.kind) == "scout" then "Scouts" else "Army"
+			local text = if status == "returning"
+				then string.format("%s returning", what)
+				else string.format("%s → %s", what, villageLabel(tostring(march.targetVillageId)))
+			table.insert(entries, { text = text, completesAt = TimeUtil.isoToEpoch(march.arrivesAt) })
+		end
 	end
 	if #entries == 0 then
 		local empty = makeLabel(queuePanel, "Empty")
@@ -407,19 +774,24 @@ local function refreshHud()
 end
 
 -- countdown ticker: display only; writes a label only when its second changes
+local function tick(rows: { CountdownRow }, now: number, indent: string)
+	for _, row in rows do
+		if row.completesAt then
+			local remaining = math.max(math.floor(row.completesAt - now), 0)
+			if remaining ~= row.lastShown then
+				row.lastShown = remaining
+				row.label.Text = string.format("%s%s — %s", indent, row.baseText, clockText(remaining))
+			end
+		end
+	end
+end
+
 task.spawn(function()
 	while true do
 		task.wait(0.25)
 		local now = nowServerSeconds()
-		for _, row in queueRows do
-			if row.completesAt then
-				local remaining = math.max(math.floor(row.completesAt - now), 0)
-				if remaining ~= row.lastShown then
-					row.lastShown = remaining
-					row.label.Text = string.format("  %s — %d:%02d", row.baseText, remaining // 60, remaining % 60)
-				end
-			end
-		end
+		tick(queueRows, now, "  ")
+		tick(panelRows, now, "  ")
 	end
 end)
 
@@ -436,6 +808,7 @@ stateSync.OnClientEvent:Connect(function(payload: { snapshot: any?, status: stri
 	banner.Visible = latest.snapshot ~= nil and latest.status ~= "online"
 
 	if latest.snapshot then
+		announceNewReports(latest.snapshot)
 		refreshHud()
 	end
 end)
