@@ -1,16 +1,17 @@
 # Kingsmarch (Roblox) — chat handoff, 2026-08-21
 
 Read this first in a fresh chat. Code beats this note; then fix the note.
-Everything below is committed and pushed on `main` (tip `8ef704f`). The design
+Everything below is committed and pushed on `main` (tip `12c72a2`). The design
 gate is CLOSED — the spec is approved and slice one is built, reviewed, and
 proven live on video. This is now ordinary forward development.
 
 ## The one-line state
 
 The village loop is real and running on the authoritative world server; the
-region world (neighbors + wilderness + fog) shipped today; **scouting from the
-war table shipped tonight, offline-verified but never run in Studio**; the next
-rung is battles.
+region world (neighbors + wilderness + fog) shipped today; **scouting AND the
+attack round-trip (battles slice A) shipped tonight — both offline-verified,
+neither ever run in Studio**. The next rung is the 200-troop phone measurement,
+then battles slice B (the 3D fight itself).
 
 ## Names and identity
 
@@ -28,8 +29,11 @@ rung is battles.
    the approved design ("The World Is the Game"). Authority for every rule.
 2. `docs/superpowers/plans/2026-08-21-roblox-slice-one.md` — executed.
 3. `docs/superpowers/plans/2026-08-21-roblox-region-slice.md` — executed.
-4. `roblox/README.md` — the dev loop and the Studio traps.
-5. This file's "next moves" section.
+4. `docs/superpowers/plans/2026-08-21-roblox-scouting-slice.md` — executed.
+5. `docs/superpowers/plans/2026-08-21-roblox-battles-slice-a.md` — executed;
+   its "Out of scope" section defines slice B.
+6. `roblox/README.md` — the dev loop and the Studio traps.
+7. This file's "next moves" section.
 
 ## What exists and works (verified, not assumed)
 
@@ -128,6 +132,64 @@ here, since quantities are clamped ≥ 1). It was the only use in either Roblox
 repo. Worth confirming in Studio that recruiting now works, since it may never
 have.
 
+## Battles slice A (added 2026-08-21 night) — offline-proven, Studio-unproven
+
+Plan: `docs/superpowers/plans/2026-08-21-roblox-battles-slice-a.md`.
+Drills: `docs/superpowers/drills-battles.md` (B1–B6, none run yet).
+
+**This is the attack round-trip, NOT the battle scene.** No 3D fight, no live
+squad orders, no replay, no conquest — those are slice B and stay gated on the
+200-troop phone measurement, exactly as the "next moves" order says. What
+slice A delivers: plan an attack on a village you scouted, send it, and get a
+readable result whether or not you are online when it lands.
+
+Three real gaps closed on the world server (`7578c2a`):
+
+1. **An unattended attack used to strand forever.** `battle.resolve` is a
+   player command, so an attack that arrived while its owner was offline
+   parked an army outside a wall with nothing to resolve it. The plan now
+   travels with the march (spec §5: attacks are *designed at the war table*,
+   which is launch time), stored in a new `local_march_plans` table — a new
+   table, not `ALTER TABLE`, because `migrate()` replays every migration on
+   every boot and SQLite has no `ADD COLUMN IF NOT EXISTS`. On arrival the
+   server stamps a deadline (`autoResolveMs`, default 2 min, env
+   `KINGSAGE_AUTO_RESOLVE_MS`); `materializeDueBattles` opens and resolves
+   anything past it. Showing up still matters: an absent commander issues no
+   orders and so earns no order bonus. No plan at all falls back to
+   `UNPLANNED_ATTACK_PLAN`, which deliberately does not score full marks.
+2. **No surrender mechanic.** PROPOSED and deterministic: a beaten defender
+   yields when the attacker won, someone survived to yield, and attacker power
+   was ≥ `SURRENDER_POWER_RATIO` (3×) the defender's. Survivors leave the
+   garrison and march home with the attacker. It cannot manufacture a soldier
+   and never makes under-committing profitable. A token 2-man garrison is
+   simply wiped — the 95% loss cap leaves nobody to yield, which is the rule
+   working, not a bug.
+3. **`finishBattle` was split** into `settleBattle(worldId, …)` plus a thin
+   command wrapper, so the server settling an unattended battle goes through
+   the identical path a player command does. One settlement rule, not two.
+
+Roblox side (`12c72a2`): every neighbour row carries **Scout** and **Attack**;
+attack is refused locally without a report and takes two taps (an attack
+musters every fighting troop in the village — scouts and noblemen stay home);
+an **ATTACK PLAN** section cycles the four axes from shared
+`ATTACK_PLAN_AXES`, and `CommandService` rebuilds the plan from those same
+axes rather than trusting the client's table; a **BATTLE REPORTS** section
+renders what was already in the snapshot and nothing was reading — correct
+from the defending side too. The demo tour now runs the whole chain, and
+`start-dev.ps1` sets `KINGSAGE_AUTO_RESOLVE_MS=25000` so an unattended attack
+settles inside a recording.
+
+**Checked before claiming a defect:** `readBattleSessions` already returns
+battles where the kingdom was attacker *or* defender, and both sides were
+already notified. That gap was client-side only.
+
+**Verified:** `npm run test:core` 19/19 (8 new, the surrender rule),
+`npm run test:roblox-layer` 23/23 (7 new, the round-trip through the real API
+routes), `npm run test:gate-d` 37/37, all four gate checkers, `rojo build`
+clean. The pre-existing gate-d warfare test passes unchanged — that is the
+evidence the refactor kept behaviour. **Not verified:** anything in Studio,
+and the Luau gate (Lune still missing).
+
 ## Proven live (2026-08-21, on video)
 
 A real Studio session founded `Dadisaking86` → `kingdom-5`, built the
@@ -150,6 +212,8 @@ recorded via ffmpeg and delivered to Adam. Evidence noted at the top of
 - The **entire scouting slice** in Studio: drills S1–S6 in
   `docs/superpowers/drills-scouting.md`. Its offline half is green, but no
   human has tapped the War tab.
+- The **entire battles slice A** in Studio: drills B1–B6 in
+  `docs/superpowers/drills-battles.md`. Same story — offline green, unplayed.
 - **The Luau syntax gate did not run for the scouting slice.** Lune is not
   installed on this PC (checked: no `lune`, no rokit, no aftman — only `rojo`
   from winget), so `npm run check:luau` cannot execute here. The Luau in this
@@ -205,9 +269,12 @@ rebuilds `WorldGame-demo.rbxlx`, and opens the CURRENT Studio. Then press
    `npm run check:luau` can gate Luau again.
 2. **Measure the 200-troop spike on a phone**, write
    `docs/superpowers/spike-200-troops.md`. Publish the spike place PRIVATE.
-3. **Battles slice** — the design's biggest piece: march → attend live or get
-   a 3D replay, Gate D math as the authority, surrender absorbs the
-   defender's troops, and a big skippable conquest celebration.
+3. **Battles slice B** — what slice A deliberately left out: the 200-troop 3D
+   fight, attending live and commanding squads, the replay for battles you
+   missed, conquest (nobles, loyalty, a village changing hands) and the big
+   skippable celebration. Gate D math stays the authority. Do NOT start this
+   before move 2 — the phone number is what tells you how much fidelity the
+   scene can afford.
 4. **VPS pick + deploy** (~$5/mo, always-on) and secret management. Until
    then only Studio can reach the world server; published Roblox servers
    cannot call 127.0.0.1.
