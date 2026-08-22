@@ -357,27 +357,56 @@ Hold", which will read as the same thing — rename those to **Open Seats**.
 
 ---
 
-## 10.3 Which buildings train what **[OURS]**
+## 10.3 One place to train, four places that matter **[OURS — Adam, 2026-08-22]**
 
-KingsAge trains every unit at the Barracks, keeps conquest in a **Residence**,
-and makes Count-armour in a **Goldsmith**. It has no Smithy at all. We have a
-Barracks, Stable, Workshop, Academy, Smithy and Market — all of them real
-places a player can walk into.
+**Adam's ruling:** *"They all need to be trained in 1 place. I'm not visiting 4
+places to train an army. Where they live and are actually built can be those 4
+places, but when we strategize for attacks and select what we need to train and
+use, that needs to be 1 place. The barracks is always where troops are trained.
+The smith is to upgrade their armour, the stables is to add horses to the
+troops to create cavalry and such."*
 
-Adopting KingsAge's building layout wholesale would strand four buildings we
-have already built and rendered. So:
+This overrides the earlier draft of this section, which spread recruitment
+across four buildings. That draft was wrong: it turned raising an army into a
+walking tour, and it confused *where a thing lives* with *where you decide about
+it*.
 
-| Unit | Trained at | Note |
+### The rule
+
+**Function is unified. Fiction stays distributed.**
+
+- **You train everything in one place — the Barracks** (and its mirror on the
+  war table, since the table is convenience and the world is the game, per the
+  approved control model). One list, every unit, one queue.
+- **The other buildings are not menus. They are what make units possible**, and
+  they are where units visibly live in the settlement.
+
+| Building | Its job | Gates |
 |---|---|---|
-| Militia, Squire, Templar, Berserker, Long-bow | **Barracks** | as KingsAge |
-| Spy, Crusader, Black Knight | **Stable** | ours — KingsAge uses Barracks |
-| Battering Ram, Trebuchet | **Workshop** | ours |
-| Count | **Academy** | our Academy plays KingsAge's Residence |
-| Count's armour | **Smithy** | our Smithy plays KingsAge's Goldsmith |
+| **Barracks** | **The only training interface.** Every unit is raised here. Its level drives training speed. | — |
+| **Stable** | Supplies the horses that turn foot soldiers into riders. Cavalry visibly stable here. | Crusader, Black Knight |
+| **Smithy** | **Upgrades armour.** This is where a kingdom's troops get better, not the training queue. | armour tiers |
+| **Workshop** | Siege engines are *built*, not trained — the yard where rams and trebuchets stand. | Battering Ram, Trebuchet |
+| **Academy** | Seats the Count and produces his armour. | Count |
 
-This keeps every building we have, gives each a distinct job, and preserves the
-one rule that matters: **the conquest unit and its escalating armour cost live
-behind separate, expensive buildings.**
+So a player who has not built a Stable simply cannot select cavalry in the
+Barracks list — the row is there, greyed, and it says *"Needs a Stable."* The
+building is a prerequisite the player can see in the world, not a second menu
+they have to walk to.
+
+### What this does to research **[OURS]**
+
+§6 recommended deleting our troop levels 1–10 entirely, because KingsAge has no
+combat research. **Adam's ruling supersedes that** — the Smithy upgrading armour
+*is* a progression system, and we already have one built and tested.
+
+Reinstated, with a narrower shape: the Smithy raises **armour**, so it improves
+**defence values only**, kingdom-wide, and the Barracks-side training queue is
+untouched by it. Attack stays a property of the unit. That keeps offence purely
+about *what you brought* — which is the whole point of the three-class system —
+while giving defensive play a track to invest in, which it currently lacks.
+
+⚠️ This is a deliberate divergence from KingsAge, made with the reason stated.
 
 ## 11. Migration — what this touches
 
@@ -450,13 +479,16 @@ wrote down; test 12 checks we wrote down the right thing.
 2. **Do we keep KingsAge's Squire numbers** even though its own flavour text
    contradicts them? (My recommendation: yes, keep the numbers, rewrite the
    description.)
-3. **Research** — confirm dropping the 1–10 combat multiplier for a pure
-   unlock gate, matching KingsAge.
+3. **Research** — superseded by §10.3. The Smithy now upgrades armour
+   (defence only, kingdom-wide). Confirm defence-only rather than both.
 4. **Scale** — KingsAge's buildings reach level 50 and ours 20–30. Keep our
    caps and rescale points, or raise our caps to match? (My recommendation:
    keep ours, rescale points.)
-5. **Buildings** — §10.3 maps KingsAge's Residence and Goldsmith onto our
-   Academy and Smithy so nothing we built is stranded. Confirm.
+5. **The Stable** — is it a *gate* (you need one before cavalry appears in the
+   Barracks list) or a *converter* (you spend a trained foot soldier plus a
+   horse to make a rider)? §10.3 currently specifies the gate. The converter is
+   a more interesting production chain and closer to Adam's wording, but it is a
+   genuinely bigger build. **This is the one open question in this section.**
 6. **Slice order** — §11 proposes six. Confirm or reorder.
 
 ---
