@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { emptyArmy, makeCommandEnvelope, type GameCommand } from "../../packages/game-core/src/index.ts";
 import { SharedWorldStore, type SessionPlayer } from "../src/store.ts";
+import { garrisonEveryVillage } from "./garrison.ts";
 
 function tempDatabase(): { directory: string; path: string } {
   const directory = mkdtempSync(join(tmpdir(), "kingsage-gate-d-"));
@@ -27,6 +28,7 @@ test("a two-kingdom scout, attack, battle, loot, and return loop preserves troop
   const temp = tempDatabase();
   let now = new Date("2026-08-16T12:00:00.000Z");
   const store = new SharedWorldStore(temp.path, { now: () => now, marchDurationMs: 1_000, returnDurationMs: 1_000 });
+  garrisonEveryVillage(store);
   try {
     const attacker = store.register({ username: "gate_d_attacker", password: "gate-d-attacker", kingdomName: "Gate D Vanguard" });
     const defender = store.register({ username: "gate_d_defender", password: "gate-d-defender", kingdomName: "Gate D Bastion" });
@@ -103,6 +105,7 @@ test("retreat is authoritative and returns only surviving troops", () => {
   const temp = tempDatabase();
   let now = new Date("2026-08-16T12:00:00.000Z");
   const store = new SharedWorldStore(temp.path, { now: () => now, marchDurationMs: 1, returnDurationMs: 1 });
+  garrisonEveryVillage(store);
   try {
     const attacker = store.register({ username: "gate_d_retreat", password: "gate-d-retreat", kingdomName: "Gate D Retreat" });
     const defender = store.register({ username: "gate_d_hold", password: "gate-d-defender", kingdomName: "Gate D Hold" });

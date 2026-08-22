@@ -50,7 +50,7 @@ function defaultBuildings(): BuildingLevels {
 }
 
 function startingArmy() {
-  return { ...emptyArmy(), spear: 30, sword: 12, archer: 10, scout: 4 };
+  return emptyArmy();
 }
 
 function selectCapitalSites(seed: string, count: number): Array<{ x: number; y: number }> {

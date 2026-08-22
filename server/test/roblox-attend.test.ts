@@ -10,6 +10,7 @@ import test from "node:test";
 import { armyUnitCount, emptyArmy, type BattlePlan } from "../../packages/game-core/src/index.ts";
 import { createWorldHttpServer } from "../src/http.ts";
 import { SharedWorldStore } from "../src/store.ts";
+import { garrisonEveryVillage } from "./garrison.ts";
 
 const KEY = "test-secret-key-0123456789abcdef";
 const ATTACKER_ID = 990001;
@@ -38,6 +39,7 @@ async function withServer(run: (context: Ctx) => Promise<void>, autoResolveMs = 
     returnDurationMs: RETURN_MS,
     autoResolveMs,
   });
+  garrisonEveryVillage(store);
   const app = createWorldHttpServer({ store, robloxKey: KEY });
   await new Promise<void>((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   const address = app.server.address() as { port: number };
