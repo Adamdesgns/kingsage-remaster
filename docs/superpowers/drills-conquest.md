@@ -77,7 +77,12 @@ refusal naming the Academy or the cost — never "The realm didn't answer."
 **FAIL if:** the section is missing, the count disagrees with the Village tab's
 army, or a refusal is silent.
 
-Result: _not yet run_
+Result: **2026-08-22 — PARTIAL (server side PASS, by-eye half unverified).**
+Adam pressed Play; the self-driving tour ran unattended. The world database
+confirms the home village held **5 Noblemen** and that the tour read them, so
+the seed and the count are real. **What is NOT verified is the NOBLEMEN section
+itself** — the tour drives commands, not the war-table UI, and nobody has
+recorded what the panel showed. Still needs eyes.
 
 ---
 
@@ -98,7 +103,14 @@ troops and M nobleman at X — this is a conquest."* — and the button reads
 **FAIL if:** the toggle does not change the button, the counts disagree with the
 NOBLEMEN and muster numbers, or the toast still says a plain raid.
 
-Result: _not yet run_
+Result: **2026-08-22 — PASS (command path), by-eye half unverified.**
+The tour sent `march.launch` with `withNobles = true`, and the world server
+recorded the marching army as **`noble: 5`** alongside 30 spear / 12 sword /
+10 archer. `command.accepted`. **This is the first time in this project's life
+that the conquest path has been reached in a live session** — before slice C it
+was unreachable code, because `ATTACK_MUSTER_EXCLUDES` kept Noblemen home on
+every attack. The declaration travels and the muster obeys it.
+**Unverified:** the arming toast wording and the Attack→Conquer relabel.
 
 ---
 
@@ -117,7 +129,45 @@ first tap did not arm.
 **FAIL if:** the button still reads SEND?/CONQUER? and one more tap sends
 Noblemen the player armed a raid for.
 
-Result: _not yet run_
+Result: **2026-08-22 — FAIL, and the cause is arithmetic, not code.**
+The conquest attack landed and resolved: **winner `defender`**. All five
+Noblemen died, the target's loyalty stayed at **100**, and no village changed
+hands. `applyConquest` was never reached because it is gated on
+`outcome.winner === "attacker"`.
+
+**Why it lost, measured from the live rows:**
+
+| | attack | defence |
+|---|---|---|
+| Attacker: 30 spear, 12 sword, 10 archer, 5 noble | **875** | — |
+| Defender: same garrison + 4 scouts + 5 noble, wall 1 | — | **1,828** |
+
+Ratio **0.48** — it could not have won under any plan or dice.
+
+**The root cause is that an attack musters the whole garrison, and the garrison
+is made of defensive troops.** Spearmen defend at 25 and attack at 10; archers
+defend at 40 and attack at 15. Sending the village's whole army at a mirror-image
+village means sending defensive units on offence against their own better half.
+Every fixture village carries the identical stack, so this is structural, not
+bad luck.
+
+**Two things this rules OUT as the cause:**
+1. **Not the seeded Noblemen.** They added 175 of the defender's 1,828. Removing
+   them entirely still leaves 1,631 against 875.
+2. **Not the old combat model.** Re-run through the new `combat.ts` engine, the
+   same armies still lose (4,700 attack vs 8,644 infantry defence). The
+   three-class rewrite does not rescue a defensive army sent on offence — and it
+   should not.
+
+**What WOULD take that village, per the new engine:** **60 Berserkers + 5 Counts
+wins and brings 2 Counts home.** 120 brings 4 home. That is an achievable
+starting army, and it is the shape of the answer: conquest needs an *offensive*
+army, not a bigger one.
+
+**Recommended fix before the next Play press:** give the dev world's home village
+an offensive stack (Berserkers) rather than a mirror of the defensive fixture,
+so D5 can actually complete on camera. This is a dev-seed change only. — loyalty never moved, because the battle was lost before loyalty could be touched. Blocked behind D5. — requires a human at the toggle. The tour never arms a
+raid and then flips conquest on, so the disarm rule is untested in play.
 
 ---
 
@@ -189,3 +239,30 @@ village; the join snapshot is a statement of what you hold, not news.
 ownership seed is broken and every rejoin will replay your whole history.
 
 Result: _not yet run_
+
+---
+
+## Run log
+
+**2026-08-22, ~17:33–17:39 — first conquest run.** Adam pressed Play; the
+self-driving tour ran unattended against the seeded world
+(`kingsage-drill-20260822-164344.sqlite`). Evidence read directly from the world
+database, not from the screen.
+
+**What the server recorded:** 4 marches (3 scout, all `complete`; 1 attack that
+became a battle), 3 stored scout reports, 1 battle `resolved`, 13 commands.
+
+**Headline: the conquest command path works end to end; the battle was lost.**
+
+**Two defects found in passing, neither previously known:**
+1. **`battle.order` rejected with `WORLD_VERSION_CONFLICT`.** The tour issued
+   three field orders; only ONE landed (`orderBonus 0.02` confirms it). One was
+   refused because the world version ticked between reading and sending, and the
+   next was refused `BATTLE_CLOSED`. **This is the same family as the
+   `state_version` defect fixed in slice B** — an optimistic-concurrency check
+   rejecting a legitimate order because the world moved underneath it. A player
+   giving orders in a live battle will hit this.
+2. **`village.build.queue` refused `QUEUE_FULL` three times.** The tour re-queues
+   blindly while a job is running. Harmless, but it is noise in the log that
+   would mask a real refusal.
+
