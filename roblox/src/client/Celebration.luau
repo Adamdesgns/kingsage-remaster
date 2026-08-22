@@ -20,7 +20,12 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+-- WorldShared, not Shared. Rojo maps src/shared to ReplicatedStorage.WorldShared
+-- (default.project.json), and WaitForChild with no timeout yields FOREVER on a
+-- name that never appears — which would hang init.client's require of this
+-- module and take the entire HUD down with it.
+local worldShared = ReplicatedStorage:WaitForChild("WorldShared")
+local Config = require(worldShared:WaitForChild("Config"))
 
 local CFG = Config.CELEBRATION
 

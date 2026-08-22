@@ -10,6 +10,7 @@
 local luau = require("@lune/luau")
 local fs = require("@lune/fs")
 local process = require("@lune/process")
+local serde = require("@lune/serde")
 
 -- Load a pure shared module the way a require() would, without Roblox.
 local function loadModule(path: string): any
@@ -154,6 +155,85 @@ check("troop and building display names cover every id", (function(): boolean
 	end
 	return true
 end)())
+
+-- ---- WIRING: every WaitForChild name must actually exist ----
+-- The defect class this catches has now shipped three times, and it is always
+-- fatal and always invisible offline: WaitForChild with no timeout yields
+-- FOREVER on a name that never appears. One wrong name in a module require
+-- hangs the script that requires it — the whole HUD, silently, with a clean
+-- syntax gate and a clean rojo build. Studio is the only other place it shows.
+
+local function readAll(directory: string, into: { string })
+	for _, entry in fs.readDir(directory) do
+		local path = directory .. "/" .. entry
+		if fs.isDir(path) then
+			readAll(path, into)
+		elseif entry:match("%.luau$") then
+			table.insert(into, path)
+		end
+	end
+	return into
+end
+
+local luauFiles = {}
+for _, root in { "roblox/src", "roblox/demo", "roblox/scripts" } do
+	readAll(root, luauFiles)
+end
+
+-- The names Rojo actually creates under ReplicatedStorage, read from the
+-- project files rather than assumed.
+local replicatedNames: { [string]: boolean } = {}
+for _, project in { "roblox/default.project.json", "roblox/demo.project.json" } do
+	local tree = serde.decode("json", fs.readFile(project)).tree
+	local replicated = tree.ReplicatedStorage
+	if replicated then
+		for key in replicated do
+			if key:sub(1, 1) ~= "$" then
+				replicatedNames[key] = true
+			end
+		end
+	end
+end
+
+-- Names the game CREATES at runtime rather than Rojo (e.g. WorldSession makes
+-- the WorldRemotes folder on boot). A name created nowhere and mapped nowhere
+-- is the typo this gate is hunting.
+local createdNames: { [string]: boolean } = {}
+for _, path in luauFiles do
+	for name in fs.readFile(path):gmatch('%.Name%s*=%s*"([^"]+)"') do
+		createdNames[name] = true
+	end
+end
+
+local badService: { string } = {}
+local badSibling: { string } = {}
+
+for _, path in luauFiles do
+	local source = fs.readFile(path)
+
+	for name in source:gmatch('ReplicatedStorage:WaitForChild%("([^"]+)"%)') do
+		if not replicatedNames[name] and not createdNames[name] then
+			table.insert(badService, string.format("%s wants ReplicatedStorage.%s", path, name))
+		end
+	end
+
+	-- `script:WaitForChild("X")` inside an init script means a SIBLING module
+	-- file X.luau in the same folder, which Rojo makes a child of that script.
+	if path:match("/init%.[^/]+%.luau$") then
+		local folder = path:match("^(.*)/[^/]+$")
+		for name in source:gmatch('script:WaitForChild%("([^"]+)"%)') do
+			if not fs.isFile(folder .. "/" .. name .. ".luau") then
+				table.insert(badSibling, string.format("%s wants sibling %s.luau", path, name))
+			end
+		end
+	end
+end
+
+check("every ReplicatedStorage:WaitForChild name is mapped by Rojo or created in code",
+	#badService == 0, table.concat(badService, "; "))
+
+check("every script:WaitForChild in an init script has a sibling module",
+	#badSibling == 0, table.concat(badSibling, "; "))
 
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then
