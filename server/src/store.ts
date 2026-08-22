@@ -10,9 +10,14 @@ import {
   addArmies,
   armyCasualties,
   armyPopulation,
+  armyPower,
+  initialTroopLevels,
   armyUnitCount,
   battlePlanScore,
+  conquestWarVictoryPoints,
   distanceBetween,
+  loyaltyDrop,
+  LOYALTY_ON_CAPTURE,
   emptyArmy,
   isValidArmy,
   marchDurationSeconds,
@@ -1202,6 +1207,8 @@ export class SharedWorldStore {
     const resolvedAt = this.now();
     const loot = outcome.loot;
     const yieldedCount = armyUnitCount(outcome.yielded);
+    let conquest: { captured: boolean; nobleConsumed: number; villageName: string } =
+      { captured: false, nobleConsumed: 0, villageName: "" };
     if (status === "resolved") {
       const currentDefender = this.db.prepare("SELECT army_json, resources_json FROM local_villages WHERE id = ?")
         .get(String(row.defender_village_id)) as DbRow;
@@ -1220,6 +1227,7 @@ export class SharedWorldStore {
         const points = Math.max(10, armyUnitCount(outcome.defenderCasualties) * 3);
         this.db.prepare("UPDATE local_kingdoms SET war_victory_points = war_victory_points + ? WHERE id = ?")
           .run(points, String(row.attacker_kingdom_id));
+        conquest = this.applyConquest(worldId, row, outcome, resolvedAt, published);
       }
     }
     const from = this.db.prepare("SELECT x, y FROM local_villages WHERE id = ?").get(String(row.attacker_village_id)) as DbRow;
@@ -1230,6 +1238,9 @@ export class SharedWorldStore {
     // Whoever yielded marches home WITH the attacker, so the world never loses
     // or gains a soldier across a surrender - they change side, that is all.
     const homewardArmy = status === "resolved" ? addArmies(outcome.attackerSurvivors, outcome.yielded) : outcome.attackerSurvivors;
+    // A Nobleman who seats himself as the new lord stays; he is the one soldier
+    // a conquest genuinely spends.
+    homewardArmy.noble = Math.max(0, homewardArmy.noble - conquest.nobleConsumed);
     this.db.prepare("UPDATE local_battle_sessions SET status = ?, outcome_json = ?, resolved_at = ? WHERE id = ?")
       .run(status, JSON.stringify(outcome), resolvedAt.toISOString(), String(row.id));
     this.db.prepare("UPDATE local_marches SET status = 'returning', kind = 'return', army_json = ?, loot_json = ?, arrives_at = ? WHERE id = ?")
@@ -1237,10 +1248,11 @@ export class SharedWorldStore {
     // The march is settled; its plan deadline must never fire again.
     this.db.prepare("UPDATE local_march_plans SET auto_resolve_at = NULL WHERE march_id = ?").run(String(row.march_id));
     const surrenderNote = yieldedCount > 0 ? ` ${yieldedCount} of their troops surrendered and march with you.` : "";
+    const conquestNote = conquest.captured ? ` ${conquest.villageName} is yours.` : "";
     const attackerMessage = status === "retreated"
       ? `${armyUnitCount(outcome.attackerSurvivors)} troops withdrew and are returning home.`
       : outcome.winner === "attacker"
-        ? `Victory. ${armyUnitCount(outcome.attackerSurvivors)} survivors are returning with ${loot.wood + loot.stone + loot.iron} resources.${surrenderNote}`
+        ? `Victory. ${armyUnitCount(outcome.attackerSurvivors)} survivors are returning with ${loot.wood + loot.stone + loot.iron} resources.${surrenderNote}${conquestNote}`
         : `Defeat. ${armyUnitCount(outcome.attackerSurvivors)} survivors are returning home.`;
     const defenderMessage = status === "retreated"
       ? "The attacking army withdrew from your walls."
@@ -1256,6 +1268,127 @@ export class SharedWorldStore {
     const march = this.readMarch(String(row.march_id))!;
     published.push(this.insertEvent(worldId, worldVersion, status === "retreated" ? "battle.retreated" : "battle.resolved", { battle, march }));
     return { battle, march, worldVersion };
+  }
+
+  /**
+   * Spec SS1: "take over the world one settlement at a time."
+   *
+   * Noblemen who SURVIVE a winning attack shake the target's loyalty by a
+   * seed-derived amount, so the same battle always produces the same result.
+   * At zero the village changes hands inside this same transaction as the rest
+   * of the settlement, so a settlement can never half-belong to two realms.
+   */
+  private applyConquest(
+    worldId: string,
+    row: DbRow,
+    outcome: BattleOutcome,
+    resolvedAt: Date,
+    published: StoredWorldEvent[],
+  ): { captured: boolean; nobleConsumed: number; villageName: string } {
+    const idle = { captured: false, nobleConsumed: 0, villageName: "" };
+    const nobles = Math.max(0, Math.floor(outcome.attackerSurvivors.noble ?? 0));
+    if (nobles < 1) return idle;
+
+    const villageId = String(row.defender_village_id);
+    const attackerKingdomId = String(row.attacker_kingdom_id);
+    const village = this.db.prepare(
+      "SELECT kingdom_id, name, loyalty, is_capital, buildings_json FROM local_villages WHERE id = ?",
+    ).get(villageId) as DbRow | undefined;
+    if (!village) return idle;
+
+    const defenderKingdomId = String(village.kingdom_id);
+    // Never conquer your own ground: the village may have changed hands while
+    // this army was still on the road.
+    if (defenderKingdomId === attackerKingdomId) return idle;
+
+    const seed = String(row.seed ?? row.id);
+    let loyalty = Number(village.loyalty);
+    for (let index = 0; index < nobles && loyalty > 0; index += 1) {
+      loyalty -= loyaltyDrop(seed, index);
+    }
+    const villageName = String(village.name);
+
+    if (loyalty > 0) {
+      this.db.prepare("UPDATE local_villages SET loyalty = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(loyalty, villageId);
+      this.insertNotification(worldId, defenderKingdomId, "battle",
+        `Loyalty in ${villageName} fell to ${loyalty}.`, resolvedAt.toISOString());
+      this.insertNotification(worldId, attackerKingdomId, "battle",
+        `${villageName} holds at ${loyalty} loyalty. Send more Noblemen.`, resolvedAt.toISOString());
+      return idle;
+    }
+
+    // --- The village changes hands. ---
+    const wasCapital = Number(village.is_capital) === 1;
+    const buildings = parseJson<BuildingLevels>(village.buildings_json);
+    const developmentLevel = BUILDING_TYPES.reduce((total, building) => total + (buildings[building] ?? 0), 0);
+    const defenderLevelsRow = this.db.prepare("SELECT troop_levels_json FROM local_kingdoms WHERE id = ?")
+      .get(defenderKingdomId) as DbRow | undefined;
+    const defenderLevels = defenderLevelsRow
+      ? parseJson<TroopLevels>(defenderLevelsRow.troop_levels_json)
+      : initialTroopLevels();
+    const garrisonThatFought = addArmies(outcome.defenderCasualties, outcome.defenderSurvivors);
+    const villagesHeld = (kingdomId: string) => Number((this.db.prepare(
+      "SELECT COUNT(*) AS count FROM local_villages WHERE kingdom_id = ?",
+    ).get(kingdomId) as DbRow).count);
+
+    const points = conquestWarVictoryPoints({
+      developmentLevel,
+      defensePower: armyPower(garrisonThatFought, defenderLevels, "defense"),
+      isCapital: wasCapital,
+      attackerRealmPower: Math.max(1, villagesHeld(attackerKingdomId)),
+      defenderRealmPower: Math.max(1, villagesHeld(defenderKingdomId)),
+    });
+
+    // The garrison disperses; a freshly taken village is fragile and can be
+    // taken straight back off you.
+    this.db.prepare(`
+      UPDATE local_villages
+      SET kingdom_id = ?, loyalty = ?, is_capital = 0, army_json = ?, state_version = state_version + 1
+      WHERE id = ?
+    `).run(attackerKingdomId, LOYALTY_ON_CAPTURE, JSON.stringify(emptyArmy()), villageId);
+    this.db.prepare(`
+      UPDATE local_kingdoms
+      SET war_victory_points = war_victory_points + ?, villages_conquered = villages_conquered + 1
+      WHERE id = ?
+    `).run(points, attackerKingdomId);
+
+    // The loser: re-seat a capital, or fall.
+    const remaining = this.db.prepare(
+      "SELECT id FROM local_villages WHERE kingdom_id = ? ORDER BY id LIMIT 1",
+    ).get(defenderKingdomId) as DbRow | undefined;
+    if (!remaining) {
+      this.db.prepare("UPDATE local_kingdoms SET alive = 0 WHERE id = ?").run(defenderKingdomId);
+    } else if (wasCapital) {
+      this.db.prepare("UPDATE local_villages SET is_capital = 1, state_version = state_version + 1 WHERE id = ?")
+        .run(String(remaining.id));
+      this.db.prepare("UPDATE local_kingdoms SET capital_village_id = ? WHERE id = ?")
+        .run(String(remaining.id), defenderKingdomId);
+    }
+
+    const attackerName = String((this.db.prepare("SELECT name FROM local_kingdoms WHERE id = ?")
+      .get(attackerKingdomId) as DbRow | undefined)?.name ?? "A rival realm");
+    const defenderName = String((this.db.prepare("SELECT name FROM local_kingdoms WHERE id = ?")
+      .get(defenderKingdomId) as DbRow | undefined)?.name ?? "a fallen realm");
+
+    this.insertNotification(worldId, attackerKingdomId, "battle",
+      `${villageName} is yours. +${points} war victory points.`, resolvedAt.toISOString());
+    this.insertNotification(worldId, defenderKingdomId, "battle",
+      `${villageName} has fallen to ${attackerName}.`, resolvedAt.toISOString());
+
+    const worldVersion = this.incrementWorldVersion(worldId);
+    published.push(this.insertEvent(worldId, worldVersion, "village.conquered", {
+      village: this.readVillage(villageId),
+      villageName,
+      fromKingdomId: defenderKingdomId,
+      fromKingdomName: defenderName,
+      toKingdomId: attackerKingdomId,
+      toKingdomName: attackerName,
+      warVictoryPoints: points,
+      wasCapital,
+    }));
+
+    return { captured: true, nobleConsumed: 1, villageName };
   }
 
   private finishBattle(

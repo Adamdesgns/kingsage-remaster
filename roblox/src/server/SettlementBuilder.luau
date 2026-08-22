@@ -60,6 +60,8 @@ type Entry = {
 local rendered: { [string]: Entry } = {}
 local playerVillageIds: { [Player]: { string } } = {}
 local teleported: { [Player]: boolean } = {}
+-- Where each present player belongs when they are lost. See the rescue loop.
+local gateLanding: { [Player]: CFrame } = {}
 local wildernessBuilt = false
 
 local function greyPart(name: string, size: Vector3, cframe: CFrame, parent: Instance, color: Color3?): Part
@@ -348,19 +350,45 @@ function SettlementBuilder.onState(player: Player, snapshot: any, kingdomId: str
 				end
 				entry.stateVersion = village.stateVersion
 			end
-			if village.isCapital and not teleported[player] then
-				teleported[player] = true
+			if village.isCapital then
 				local spawn = entry.model:FindFirstChild("GateSpawn")
 				if spawn and spawn:IsA("SpawnLocation") then
 					player.RespawnLocation = spawn
 				end
-				task.defer(function()
-					local character = player.Character or player.CharacterAdded:Wait()
-					local root = character:WaitForChild("HumanoidRootPart", 5)
-					if root and root:IsA("BasePart") then
-						root.CFrame = origin * CFrame.new(0, 4, WALL_HALF - 10)
-					end
-				end)
+				-- The region is placed from map coordinates, so it sits
+				-- THOUSANDS of studs from the origin — and Roblox's default
+				-- spawn is the origin. A player who is not moved to their own
+				-- gate spawns over open void and falls forever, and no MoveTo
+				-- will ever reach anything again. Arrival therefore has to be
+				-- reliable, not best-effort:
+				--   * never latch `teleported` until the character has ACTUALLY
+				--     been placed (the old code latched first, so a character
+				--     that was not ready yet was stranded permanently);
+				--   * keep trying while the character is still loading;
+				--   * and rescue anyone who ends up under the world later.
+				local landing = origin * CFrame.new(0, 6, WALL_HALF - 10)
+				gateLanding[player] = landing
+				if not teleported[player] then
+					teleported[player] = true
+					task.spawn(function()
+						for _ = 1, 40 do
+							if player.Parent ~= Players then
+								return
+							end
+							local character = player.Character
+							local root = character and character:FindFirstChild("HumanoidRootPart")
+							if character and root and root:IsA("BasePart") then
+								character:PivotTo(landing)
+								root.AssemblyLinearVelocity = Vector3.zero
+								return
+							end
+							task.wait(0.25)
+						end
+						-- Never arrived: let the next snapshot try again rather
+						-- than leaving them in the sky.
+						teleported[player] = false
+					end)
+				end
 			end
 		else
 			-- Foreign: shell only. An online owner's full render always wins.
@@ -436,6 +464,26 @@ Players.PlayerRemoving:Connect(function(player)
 	end
 	playerVillageIds[player] = nil
 	teleported[player] = nil
+	gateLanding[player] = nil
+end)
+
+-- Anyone who ends up under the world — a fall from the default spawn, a
+-- respawn that beat the settlement being built, a bad teleport — is put back
+-- at their own gate. One check a second, and it only ever moves a character
+-- that is already lost.
+task.spawn(function()
+	while true do
+		task.wait(1)
+		for player, landing in gateLanding do
+			local character = player.Character
+			local root = character and character:FindFirstChild("HumanoidRootPart")
+			if character and root and root:IsA("BasePart") and root.Position.Y < -60 then
+				character:PivotTo(landing)
+				root.AssemblyLinearVelocity = Vector3.zero
+				warn(string.format("[World] %s was under the world; returned to their gate", player.Name))
+			end
+		end
+	end
 end)
 
 return SettlementBuilder

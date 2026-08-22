@@ -187,7 +187,7 @@ end
 local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: string): ({ [string]: any }?, string?, string?)
 	-- runQueue guarantees a real villageId for every kind below; the battle
 	-- kinds that legitimately have none are handled after them.
-	local villageId = villageId or ""
+	local villageId = request.villageId or ""
 
 	if request.kind == "build" and typeof(request.building) == "string" then
 		return { type = "village.build.queue", payload = { villageId = villageId, building = request.building } },
@@ -413,6 +413,14 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 			return { ok = false, message = "That order made no sense." }
 		end
 		if not ownsVillage(snapshot, identity.kingdomId, request.villageId) then
+			local found = findVillage(snapshot, request.villageId)
+			warn(string.format(
+				"[World] ownership check failed: prompt villageId=%s, my kingdom=%s, that village belongs to=%s, villages in snapshot=%d",
+				tostring(request.villageId),
+				tostring(identity.kingdomId),
+				tostring(found and found.kingdomId or "NOT IN SNAPSHOT"),
+				#((snapshot and snapshot.world and snapshot.world.villages) or {})
+			))
 			return { ok = false, message = "That is not your village." }
 		end
 	end
@@ -499,6 +507,15 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 		end
 	end
 	result = result or { ok = false, message = COPY_KEPT_CHANGING }
+	-- A refused order used to be invisible in Studio: the player saw a toast
+	-- for three seconds and the Output said nothing, so a whole play session
+	-- could pass with NOTHING reaching the realm and no way to tell why.
+	-- Every refusal now names itself.
+	if not result.ok then
+		warn(string.format("[World] refused %s for %s (village=%s target=%s): %s", tostring(request.kind), player.Name, tostring(request.villageId), tostring(request.targetVillageId), result.message))
+	else
+		print(string.format("[World] accepted %s for %s (village=%s)", tostring(request.kind), player.Name, tostring(request.villageId)))
+	end
 	lastCompleted[player] = { fingerprint = fingerprint, at = os.clock(), result = result }
 	return result
 end

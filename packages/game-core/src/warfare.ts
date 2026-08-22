@@ -150,6 +150,23 @@ export function surrenderYield(input: {
   return { ...input.defenderSurvivors };
 }
 
+/**
+ * Spec SS1's long game: "take over the world one settlement at a time."
+ *
+ * Every Nobleman who SURVIVES a winning attack shakes the target's loyalty.
+ * The size of the shake is derived from the battle seed, so a conquest is as
+ * deterministic and as replayable as the fight that earned it - the same
+ * battle always produces the same drop, on the server and in any replay.
+ */
+export const LOYALTY_DROP_MIN = 20;
+export const LOYALTY_DROP_MAX = 35;
+export const LOYALTY_ON_CAPTURE = 25;
+
+export function loyaltyDrop(seed: string, index: number): number {
+  const span = LOYALTY_DROP_MAX - LOYALTY_DROP_MIN;
+  return LOYALTY_DROP_MIN + Math.floor(hashFraction(`${seed}:noble:${index}`) * (span + 1));
+}
+
 export function resolveBattle(input: {
   attacker: Army;
   defender: Army;
