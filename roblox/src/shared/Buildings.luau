@@ -114,6 +114,33 @@ function Buildings.mustersOnAttack(troop: string, withNobles: boolean?): boolean
 	return true
 end
 
+-- Builds the army an attack actually sends, from a village's army table.
+-- This lives in SHARED on purpose: the Roblox server dispatches this exact
+-- table to the world server, and the war table shows a count derived from the
+-- same call. Mirrored copies of this rule are how a button ends up promising
+-- one army while another one marches.
+--
+-- Returns (army, fighting, nobles). `fighting` deliberately excludes noblemen,
+-- so "no fighting troops here" keeps meaning what it says even on a conquest.
+function Buildings.musterFrom(army: { [string]: any }?, withNobles: boolean?): ({ [string]: number }, number, number)
+	local muster: { [string]: number } = {}
+	local fighting = 0
+	local nobles = 0
+	for _, troop in Buildings.TROOP_ORDER do
+		local count = 0
+		if Buildings.mustersOnAttack(troop, withNobles) then
+			count = math.max(math.floor(tonumber(army and army[troop]) or 0), 0)
+		end
+		muster[troop] = count
+		if Buildings.CONQUEST_ONLY[troop] then
+			nobles += count
+		else
+			fighting += count
+		end
+	end
+	return muster, fighting, nobles
+end
+
 function Buildings.defaultAttackPlan(): { [string]: string }
 	local plan = {}
 	for _, axis in Buildings.ATTACK_PLAN_AXES do

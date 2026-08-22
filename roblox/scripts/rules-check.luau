@@ -60,6 +60,55 @@ check("fighting troops always muster", (function(): boolean
 	return true
 end)())
 
+-- ---- the army that actually marches ----
+-- This is the table CommandService dispatches to the world server verbatim,
+-- so a mistake here is a wrong army leaving a real village.
+
+local GARRISON = {
+	spear = 40, sword = 12, axe = 7, archer = 15,
+	scout = 4, lightCavalry = 6, ram = 2, noble = 3,
+}
+
+check("a raid marches every fighter and leaves scouts AND noblemen home", (function(): boolean
+	local army, fighting, nobles = Buildings.musterFrom(GARRISON, false)
+	return army.scout == 0 and army.noble == 0 and nobles == 0
+		and army.spear == 40 and army.sword == 12 and army.axe == 7
+		and army.archer == 15 and army.lightCavalry == 6 and army.ram == 2
+		and fighting == 40 + 12 + 7 + 15 + 6 + 2
+end)())
+
+check("a conquest marches the same fighters PLUS the noblemen", (function(): boolean
+	local army, fighting, nobles = Buildings.musterFrom(GARRISON, true)
+	return army.scout == 0 and army.noble == 3 and nobles == 3
+		and fighting == 40 + 12 + 7 + 15 + 6 + 2
+end)())
+
+check("the dispatched army names every troop the world server expects", (function(): boolean
+	local army = Buildings.musterFrom(GARRISON, true)
+	local count = 0
+	for _, troop in Buildings.TROOP_ORDER do
+		if type(army[troop]) ~= "number" then
+			return false
+		end
+		count += 1
+	end
+	-- No extra keys either: the world server validates the army's shape.
+	for _ in army do
+		count -= 1
+	end
+	return count == 0
+end)())
+
+check("an empty or missing garrison musters nothing rather than erroring", (function(): boolean
+	local army, fighting, nobles = Buildings.musterFrom(nil, true)
+	return fighting == 0 and nobles == 0 and army.spear == 0
+end)())
+
+check("fractional or negative counts are floored to a sane whole number", (function(): boolean
+	local army, fighting = Buildings.musterFrom({ spear = 7.9, sword = -3 }, false)
+	return army.spear == 7 and army.sword == 0 and fighting == 7
+end)())
+
 -- ---- presets: the label and the payload must never drift apart ----
 
 check("every recruit preset names a troop game-core knows", (function(): boolean

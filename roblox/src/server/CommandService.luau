@@ -118,27 +118,11 @@ local function sanitizePlan(plan: { [string]: string }?): { [string]: string }
 	return safe
 end
 
--- Everything in the village that marches on an attack, per the ONE rule in
--- shared/Buildings (scouts never; noblemen only on a declared conquest).
--- Returns the army, its FIGHTING count (nobles excluded, so "no troops here"
--- still means no troops), and how many noblemen ride.
+-- Everything in the village that marches on an attack. The rule AND the army
+-- construction both live in shared/Buildings, so the table dispatched here and
+-- the count the war table renders come from one function, never two that drift.
 local function musterFrom(village: any, withNobles: boolean?): ({ [string]: number }, number, number)
-	local army: { [string]: number } = {}
-	local fighting = 0
-	local nobles = 0
-	for _, troop in Buildings.TROOP_ORDER do
-		local count = 0
-		if Buildings.mustersOnAttack(troop, withNobles) then
-			count = math.max(math.floor(tonumber(village and village.army and village.army[troop]) or 0), 0)
-		end
-		army[troop] = count
-		if Buildings.CONQUEST_ONLY[troop] then
-			nobles += count
-		else
-			fighting += count
-		end
-	end
-	return army, fighting, nobles
+	return Buildings.musterFrom(village and village.army, withNobles)
 end
 
 -- Battle-order sequence per battle. The world server refuses anything but the

@@ -25,6 +25,7 @@ local TimeUtil = require(shared:WaitForChild("TimeUtil"))
 -- Sibling module: with init.client.luau, Rojo makes this folder the LocalScript
 -- and everything beside it a child of that script.
 local BattleScene = require(script:WaitForChild("BattleScene"))
+local Celebration = require(script:WaitForChild("Celebration"))
 
 local remotes = ReplicatedStorage:WaitForChild("WorldRemotes")
 local stateSync = remotes:WaitForChild("StateSync") :: RemoteEvent
@@ -509,21 +510,13 @@ local function armySummary(army: any, emptyText: string?): string
 	return table.concat(parts, ", ")
 end
 
--- Everything in this village that would march on an attack. Counts through
--- Buildings.mustersOnAttack — the SAME rule CommandService builds the army
--- from — so the number on the button cannot drift from the army that leaves.
+-- Everything in this village that would march on an attack. Counted by the
+-- SAME shared function CommandService builds the dispatched army from, so the
+-- number on the button cannot drift from the army that actually leaves.
 -- Returns (fighting troops, noblemen available).
 local function musterCount(village: any): (number, number)
-	local fighting = 0
-	local nobles = 0
-	for _, troop in Buildings.TROOP_ORDER do
-		local count = math.max(math.floor(tonumber(village and village.army and village.army[troop]) or 0), 0)
-		if Buildings.CONQUEST_ONLY[troop] then
-			nobles += count
-		elseif Buildings.mustersOnAttack(troop, false) then
-			fighting += count
-		end
-	end
+	local _, fighting = Buildings.musterFrom(village and village.army, false)
+	local _, _, nobles = Buildings.musterFrom(village and village.army, true)
 	return fighting, nobles
 end
 
@@ -1328,6 +1321,13 @@ local seenReports: { [string]: boolean } = {}
 local seenBattles: { [string]: boolean } = {}
 local seededReports = false
 
+-- Every village id this kingdom held as of the last snapshot. A village that
+-- appears here for the first time AFTER the join seed just changed hands, and
+-- that is the only signal the celebration needs — the world server has already
+-- settled the conquest, so the client is reacting to a fact, not deciding one.
+local ownedVillages: { [string]: boolean } = {}
+local seededOwnership = false
+
 local function announceNewReports(snapshot: any)
 	local reports = snapshot and snapshot.scoutReports
 	if typeof(reports) == "table" then
@@ -1361,6 +1361,29 @@ local function announceNewReports(snapshot: any)
 		end
 	end
 	seededReports = true
+
+	-- A village that is newly mine changed hands in my favour. Never fires on
+	-- the join seed: the first snapshot is simply what I already own, and a
+	-- rejoin must not replay every conquest I have ever made.
+	local villages = snapshot and snapshot.world and snapshot.world.villages
+	if kingdomId and typeof(villages) == "table" then
+		local nowOwned: { [string]: boolean } = {}
+		local taken: string? = nil
+		for _, village in villages do
+			if tostring(village.kingdomId) == kingdomId then
+				local id = tostring(village.id)
+				nowOwned[id] = true
+				if seededOwnership and not ownedVillages[id] then
+					taken = tostring(village.name)
+				end
+			end
+		end
+		ownedVillages = nowOwned
+		seededOwnership = true
+		if taken then
+			Celebration.play(taken)
+		end
+	end
 end
 
 local function refreshHud()
