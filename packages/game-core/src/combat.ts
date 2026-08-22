@@ -28,8 +28,14 @@ export type UnitDefinition = {
    * KingsAge never published which units defend as which class; this table is
    * reconstructed from the unit IDs KingsAge inherited from Tribal Wars.
    *
-   * The Spy is `null`: it fights its own battle before the main one and is
-   * never part of the three-class split.
+   * [CONFIRMED] by the official InnoGames unit-type article, which assigns
+   * every unit in this engine family: infantry = Spear/Sword/Axe/siege/Noble/
+   * Militia, cavalry = Scout/Light cavalry/Heavy cavalry, archers = Archer.
+   * Ten of our eleven were inferred correctly; the Spy was not - we had it
+   * outside combat entirely, so a garrison of Spies defended with nothing.
+   *
+   * The Spy ALSO fights its own battle before the main one (spec phase 2).
+   * That phase is not built yet; being cavalry here is the defensive half.
    *
    * [SIM] Run block 1 of `docs/design/2026-08-22-simulator-run-sheet.md` to
    * replace this column with measured fact. Correcting a unit is a one-line
@@ -53,7 +59,7 @@ export const UNITS: Record<UnitId, UnitDefinition> = {
   sword:        { id: "sword",        name: "Templar",          combatClass: "infantry", attack: 100, defInfantry:  300, defCavalry:  100, defArcher:  200, speed: 22, carry: 15, population:   1 },
   axe:          { id: "axe",          name: "Berserker",        combatClass: "infantry", attack: 350, defInfantry:   70, defCavalry:   50, defArcher:   50, speed: 18, carry: 10, population:   1 },
   archer:       { id: "archer",       name: "Long-bow",         combatClass: "archer",   attack: 150, defInfantry:  400, defCavalry:  150, defArcher:  100, speed: 18, carry: 10, population:   1 },
-  scout:        { id: "scout",        name: "Spy",              combatClass: null,       attack:   1, defInfantry:   10, defCavalry:    5, defArcher:    7, speed:  9, carry:  0, population:   2 },
+  scout:        { id: "scout",        name: "Spy",              combatClass: "cavalry",  attack:   1, defInfantry:   10, defCavalry:    5, defArcher:    7, speed:  9, carry:  0, population:   2 },
   lightCavalry: { id: "lightCavalry", name: "Crusader",         combatClass: "cavalry",  attack: 900, defInfantry:  200, defCavalry:  300, defArcher:  300, speed: 10, carry: 80, population:   4 },
   heavyCavalry: { id: "heavyCavalry", name: "Black Knight",     combatClass: "cavalry",  attack: 600, defInfantry: 1500, defCavalry: 1000, defArcher: 1000, speed: 11, carry: 50, population:   6 },
   ram:          { id: "ram",          name: "Battering Ram",    combatClass: "infantry", attack: 100, defInfantry:  100, defCavalry:  200, defArcher:   20, speed: 30, carry:  0, population:   5 },

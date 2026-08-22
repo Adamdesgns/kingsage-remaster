@@ -186,3 +186,18 @@ test("the wall changes who wins, on the real exponential curve", () => {
   assert.equal(open.winner, "attacker");    // 105,000 vs 100,020
   assert.equal(walled.winner, "defender");  // 105,000 vs 219,132
 });
+
+test("a garrison of Spies is not a free village", () => {
+  // [CONFIRMED] official InnoGames unit-type article: the Scout is CAVALRY.
+  // We had it excluded from combat entirely, which made 500 Spies defend with
+  // nothing but the base floor - an empty-looking village that is not empty.
+  assert.equal(UNITS.scout.combatClass, "cavalry");
+
+  const defence = defenceByClass({
+    defender: { scout: 500 },
+    shares: { infantry: 0, cavalry: 1, archer: 0 },
+    wallLevel: 0,
+    nightBonus: false,
+  });
+  assert.equal(defence.cavalry, 500 * 5 + 20);
+});

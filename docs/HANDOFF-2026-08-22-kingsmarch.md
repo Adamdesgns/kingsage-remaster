@@ -230,13 +230,16 @@ genuinely need him:
   phone. `BattleConfig.MAX_SOLDIERS` is set from it.
 - Drills S4–S6, B4–B6, C6 and the by-eye halves.
 - **Troops have still never been seen drawn.**
-- **The KingsAge battle simulator.** Adam said he would create an account; his
-  last message before the handoff request was "done", **which was never
-  clarified — ask him whether that meant the account exists.** The simulator
-  takes up to 500,000 defending units, needs no troops or buildings, and would
-  convert the spec's [INFERRED] tags into measured facts — above all the **unit
-  class assignment, which KingsAge never published.** He logs in himself; never
-  take his password.
+- ~~**The KingsAge battle simulator.**~~ **THERE ISN'T ONE.** Corrected
+  2026-08-22 evening: the claim was Tribal Wars' simulator imported without a
+  source, and the research document never mentioned a simulator at all. Adam
+  found no such tool on a live account. **Both things it was meant to settle
+  were on public pages needing no login** - the units help page gives all 11
+  units with three defence values each (our roster matches exactly), and an
+  official InnoGames article states the class assignment outright (ten of our
+  eleven were right; the Spy was wrong and is cavalry). See
+  `docs/design/2026-08-22-what-we-actually-need.md`. Six real unknowns remain
+  and none block a slice.
 - VPS deploy, name vetting, first art pass.
 
 ## Environment traps (carried forward, all still true)

@@ -464,11 +464,16 @@ while giving defensive play a track to invest in, which it currently lacks.
     nothing.
 11. **Freeholds:** taking one preserves beginner protection; attacking a player
     ends it.
-12. **Simulator parity [SIM]:** for ten recorded KingsAge simulator results,
-    our engine produces the same winner and casualty figures within rounding.
+12. **Engine parity [SIM]:** for ten recorded real KingsAge battle reports, our
+    engine produces the same winner and casualty figures within rounding.
+    ⚠️ **Corrected 2026-08-22:** this originally said "simulator results". There
+    is no KingsAge simulator (see section 14). The intent stands - check our
+    engine against the real one - but the instrument is recorded battle reports
+    from a live account, which costs playing time rather than clicks.
 
 Test 12 is the one that matters. Everything else checks we implemented what we
-wrote down; test 12 checks we wrote down the right thing.
+wrote down; test 12 checks we wrote down the right thing. It is also the only
+one we cannot run today, so it must not silently become optional.
 
 ---
 
@@ -493,20 +498,37 @@ wrote down; test 12 checks we wrote down the right thing.
 
 ---
 
-## 14. What the simulator settles
+## 14. ~~What the simulator settles~~ - VOID, corrected 2026-08-22
 
-Once the account is live, these stop being inferences:
-
-| Question | Method |
-|---|---|
-| Unit class assignment | Send a pure single-class army; see which defence value moves |
-| Base defence exists / its value | Simulate against an empty settlement at wall 0, 5, 10, 20 |
-| Does wallFactor multiply base defence | Compare the above against the formula |
-| Casualty exponent is 1.5 | Compare predicted vs actual survivor counts |
-| Wall factor 1.04^L | Vary wall level only, hold armies constant |
-| Round cap | Construct a near-stalemate and count the rounds |
-| Trebuchets vs a defended village | Vary defenders, hold trebuchets constant |
-
-**Until then, every [INFERRED] and [SIM] tag above stands.** We can start
-building §11 step 1 against the confirmed parts — the roster and the three-class
-structure are both CONFIRMED — but the constants stay provisional.
+> **This section was wrong and is superseded by
+> `docs/design/2026-08-22-what-we-actually-need.md`.**
+>
+> **There is no KingsAge battle simulator.** This section, the `[SIM]` tag and
+> acceptance test 12 all assumed one that "takes up to 500,000 defending units
+> and needs no troops or buildings". That is a description of **Tribal Wars'**
+> simulator, imported here without a source. The research document - the one
+> with real citations - never mentions a simulator at all; the official KingsAge
+> help index has no such entry; and Adam, logged into a live account, could not
+> find one. The same wrong-game error this spec exists to correct, committed
+> inside the correction.
+>
+> **The two things it was meant to settle were public all along:**
+>
+> - **Unit stats** - the official KingsAge units help page
+>   (`help.php?m=units`) lists all 11 units with three defence values each.
+>   `combat.ts` matches it exactly, every number.
+> - **Unit class assignment** - billed here as "the single biggest inference"
+>   and "the first thing the simulator settles". The official InnoGames
+>   unit-type article states it outright: infantry = Spear/Sword/Axe/siege/
+>   Noble/Militia, cavalry = Scout/Light cavalry/Heavy cavalry, archers =
+>   Archer/Mounted archer. Ten of our eleven were inferred correctly. **The Spy
+>   was wrong** - it is cavalry, not excluded from combat, so a garrison of
+>   Spies was defending with nothing. Fixed with a test.
+>
+> Six genuine unknowns remain (base defence and whether the wall multiplies it,
+> trebuchets vs a defended village, the Goldsmith curve, return-march slowdown,
+> the round cap). **None of them block any slice.** They are settled by real
+> battle reports from a live account if they ever start to matter - better
+> evidence than a simulator, being the actual engine rather than a model of it.
+>
+> **`[SIM]` now means "unmeasured", not "awaiting a simulator run".**

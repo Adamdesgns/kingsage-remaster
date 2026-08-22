@@ -1,3 +1,13 @@
+> # ⚠️ VOID - DO NOT USE
+>
+> **Written against a tool that does not exist.** There is no KingsAge battle
+> simulator; the description in this sheet was Tribal Wars' simulator, imported
+> without a source. Kept only so the mistake stays visible in history.
+>
+> **Read `2026-08-22-what-we-actually-need.md` instead.** The two things this
+> sheet set out to measure were on public pages all along, and one of its
+> assumptions - that the Spy sits outside combat - was an actual bug.
+
 # KingsAge battle-simulator run sheet
 
 **Purpose.** Convert the `[INFERRED]` and `[SIM]` tags in
