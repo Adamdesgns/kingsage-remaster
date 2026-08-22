@@ -56,6 +56,32 @@
   from your own table, and watch hundreds of soldiers fight it out in front of
   you over ground you chose.
 
+- **Core player fantasy — expanded 2026-08-22 (Adam):** *"Let's think like
+  KingsAge / World of Warcraft but inside Roblox. Fully functioning economy and
+  more to do than just war — but that is the entire point of the game. Take over
+  the world. Some people might just prefer to become horse breeders and sell to
+  warlords who protect them."*
+
+  **War is the point of the world; it is not the only thing to do in it.** The
+  headline fantasy stays world domination one settlement at a time. Underneath
+  it sits a player-driven economy where a player can specialise — breed horses,
+  work iron, run caravans — and prosper by supplying the people who fight,
+  without ever fielding an army themselves.
+
+  **Which half of WoW this means, precisely:** its *professions and
+  player-driven economy* — the auction house, gathering, crafting, specialists
+  who never raid. **Not** its themepark content pipeline: no quest chains, no
+  dungeons, no raid tiers, no scripted story. Those need a content factory we do
+  not have and will not have. The economy half needs systems, which we can
+  build.
+
+- **The roles are emergent, not features.** "Horse breeder protected by a
+  warlord" is not something to implement. It appears on its own the moment three
+  conditions hold: something only some players can make, a way to move it
+  between players, and a maker who cannot defend it alone. Build those three and
+  the protection racket, the caravan escort and the supply war write themselves.
+  Build "protection contracts" as a feature and it dies.
+
 - **Core loop:**
   `WALK YOUR HOLDING → BUILD & RECRUIT → SCOUT A NEIGHBOUR → PLAN AN ATTACK →
   MARCH → FIGHT (attend or let the realm resolve it) → LOOT / TAKE THE
@@ -76,10 +102,15 @@
 - **Social features:** Roblox moderated chat (platform requirement; the custom
   world chat was retired). Alliances exist in the schema; the Market building
   says it "prepares" alliance coordination. **Neither is built.**
+  **Adam, 2026-08-22: trade and donation are wanted** — see
+  `2026-08-22-economy-and-roles.md`. Donation is alliance-gated, so alliances
+  become a prerequisite rather than a someday.
 
-- **Progression model:** Village buildings (13 types, levels), kingdom-wide
-  troop research (Smithy, levels 1–10, +8% per level), army size, and
-  settlements held. War Victory Points and `villages_conquered` are tracked.
+- **Progression model:** Village buildings (13 types, levels), armour upgrades
+  at the Smithy (defence only, per Adam 2026-08-22), army size, and settlements
+  held. War Victory Points and `villages_conquered` are tracked. **A second,
+  parallel track is now intended: economic specialisation** — a player who
+  never conquers anything should still have somewhere to go.
 
 - **Soft currency:** Wood, Stone, Iron. Produced by Timber Camp / Stone Quarry
   / Iron Mine, capped by Warehouse, and spent on buildings and troops.
