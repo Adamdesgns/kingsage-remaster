@@ -1327,6 +1327,21 @@ local function refreshHud()
 	if not snapshot then
 		return
 	end
+
+	-- BEFORE the queue rows, because building those has an early return when
+	-- nothing is queued — which is most of the time. Leaving the battle work
+	-- at the end of this function meant the "take the field" banner and the
+	-- battle scene never updated at all unless you happened to have a job
+	-- running. That is exactly how a finished battle stayed invisible.
+	refreshBattleCall()
+	if inBattleView then
+		local liveBattle = battleById(battleViewId)
+		if liveBattle then
+			BattleScene.update(liveBattle)
+			buildBattlePanel()
+		end
+	end
+
 	local entries: { { text: string, completesAt: number? } } = {}
 	for _, job in (snapshot.constructionJobs or {}) do
 		table.insert(entries, {
@@ -1374,16 +1389,6 @@ local function refreshHud()
 		buildTablePanel()
 	end
 
-	-- and the battlefield must track the battle row: the moment it stops being
-	-- "open" the maths exists, and the scene may finally show an ending.
-	refreshBattleCall()
-	if inBattleView then
-		local battle = battleById(battleViewId)
-		if battle then
-			BattleScene.update(battle)
-			buildBattlePanel()
-		end
-	end
 end
 
 -- countdown ticker: display only; writes a label only when its second changes

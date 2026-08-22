@@ -183,6 +183,10 @@ local function nearestForeign(home: any): any
 	return best
 end
 
+-- One attack per play session, so a viewing run always produces a battle
+-- without draining the garrison every loop.
+local attackedThisSession = false
+
 local function resolvedBattleCount(): number
 	local count = 0
 	for _, battle in ((snapshot and snapshot.battleSessions) or {}) do
@@ -204,7 +208,7 @@ end
 -- whole chain on camera without emptying the village every loop.
 local function sendAttack(): boolean
 	local home = homeVillage()
-	if not home or resolvedBattleCount() > 0 then
+	if not home or attackedThisSession then
 		return false
 	end
 	for _, march in ((snapshot and snapshot.marches) or {}) do
@@ -217,6 +221,7 @@ local function sendAttack(): boolean
 	if not targetId then
 		return false
 	end
+	attackedThisSession = true
 	local ok = pcall(function()
 		queueCommand:InvokeServer({
 			kind = "attack",
@@ -274,7 +279,7 @@ local function attendBattle()
 		return
 	end
 	setAttribute("DemoBattle", "enter")
-	task.wait(5) -- the armies form up and advance
+	task.wait(20) -- the armies form up, advance and close: time to actually LOOK
 
 	-- Three orders, one per squad, spread across the field.
 	local points = {
@@ -294,9 +299,9 @@ local function attendBattle()
 		task.wait(3)
 	end
 
-	task.wait(4)
+	task.wait(20)
 	invoke({ kind = "battleResolve", battleId = tostring(battle.id) })
-	task.wait(12) -- casualties fall, the loser routs
+	task.wait(40) -- casualties fall, the loser routs — long enough to watch
 	setAttribute("DemoBattle", "leave")
 end
 
