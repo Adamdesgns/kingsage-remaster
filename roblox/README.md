@@ -14,6 +14,13 @@ Roblox server → HTTP → world server (spec: `../docs/superpowers/specs/2026-0
    ```powershell
    $env:PORT = '4178'; $env:KINGSAGE_ROBLOX_KEY = 'dev-secret-local-0001'; npm run start:world
    ```
+   `roblox\start-dev.ps1` does this and more — it also sets
+   `KINGSAGE_AUTO_RESOLVE_MS=25000` so an unattended attack settles inside a
+   recording, and `KINGSAGE_DEV_SEED_NOBLES=5` so the conquest path can be
+   walked at all. **Both are DEV ONLY and unset in production**; seeding
+   Noblemen never changes a rule, only the starting garrison of a throwaway
+   world. Without it, conquest needs 3-5 Noblemen at 900s and ~2800/3000/3500
+   each, which no play session can sit through.
    Ports 4174/4177 may host older long-running processes — leave them alone; this work uses 4178.
 2. **Give Roblox the secret:** copy `src/server/SecretConfig.example.luau` to
    `src/server/SecretConfig.luau` (gitignored) and set the same key.
@@ -34,12 +41,24 @@ Roblox server → HTTP → world server (spec: `../docs/superpowers/specs/2026-0
   in-game admin commands, or `scripts/evidence-run.luau` pasted as a real
   ServerScript.
 - Drills live in `../docs/superpowers/drills-slice-one.md`,
-  `drills-scouting.md`, `drills-battles.md` and `drills-battle-scene.md` — run
-  them, record results with dates. **Eighteen are written and zero have run.**
-- ⚠️ **The Luau syntax gate needs Lune, which is NOT installed on this PC**
-  (only `rojo`, from winget). `npm run check:luau` therefore cannot run here;
-  until Lune is installed, Luau changes are hand-checked plus whatever Studio
-  reports on sync. Do not claim that gate ran when it did not.
+  `drills-scouting.md`, `drills-battles.md`, `drills-battle-scene.md` and
+  `drills-conquest.md` — run them, record results with dates. **Twenty-five are
+  written; nine carry dated PASS lines.**
+- ✅ **The Luau gates DO run.** Earlier notes here said Lune was not installed
+  on this PC. That was wrong — the session that checked had a stale PATH. Lune
+  0.10.5 is installed via winget and is on the user PATH; a shell opened before
+  it was added will not see it, which is what caused the false conclusion.
+  - `npm run check:luau` — compiles all 21 Luau files with the real compiler.
+  - `npm run check:luau-rules` — **RUNS** the pure shared Luau and asserts the
+    rules both the Roblox server and the war table depend on: what musters on
+    an attack, the army table that ships to the world server, the recruit
+    presets, the attack-plan axes. It is mutation-checked.
+  - `npm run test:luau` runs both.
+
+  This matters more than it sounds. The Node suites drive the world server's
+  HTTP routes and never execute a line of Luau — which is exactly how an empty
+  `villageId` shipped to every command in slice A. Anything pure belongs in
+  `scripts/rules-check.luau`.
 
 ## Layout
 
