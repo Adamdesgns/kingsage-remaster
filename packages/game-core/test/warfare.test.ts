@@ -9,6 +9,7 @@ import {
   resolveBattle,
   UNPLANNED_ATTACK_PLAN,
   battleWallLevel,
+  marchDurationSeconds,
   retreatSurvivors,
   subtractArmy,
 } from "../src/index.ts";
@@ -159,4 +160,34 @@ test("trebuchets do not open the wall, however many arrive", () => {
     "trebuchets changed the verdict, which means they opened the wall");
   // And the wall itself is untouched by anything that is not a ram.
   assert.equal(battleWallLevel(20, 0), 20);
+});
+
+test("an army marches at its slowest unit, not its fastest", () => {
+  // Spec acceptance test 8: an army containing a Trebuchet marches at 30, not
+  // at its Crusaders' 10. This is what puts siege in its own wave.
+  const distance = 10;
+  const riders = marchDurationSeconds(distance, "attack", { ...emptyArmy(), lightCavalry: 50 });
+  const ridersWithSiege = marchDurationSeconds(distance, "attack", { ...emptyArmy(), lightCavalry: 50, trebuchet: 1 });
+  const foot = marchDurationSeconds(distance, "attack", { ...emptyArmy(), axe: 50 });
+
+  assert.ok(riders < foot, "Crusaders should outpace Berserkers");
+  assert.ok(ridersWithSiege > riders, "one Trebuchet should slow the whole column");
+  assert.ok(ridersWithSiege > foot, "a Trebuchet is slower than infantry");
+});
+
+test("spies are the fastest thing on the map", () => {
+  // Over a long ride. Spies (9) and Crusaders (10) are close enough that a
+  // short hop rounds them to the same second - the difference is real, it just
+  // needs road to show.
+  const distance = 100;
+  const spies = marchDurationSeconds(distance, "scout", { ...emptyArmy(), scout: 2 });
+  const riders = marchDurationSeconds(distance, "scout", { ...emptyArmy(), lightCavalry: 2 });
+  assert.ok(spies < riders);
+});
+
+test("an army nobody described still marches", () => {
+  // Every existing caller passes no army. They must keep working, at the pace
+  // the game already had, or every march time in the game shifts at once.
+  assert.equal(marchDurationSeconds(10, "attack"), marchDurationSeconds(10, "attack", { ...emptyArmy(), axe: 1 }));
+  assert.ok(marchDurationSeconds(0, "attack") > 0, "a march always takes some time");
 });

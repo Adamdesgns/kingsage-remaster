@@ -1,5 +1,6 @@
 import { TROOPS, TROOP_ORDER } from "./economy.ts";
 import {
+  armySpeed,
   attackByClass,
   battleWallLevel,
   defenceByClass,
@@ -87,9 +88,37 @@ export function battlePlanScore(plan: BattlePlan): number {
     + Number(plan.style === BEST_PLAN.style);
 }
 
-export function marchDurationSeconds(distance: number, kind: "scout" | "attack" | "support" | "return"): number {
+/**
+ * The speed an army is paced against when nobody says what marched.
+ *
+ * 18 is the common infantry speed (Squire, Berserker, Long-bow), so an ordinary
+ * foot army takes EXACTLY as long as it did before unit speeds existed. That
+ * matters: every march time already in the game would otherwise shift at once,
+ * including the ones the Studio drills were timed against.
+ */
+export const REFERENCE_MARCH_SPEED = 18;
+
+/**
+ * [CONFIRMED] An army marches at its SLOWEST unit. Speed is minutes per tile in
+ * KingsAge, so the column is pinned by the maximum.
+ *
+ * [OURS] the pace itself. KingsAge's real minutes-per-tile would put a Crusader
+ * raid across ten tiles at a hundred minutes, which is a browser game checked
+ * twice a day - not a Roblox session. So unit speed is applied as a RATIO
+ * against REFERENCE_MARCH_SPEED rather than as absolute minutes: the texture
+ * that matters (riders outrun foot, siege drags everyone) is real, while the
+ * clock stays playable.
+ */
+export function marchDurationSeconds(
+  distance: number,
+  kind: "scout" | "attack" | "support" | "return",
+  army?: Army,
+): number {
   const base = kind === "scout" ? 8 : kind === "return" ? 10 : 12;
-  return Math.max(base, Math.round(base + Math.max(0, distance) * (kind === "scout" ? 0.8 : 1.2)));
+  const perTile = kind === "scout" ? 0.8 : 1.2;
+  const slowest = army ? armySpeed(army) : 0;
+  const pace = slowest > 0 ? slowest / REFERENCE_MARCH_SPEED : 1;
+  return Math.max(base, Math.round(base + Math.max(0, distance) * perTile * pace));
 }
 
 function hashFraction(seed: string): number {

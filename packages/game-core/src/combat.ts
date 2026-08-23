@@ -551,3 +551,48 @@ export function countSurvivesEscort(input: { sent: number; survived: number }): 
   if (input.sent <= 0) return false;
   return input.survived > input.sent * 0.5;
 }
+
+// ---------------------------------------------------------------------------
+// The night bonus
+// ---------------------------------------------------------------------------
+
+/** [CONFIRMED] KingsAge doubles defence for eight hours. */
+export const NIGHT_BONUS_HOURS = 8;
+
+/**
+ * [CONFIRMED] KingsAge runs its window 00:00-08:00 SERVER time.
+ *
+ * ⚠️ **This is one of two decisions the spec says are genuinely Adam's, and it
+ * is not made here.** On Roblox - global players, short sessions - a fixed
+ * server window is a timezone lottery: it hands a large advantage to whoever
+ * happens to live in the server's timezone, and tells everyone else they cannot
+ * meaningfully be attacked during hours they are asleep for anyway.
+ *
+ * The spec's recommendation is Tribal Wars' newer answer: each player picks
+ * their own 8-hour window, visible on their profile, changeable on a long
+ * cooldown.
+ *
+ * So the MECHANISM here takes a window start, and the DEFAULT is 0 - which
+ * reproduces KingsAge exactly. Adam's ruling is therefore a policy change (where
+ * `windowStart` comes from) rather than a rewrite, and until he rules, the game
+ * behaves exactly like the source.
+ */
+export const DEFAULT_NIGHT_WINDOW_START = 0;
+
+/**
+ * Is the defender inside their protected window?
+ *
+ * `hour` is 0-23. The window wraps midnight, because 22:00-06:00 is the obvious
+ * pick for a lot of players and a window that silently truncated at midnight
+ * would quietly give them six hours instead of eight.
+ */
+export function isNightBonusActive(input: { hour: number; windowStart: number }): boolean {
+  // The HOUR wraps - it is a clock reading, and 25 o'clock means 1am.
+  const hour = ((Math.floor(input.hour) % 24) + 24) % 24;
+  // The WINDOW is clamped, not wrapped. A stored 99 is corruption, not a
+  // request for 3am, and silently reinterpreting it would move a player's
+  // protection to a time they never chose.
+  const start = Math.min(23, Math.max(0, Math.floor(input.windowStart)));
+  const offset = (hour - start + 24) % 24;
+  return offset < NIGHT_BONUS_HOURS;
+}

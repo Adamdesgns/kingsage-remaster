@@ -930,7 +930,9 @@ export class SharedWorldStore {
       if (!remaining) return this.reject(envelope.commandId, "INSUFFICIENT_TROOPS", "Those troops are not available in the departure village.", currentVersion);
       const departedAt = this.now();
       const distance = distanceBetween({ x: Number(from.x), y: Number(from.y) }, { x: Number(target.x), y: Number(target.y) });
-      const durationMs = this.marchDurationMs ?? marchDurationSeconds(distance, kind) * 1000;
+      // The army that marches decides the pace: a column moves at its slowest
+      // unit, so one Trebuchet drags a Crusader raid to a third of its speed.
+      const durationMs = this.marchDurationMs ?? marchDurationSeconds(distance, kind, army) * 1000;
       const march: MarchState = {
         id: `march-${randomUUID()}`,
         worldId: envelope.worldId,
@@ -1358,7 +1360,7 @@ export class SharedWorldStore {
     const from = this.db.prepare("SELECT x, y FROM local_villages WHERE id = ?").get(String(row.attacker_village_id)) as DbRow;
     const target = this.db.prepare("SELECT x, y FROM local_villages WHERE id = ?").get(String(row.defender_village_id)) as DbRow;
     const distance = distanceBetween({ x: Number(from.x), y: Number(from.y) }, { x: Number(target.x), y: Number(target.y) });
-    const returnMs = this.returnDurationMs ?? marchDurationSeconds(distance, "return") * 1000;
+    const returnMs = this.returnDurationMs ?? marchDurationSeconds(distance, "return", homewardArmy) * 1000;
     const arrivesAt = new Date(resolvedAt.getTime() + returnMs).toISOString();
     // Whoever yielded marches home WITH the attacker, so the world never loses
     // or gains a soldier across a surrender - they change side, that is all.
@@ -1723,7 +1725,9 @@ export class SharedWorldStore {
         );
         const from = this.db.prepare("SELECT x, y FROM local_villages WHERE id = ?").get(String(row.from_village_id)) as DbRow;
         const distance = distanceBetween({ x: Number(from.x), y: Number(from.y) }, { x: Number(target.x), y: Number(target.y) });
-        const returnMs = this.returnDurationMs ?? marchDurationSeconds(distance, "return") * 1000;
+        // Spies ride home at their own pace, like every other column.
+        const returnMs = this.returnDurationMs
+          ?? marchDurationSeconds(distance, "return", parseJson<Army>(String(row.army_json))) * 1000;
         this.db.prepare("UPDATE local_marches SET status = 'returning', arrives_at = ? WHERE id = ?")
           .run(new Date(now.getTime() + returnMs).toISOString(), marchId);
         this.insertNotification(worldId, kingdomId, "scout", `Scout report ready: ${report.targetVillageName}.`, report.createdAt);
