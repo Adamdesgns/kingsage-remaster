@@ -1612,14 +1612,14 @@ export class SharedWorldStore {
     const from = this.db.prepare("SELECT x, y FROM local_villages WHERE id = ?").get(String(row.attacker_village_id)) as DbRow;
     const target = this.db.prepare("SELECT x, y FROM local_villages WHERE id = ?").get(String(row.defender_village_id)) as DbRow;
     const distance = distanceBetween({ x: Number(from.x), y: Number(from.y) }, { x: Number(target.x), y: Number(target.y) });
-    const returnMs = this.returnDurationMs ?? marchDurationSeconds(distance, "return", homewardArmy) * 1000;
-    const arrivesAt = new Date(resolvedAt.getTime() + returnMs).toISOString();
     // Whoever yielded marches home WITH the attacker, so the world never loses
     // or gains a soldier across a surrender - they change side, that is all.
     const homewardArmy = status === "resolved" ? addArmies(outcome.attackerSurvivors, outcome.yielded) : outcome.attackerSurvivors;
     // A Nobleman who seats himself as the new lord stays; he is the one soldier
     // a conquest genuinely spends.
     homewardArmy.noble = Math.max(0, homewardArmy.noble - conquest.nobleConsumed);
+    const returnMs = this.returnDurationMs ?? marchDurationSeconds(distance, "return", homewardArmy) * 1000;
+    const arrivesAt = new Date(resolvedAt.getTime() + returnMs).toISOString();
     this.db.prepare("UPDATE local_battle_sessions SET status = ?, outcome_json = ?, resolved_at = ? WHERE id = ?")
       .run(status, JSON.stringify(outcome), resolvedAt.toISOString(), String(row.id));
     this.db.prepare("UPDATE local_marches SET status = 'returning', kind = 'return', army_json = ?, loot_json = ?, arrives_at = ? WHERE id = ?")
