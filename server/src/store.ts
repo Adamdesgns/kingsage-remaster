@@ -11,14 +11,18 @@ import {
   armyCasualties,
   armyPopulation,
   armyPower,
+  applyRealmOfPower,
+  countSurvivesEscort,
   ramWallAfterBattle,
+  realmOfPowerRegen,
+  settlementPoints,
+  REALM_OF_POWER_ON_CAPTURE,
   initialTroopLevels,
   armyUnitCount,
   battlePlanScore,
   conquestWarVictoryPoints,
   distanceBetween,
-  loyaltyDrop,
-  LOYALTY_ON_CAPTURE,
+
   emptyArmy,
   isValidArmy,
   marchDurationSeconds,
@@ -325,6 +329,7 @@ export class SharedWorldStore {
       this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)").run(version, this.now().toISOString());
     }
     this.migrateFreeholdSeatKind();
+    this.migrateRealmOfPower();
   }
 
   /**
@@ -353,6 +358,31 @@ export class SharedWorldStore {
     this.db.exec(readFileSync(migrationPath, "utf8"));
     this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)")
       .run(7, this.now().toISOString());
+  }
+
+  /**
+   * Migration 0008, run CONDITIONALLY - same reason as 0007. `ALTER TABLE ADD
+   * COLUMN` throws on the second run, and migrate() replays everything.
+   *
+   * Backfills every existing settlement's Realm of Power from its buildings, so
+   * a world created under the loyalty model keeps a sensible conquest state
+   * rather than sitting at zero and being free to take.
+   */
+  private migrateRealmOfPower(): void {
+    const columns = this.db.prepare("PRAGMA table_info(local_villages)").all() as DbRow[];
+    if (columns.some((column) => String(column.name) === "realm_of_power")) return;
+
+    const migrationPath = fileURLToPath(new URL("../db/migrations/0008_realm_of_power.sql", import.meta.url));
+    this.db.exec(readFileSync(migrationPath, "utf8"));
+
+    const now = this.now().toISOString();
+    for (const row of this.db.prepare("SELECT id, buildings_json FROM local_villages").all() as DbRow[]) {
+      const maximum = settlementPoints(parseJson<BuildingLevels>(row.buildings_json));
+      this.db.prepare("UPDATE local_villages SET realm_of_power = ?, realm_of_power_at = ? WHERE id = ?")
+        .run(maximum, now, String(row.id));
+    }
+    this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)")
+      .run(8, now);
   }
 
   private seedWorld(): void {
@@ -398,9 +428,9 @@ export class SharedWorldStore {
 
       const insertVillage = this.db.prepare(`
         INSERT INTO local_villages(
-          id, world_id, kingdom_id, name, x, y, is_capital, loyalty,
+          id, world_id, kingdom_id, name, x, y, is_capital, loyalty, realm_of_power, realm_of_power_at,
           resources_json, buildings_json, army_json, state_version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const [index, village] of fixture.villages.entries()) {
         // See StoreOptions.devSeedNobles: off in production, and it adds to the
@@ -417,7 +447,12 @@ export class SharedWorldStore {
           village.x,
           village.y,
           village.isCapital ? 1 : 0,
-          village.loyalty,
+          // `loyalty` is a dead column kept only because dropping it would mean
+          // another table rebuild. Realm of Power is the live track, and a new
+          // settlement starts at its own maximum - untouched.
+          0,
+          Math.max(1, settlementPoints(village.buildings)),
+          fixture.createdAt,
           JSON.stringify(village.resources),
           JSON.stringify(village.buildings),
           JSON.stringify(army),
@@ -1368,6 +1403,24 @@ export class SharedWorldStore {
    * At zero the village changes hands inside this same transaction as the rest
    * of the settlement, so a settlement can never half-belong to two realms.
    */
+  /**
+   * Realm of Power recovers +1% of maximum per hour [CONFIRMED], which is what
+   * makes defence ACTIVE - a stalled campaign genuinely loses ground. Our
+   * loyalty never recovered at all, so an attacker could take a year over it at
+   * no cost.
+   *
+   * Applied lazily at the moment it is read rather than on a tick, the same way
+   * resources accrue here: a world that nobody looked at for a week must not
+   * owe a week of timer work.
+   */
+  private regeneratedRealmOfPower(village: DbRow, maximum: number, at: Date): number {
+    const stored = Number(village.realm_of_power ?? 0);
+    const since = village.realm_of_power_at ? Date.parse(String(village.realm_of_power_at)) : Number.NaN;
+    if (!Number.isFinite(since)) return Math.min(maximum, stored > 0 ? stored : maximum);
+    const hours = Math.max(0, (at.getTime() - since) / 3_600_000);
+    return realmOfPowerRegen({ current: stored, maximum, hours });
+  }
+
   private applyConquest(
     worldId: string,
     row: DbRow,
@@ -1382,7 +1435,7 @@ export class SharedWorldStore {
     const villageId = String(row.defender_village_id);
     const attackerKingdomId = String(row.attacker_kingdom_id);
     const village = this.db.prepare(
-      "SELECT kingdom_id, name, loyalty, is_capital, buildings_json FROM local_villages WHERE id = ?",
+      "SELECT kingdom_id, name, is_capital, buildings_json, realm_of_power, realm_of_power_at FROM local_villages WHERE id = ?",
     ).get(villageId) as DbRow | undefined;
     if (!village) return idle;
 
@@ -1392,20 +1445,39 @@ export class SharedWorldStore {
     if (defenderKingdomId === attackerKingdomId) return idle;
 
     const seed = String(row.seed ?? row.id);
-    let loyalty = Number(village.loyalty);
-    for (let index = 0; index < nobles && loyalty > 0; index += 1) {
-      loyalty -= loyaltyDrop(seed, index);
-    }
     const villageName = String(village.name);
 
-    if (loyalty > 0) {
-      this.db.prepare("UPDATE local_villages SET loyalty = ?, state_version = state_version + 1 WHERE id = ?")
-        .run(loyalty, villageId);
-      this.insertNotification(worldId, defenderKingdomId, "battle",
-        `Loyalty in ${villageName} fell to ${loyalty}.`, resolvedAt.toISOString());
+    // The Count only presses a claim if he survived the wall. [CONFIRMED] he
+    // dies when 50% of the attacking army dies, and a Count sent alone never
+    // arrives - the escort is the mechanic, not the Count.
+    const escortSent = armyUnitCount(parseJson<Army>(String(row.attacker_army_json))) - nobles;
+    const escortHome = armyUnitCount(outcome.attackerSurvivors) - nobles;
+    if (!countSurvivesEscort({ sent: escortSent, survived: escortHome })) {
       this.insertNotification(worldId, attackerKingdomId, "battle",
-        `${villageName} holds at ${loyalty} loyalty. Send more Noblemen.`, resolvedAt.toISOString());
+        `Your Count fell at ${villageName}. Too much of the escort died with him.`, resolvedAt.toISOString());
       return idle;
+    }
+
+    // Realm of Power. The settlement's own point score is the maximum, so a
+    // developed settlement is genuinely harder to claim than a hamlet.
+    const buildingsNow = parseJson<BuildingLevels>(village.buildings_json);
+    const maximum = Math.max(1, settlementPoints(buildingsNow));
+    const regenerated = this.regeneratedRealmOfPower(village, maximum, resolvedAt);
+
+    // ONE Count per attack, whatever rode, and never more than half the
+    // maximum in a single blow - so a settlement always takes at least two
+    // separate attacks. Conquest is a campaign, not a purchase.
+    const claim = applyRealmOfPower({ current: regenerated, maximum, survivingCounts: nobles, seed });
+
+    if (claim.value > 0) {
+      this.db.prepare("UPDATE local_villages SET realm_of_power = ?, realm_of_power_at = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(claim.value, resolvedAt.toISOString(), villageId);
+      const percent = Math.round((claim.value / maximum) * 100);
+      this.insertNotification(worldId, defenderKingdomId, "battle",
+        `${villageName} was shaken. Its hold stands at ${claim.value} of ${maximum} (${percent}%).`, resolvedAt.toISOString());
+      this.insertNotification(worldId, attackerKingdomId, "battle",
+        `${villageName} holds at ${claim.value} of ${maximum}. One Count can never take more than half - come again.`, resolvedAt.toISOString());
+      return { captured: false, nobleConsumed: claim.countConsumed, villageName };
     }
 
     // --- The village changes hands. ---
@@ -1432,11 +1504,19 @@ export class SharedWorldStore {
 
     // The garrison disperses; a freshly taken village is fragile and can be
     // taken straight back off you.
+    // [CONFIRMED] a taken settlement sits at 30% of maximum - fragile, not
+    // fresh, so the taker can be taken straight back off.
     this.db.prepare(`
       UPDATE local_villages
-      SET kingdom_id = ?, loyalty = ?, is_capital = 0, army_json = ?, state_version = state_version + 1
+      SET kingdom_id = ?, realm_of_power = ?, realm_of_power_at = ?, is_capital = 0, army_json = ?, state_version = state_version + 1
       WHERE id = ?
-    `).run(attackerKingdomId, LOYALTY_ON_CAPTURE, JSON.stringify(emptyArmy()), villageId);
+    `).run(
+      attackerKingdomId,
+      Math.max(1, Math.round(maximum * REALM_OF_POWER_ON_CAPTURE)),
+      resolvedAt.toISOString(),
+      JSON.stringify(emptyArmy()),
+      villageId,
+    );
     this.db.prepare(`
       UPDATE local_kingdoms
       SET war_victory_points = war_victory_points + ?, villages_conquered = villages_conquered + 1
@@ -1909,7 +1989,8 @@ export class SharedWorldStore {
       x: Number(row.x),
       y: Number(row.y),
       isCapital: Boolean(row.is_capital),
-      loyalty: Number(row.loyalty),
+      realmOfPower: Number(row.realm_of_power ?? 0),
+      realmOfPowerMax: Math.max(1, settlementPoints(parseJson<BuildingLevels>(row.buildings_json))),
       resources: parseJson(row.resources_json),
       buildings: parseJson(row.buildings_json),
       army: parseJson(row.army_json),

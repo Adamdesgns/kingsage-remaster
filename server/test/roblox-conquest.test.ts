@@ -17,11 +17,15 @@ import {
   armyUnitCount,
   BUILDINGS,
   emptyArmy,
-  loyaltyDrop,
-  LOYALTY_ON_CAPTURE,
   type BattlePlan,
 } from "../../packages/game-core/src/index.ts";
 import { createWorldHttpServer } from "../src/http.ts";
+import {
+  REALM_OF_POWER_ATTACK_CAP,
+  REALM_OF_POWER_ON_CAPTURE,
+  applyRealmOfPower,
+  settlementPoints,
+} from "../../packages/game-core/src/index.ts";
 import { SharedWorldStore } from "../src/store.ts";
 
 const KEY = "test-secret-key-0123456789abcdef";
@@ -96,9 +100,14 @@ async function withServer(run: (context: Ctx) => Promise<void>) {
   }
 }
 
+/** Mirrors how posedForConquest stores a share, so tests read one rule. */
+function poseValue(maximum: number, share: number): number {
+  return Math.max(1, Math.round(maximum * share));
+}
+
 function villageRow(context: Ctx, villageId: string) {
   return context.store.db.prepare(
-    "SELECT kingdom_id, name, loyalty, is_capital, army_json FROM local_villages WHERE id = ?",
+    "SELECT kingdom_id, name, realm_of_power, is_capital, army_json FROM local_villages WHERE id = ?",
   ).get(villageId) as any;
 }
 
@@ -113,8 +122,13 @@ function kingdomRow(context: Ctx, kingdomId: string) {
  * garrison it observed is still the garrison at the wall, so posing after
  * scouting would invalidate the intel the attack depends on.
  */
+/**
+ * Realm of Power replaced loyalty (spec section 9). These fixtures used to pose
+ * a 0-100 loyalty; they now pose a SHARE of the settlement's own maximum, which
+ * is what the real track scales to. `share: 1` is an untouched settlement.
+ */
 async function posedForConquest(context: Ctx, options: {
-  loyalty: number;
+  share: number;
   attackerHome?: Record<string, number>;
   defenderGarrison?: Record<string, number>;
 }) {
@@ -125,8 +139,15 @@ async function posedForConquest(context: Ctx, options: {
   const target = opening.world.villages.find((v: any) => v.kingdomId === defenderSession.kingdomId);
   assert.ok(home && target, "both kingdoms hold a village");
 
-  context.store.db.prepare("UPDATE local_villages SET army_json = ?, loyalty = ?, state_version = state_version + 1 WHERE id = ?")
-    .run(JSON.stringify(options.defenderGarrison ?? TOKEN_GARRISON), options.loyalty, target.id);
+  const targetMax = settlementPoints(JSON.parse(String((context.store.db
+    .prepare("SELECT buildings_json FROM local_villages WHERE id = ?").get(target.id) as any).buildings_json)));
+  context.store.db.prepare("UPDATE local_villages SET army_json = ?, realm_of_power = ?, realm_of_power_at = ?, state_version = state_version + 1 WHERE id = ?")
+    .run(
+      JSON.stringify(options.defenderGarrison ?? TOKEN_GARRISON),
+      Math.max(1, Math.round(targetMax * options.share)),
+      new Date(Date.now()).toISOString(),
+      target.id,
+    );
   // Whatever the fixture asks for, plus a scout — an attack is refused
   // outright until this kingdom has laid eyes on the target.
   const attackerHome = { ...(options.attackerHome ?? { ...OVERWHELMING, noble: 4 }) };
@@ -147,6 +168,7 @@ async function posedForConquest(context: Ctx, options: {
   return {
     home,
     target,
+    targetMax,
     attackerKingdomId: opening.kingdom.id,
     defenderKingdomId: defenderSession.kingdomId,
     snapshot: scouted,
@@ -172,53 +194,70 @@ async function attackAndSettle(context: Ctx, commandId: string, home: any, targe
 
 // The numbers the rest of this file leans on, pinned as literals so that
 // editing a constant is a test failure rather than a silent rule change.
-test("the loyalty contract: drops land in 20-35, and the same seed always gives the same drop", () => {
-  assert.equal(LOYALTY_ON_CAPTURE, 25, "spec SS5: a freshly taken village resets to 25");
+// The numbers the rest of this file leans on, pinned as literals so that
+// editing a constant is a test failure rather than a silent rule change.
+test("the Realm of Power contract: one Count, half at most, and it grows back", () => {
+  // ⚠️ REPLACES "the loyalty contract". Loyalty was Tribal Wars': 0-100, 20-35
+  // per noble, uncapped, no regeneration, reset to 25. KingsAge replaced all of
+  // it in 2009. `loyaltyDrop` and `LOYALTY_ON_CAPTURE` are GONE rather than
+  // left lying around - dead rules are how a maintainer tunes a number for an
+  // hour and changes nothing.
+  assert.equal(REALM_OF_POWER_ON_CAPTURE, 0.3, "a taken settlement sits at 30% of maximum");
+  assert.equal(REALM_OF_POWER_ATTACK_CAP, 0.5, "one attack can never take more than half");
 
+  const maximum = 10_000;
   for (const seed of ["seed-alpha", "seed-beta", "9f2c1ab4de77", ""]) {
-    for (let index = 0; index < 6; index += 1) {
-      const drop = loyaltyDrop(seed, index);
-      assert.ok(Number.isInteger(drop), `${seed}/${index} is a whole number`);
-      assert.ok(drop >= 20 && drop <= 35, `${seed}/${index} drop ${drop} is inside 20-35`);
-      assert.equal(drop, loyaltyDrop(seed, index), "the same seed and index never disagree with itself");
-    }
+    const first = applyRealmOfPower({ current: maximum, maximum, survivingCounts: 1, seed });
+    const drop = maximum - first.value;
+    assert.ok(Number.isInteger(drop), `${seed} drop is a whole number`);
+    assert.ok(drop >= 2_250 && drop <= 2_750, `${seed} drop ${drop} is inside 2250-2750`);
+    assert.equal(
+      applyRealmOfPower({ current: maximum, maximum, survivingCounts: 1, seed }).value,
+      first.value,
+      "the same seed never disagrees with itself",
+    );
   }
 
-  // Golden values. A conquest must replay identically forever, so these are
-  // allowed to change only as a deliberate, noticed decision.
-  assert.equal(loyaltyDrop("seed-alpha", 0), 22);
-  assert.equal(loyaltyDrop("seed-beta", 0), 23);
+  // A settlement ALWAYS needs at least two attacks, however small.
+  const tiny = 100;
+  assert.ok(applyRealmOfPower({ current: tiny, maximum: tiny, survivingCounts: 9, seed: "swarm" }).value > 0);
 });
 
-test("Noblemen who survive a won attack drop loyalty by a deterministic amount", async () => {
+test("a surviving Count shakes the Realm of Power by a deterministic amount", async () => {
   await withServer(async (context) => {
-    // Loyalty 100 against two Noblemen: the most they can take off is 70, so
-    // the village survives this attack and we can read the exact arithmetic.
-    const { home, target, defenderKingdomId } = await posedForConquest(context, {
-      loyalty: 100,
+    // An untouched settlement against two Counts: only ONE of them can act, and
+    // it can take at most half, so the settlement survives and the arithmetic
+    // is readable.
+    const { home, target, targetMax, defenderKingdomId } = await posedForConquest(context, {
+      share: 1,
       attackerHome: { ...OVERWHELMING, noble: 2 },
     });
     const { battle, seed } = await attackAndSettle(context, "c-drop", home, target, { ...OVERWHELMING, noble: 2 });
 
     assert.equal(battle.outcome.winner, "attacker");
-    const survivingNobles = battle.outcome.attackerSurvivors.noble;
-    assert.ok(survivingNobles >= 1, "at least one Nobleman lived to press the claim");
+    assert.ok(battle.outcome.attackerSurvivors.noble >= 1, "at least one Count lived to press the claim");
 
-    let expected = 100;
-    for (let index = 0; index < survivingNobles && expected > 0; index += 1) expected -= loyaltyDrop(seed, index);
-    assert.ok(expected > 0, "this fixture is meant to leave the village standing");
+    const expected = applyRealmOfPower({
+      current: targetMax,
+      maximum: targetMax,
+      survivingCounts: battle.outcome.attackerSurvivors.noble,
+      seed,
+    });
+    assert.ok(expected.value > 0, "this fixture is meant to leave the settlement standing");
+    assert.equal(expected.countConsumed, 1, "two Counts rode; only one may act");
 
     const after = villageRow(context, target.id);
-    assert.equal(Number(after.loyalty), expected, "loyalty fell by exactly the seeded drop");
+    assert.equal(Number(after.realm_of_power), expected.value, "the hold fell by exactly the seeded drop");
     assert.equal(String(after.kingdom_id), defenderKingdomId, "and it did not change hands");
   });
 });
 
-test("loyalty at zero transfers the village, resets it to 25, clears the garrison, and consumes exactly one Nobleman", async () => {
+test("a Realm of Power at zero transfers the village, resets it to 30% of maximum, clears the garrison, and spends exactly one Count", async () => {
   await withServer(async (context) => {
-    // Loyalty 20: the FIRST surviving Nobleman is guaranteed to take it to zero
-    // or below, because the minimum drop is 20.
-    const { home, target, attackerKingdomId, defenderKingdomId } = await posedForConquest(context, { loyalty: 20 });
+    // Posed low enough that the FIRST surviving Count is guaranteed to take it
+    // to zero, because the minimum drop is 2,250 and the per-attack cap only
+    // bites above that.
+    const { home, target, targetMax, attackerKingdomId, defenderKingdomId } = await posedForConquest(context, { share: 0.05 });
     const { battle } = await attackAndSettle(context, "c-capture", home, target, { ...OVERWHELMING, noble: 4 });
 
     const survivingNobles = battle.outcome.attackerSurvivors.noble;
@@ -226,9 +265,13 @@ test("loyalty at zero transfers the village, resets it to 25, clears the garriso
 
     const after = villageRow(context, target.id);
     assert.equal(String(after.kingdom_id), attackerKingdomId, "the village belongs to the attacker now");
-    // The literal, deliberately: asserting against LOYALTY_ON_CAPTURE would
-    // pass no matter what the constant were changed to.
-    assert.equal(Number(after.loyalty), 25, "a freshly taken village sits at a fragile 25");
+    // Computed from the maximum, but the SHARE is the literal: asserting
+    // against REALM_OF_POWER_ON_CAPTURE alone would pass whatever it changed to.
+    assert.equal(
+      Number(after.realm_of_power),
+      Math.max(1, Math.round(targetMax * 0.3)),
+      "a freshly taken settlement sits at a fragile 30% of maximum",
+    );
     assert.equal(Number(after.is_capital), 0, "and it is nobody's capital");
     assert.equal(armyUnitCount(JSON.parse(String(after.army_json))), 0, "the beaten garrison dispersed");
 
@@ -254,8 +297,8 @@ test("a DEFEAT with Noblemen aboard moves nothing", async () => {
   await withServer(async (context) => {
     // A wall of defenders against a token raiding party carrying one Nobleman.
     const raidingParty = { ...emptyArmy(), spear: 3, noble: 1 };
-    const { home, target, defenderKingdomId } = await posedForConquest(context, {
-      loyalty: 20,
+    const { home, target, targetMax, defenderKingdomId } = await posedForConquest(context, {
+      share: 0.2,
       defenderGarrison: { ...emptyArmy(), spear: 500, sword: 300, archer: 200 },
       attackerHome: raidingParty,
     });
@@ -263,7 +306,7 @@ test("a DEFEAT with Noblemen aboard moves nothing", async () => {
 
     assert.equal(battle.outcome.winner, "defender", "this attack was meant to fail");
     const after = villageRow(context, target.id);
-    assert.equal(Number(after.loyalty), 20, "a losing Nobleman shakes nothing");
+    assert.equal(Number(after.realm_of_power), poseValue(targetMax, 0.2), "a losing Count shakes nothing");
     assert.equal(String(after.kingdom_id), defenderKingdomId, "and the village is still theirs");
     assert.equal(Number(kingdomRow(context, defenderKingdomId).alive), 1);
   });
@@ -271,7 +314,7 @@ test("a DEFEAT with Noblemen aboard moves nothing", async () => {
 
 test("a RETREAT with Noblemen aboard moves nothing", async () => {
   await withServer(async (context) => {
-    const { home, target, defenderKingdomId } = await posedForConquest(context, { loyalty: 20 });
+    const { home, target, targetMax, defenderKingdomId } = await posedForConquest(context, { share: 0.2 });
 
     const before = await context.state(ATTACKER_ID);
     await context.command(ATTACKER_ID, "c-retreat-launch", before.world.version, {
@@ -300,7 +343,7 @@ test("a RETREAT with Noblemen aboard moves nothing", async () => {
     assert.equal((await context.state(ATTACKER_ID)).battleSessions[0].status, "retreated");
 
     const after = villageRow(context, target.id);
-    assert.equal(Number(after.loyalty), 20, "a Nobleman who turns around shakes nothing");
+    assert.equal(Number(after.realm_of_power), poseValue(targetMax, 0.2), "a Count who turns around shakes nothing");
     assert.equal(String(after.kingdom_id), defenderKingdomId, "and the village is still theirs");
   });
 });
@@ -308,7 +351,7 @@ test("a RETREAT with Noblemen aboard moves nothing", async () => {
 test("taking a kingdom's last village kills the kingdom", async () => {
   await withServer(async (context) => {
     // A fresh kingdom holds exactly one village: its capital.
-    const { home, target, attackerKingdomId, defenderKingdomId } = await posedForConquest(context, { loyalty: 20 });
+    const { home, target, targetMax, attackerKingdomId, defenderKingdomId } = await posedForConquest(context, { share: 0.2 });
     await attackAndSettle(context, "c-lastvillage", home, target, { ...OVERWHELMING, noble: 4 });
 
     assert.equal(String(villageRow(context, target.id).kingdom_id), attackerKingdomId, "they lost it");
@@ -318,7 +361,7 @@ test("taking a kingdom's last village kills the kingdom", async () => {
 
 test("taking a capital re-seats the loser's capital on what they still hold", async () => {
   await withServer(async (context) => {
-    const { home, target, defenderKingdomId } = await posedForConquest(context, { loyalty: 20 });
+    const { home, target, targetMax, defenderKingdomId } = await posedForConquest(context, { share: 0.2 });
 
     // Give the defender somewhere to fall back to.
     const refugeId = "village-defender-refuge";
@@ -346,7 +389,7 @@ test("taking a capital re-seats the loser's capital on what they still hold", as
 
 test("the conquered village is no longer fogged for its new owner", async () => {
   await withServer(async (context) => {
-    const { home, target, attackerKingdomId } = await posedForConquest(context, { loyalty: 20 });
+    const { home, target, targetMax, attackerKingdomId } = await posedForConquest(context, { share: 0.2 });
 
     // Before: a foreign village reads as a silhouette — zeroed levels.
     const fogged = (await context.state(ATTACKER_ID)).world.villages.find((v: any) => v.id === target.id);
@@ -357,7 +400,8 @@ test("the conquered village is no longer fogged for its new owner", async () => 
     const owned = (await context.state(ATTACKER_ID)).world.villages.find((v: any) => v.id === target.id);
     assert.equal(owned.kingdomId, attackerKingdomId, "it is in my realm now");
     assert.ok(owned.buildings.hq > 0, "and I can read its real levels");
-    assert.equal(owned.loyalty, 25);
+    assert.equal(owned.realmOfPower, Math.max(1, Math.round(targetMax * REALM_OF_POWER_ON_CAPTURE)),
+      "a freshly taken settlement reads as fragile to its new owner");
 
     // The loser now reads their lost village as fog.
     const lost = (await context.state(DEFENDER_ID)).world.villages.find((v: any) => v.id === target.id);
@@ -383,7 +427,7 @@ async function scoutAgain(context: Ctx, home: any, target: any, tag: string) {
   context.advance(MARCH_MS + 20);
 }
 
-test("a village at full loyalty falls to a campaign of waves, and loyalty persists between them", async () => {
+test("a settlement at full strength falls to a campaign of waves, and the hold persists between them", async () => {
   await withServer(async (context) => {
     // The loop a real player walks: loyalty 100, one Nobleman per wave, each
     // wave chipping 20-35 off what the last one left. Nothing in the suite
@@ -396,19 +440,19 @@ test("a village at full loyalty falls to a campaign of waves, and loyalty persis
     // its Nobleman moves nothing. That is the rule, not a flake, so each wave
     // is checked against the survivors it actually had rather than against an
     // assumption that every wave lands.
-    const { home, target, attackerKingdomId, defenderKingdomId } = await posedForConquest(context, {
-      loyalty: 100,
+    const { home, target, targetMax, attackerKingdomId, defenderKingdomId } = await posedForConquest(context, {
+      share: 1,
       attackerHome: { ...OVERWHELMING, noble: 6 },
     });
 
-    let loyalty = 100;
+    let hold = targetMax;
     let captured = false;
     let landedWaves = 0;
 
     for (let wave = 1; wave <= 10 && !captured; wave += 1) {
       if (wave > 1) await scoutAgain(context, home, target, String(wave));
       // A fresh escort and a fresh token garrison each wave: the rule under
-      // test is loyalty, not attrition.
+      // test is Realm of Power, not attrition.
       context.store.db.prepare("UPDATE local_villages SET army_json = ?, state_version = state_version + 1 WHERE id = ?")
         .run(JSON.stringify({ ...OVERWHELMING, noble: 1, scout: 1 }), home.id);
       context.store.db.prepare("UPDATE local_villages SET army_json = ?, state_version = state_version + 1 WHERE id = ?")
@@ -418,35 +462,44 @@ test("a village at full loyalty falls to a campaign of waves, and loyalty persis
       assert.equal(battle.outcome.winner, "attacker", `wave ${wave} won at the wall`);
 
       const survivors = Number(battle.outcome.attackerSurvivors.noble ?? 0);
-      let expected = loyalty;
-      for (let index = 0; index < survivors && expected > 0; index += 1) expected -= loyaltyDrop(seed, index);
+      const expected = applyRealmOfPower({ current: hold, maximum: targetMax, survivingCounts: survivors, seed });
 
       const after = villageRow(context, target.id);
-      if (expected <= 0) {
+      if (expected.value <= 0) {
         captured = true;
         landedWaves += 1;
-        assert.equal(String(after.kingdom_id), attackerKingdomId, `wave ${wave} took the village`);
-        assert.equal(Number(after.loyalty), LOYALTY_ON_CAPTURE, "a taken village resets to a fragile 25");
+        assert.equal(String(after.kingdom_id), attackerKingdomId, `wave ${wave} took the settlement`);
+        assert.equal(Number(after.realm_of_power), Math.max(1, Math.round(targetMax * REALM_OF_POWER_ON_CAPTURE)),
+          "a taken settlement resets to a fragile 30% of maximum");
         break;
       }
 
-      assert.equal(Number(after.loyalty), expected,
-        `wave ${wave} moved loyalty by exactly what its ${survivors} surviving Nobleman/men were worth`);
+      assert.equal(Number(after.realm_of_power), expected.value,
+        `wave ${wave} moved the hold by exactly what its Count was worth`);
       assert.equal(String(after.kingdom_id), defenderKingdomId, `wave ${wave} did not take it early`);
       if (survivors > 0) {
         landedWaves += 1;
-        assert.ok(Number(after.loyalty) < loyalty, `wave ${wave} with a survivor must move loyalty`);
+        assert.ok(Number(after.realm_of_power) < hold, `wave ${wave} with a surviving Count must move the hold`);
       } else {
-        assert.equal(Number(after.loyalty), loyalty, `wave ${wave} buried its Nobleman, so nothing moved`);
+        assert.equal(Number(after.realm_of_power), hold, `wave ${wave} buried its Count, so nothing moved`);
       }
-      loyalty = Number(after.loyalty);
+      hold = Number(after.realm_of_power);
     }
 
-    assert.ok(captured, "a sustained campaign eventually takes the village");
-    // 100 loyalty against a 20-35 drop can never fall to fewer than three
-    // landed Noblemen, and must always fall by five.
-    assert.ok(landedWaves >= 3 && landedWaves <= 5,
-      `${landedWaves} Noblemen pressed the claim, which is inside the designed 3-5`);
+    assert.ok(captured, "a sustained campaign eventually takes the settlement");
+    // ⚠️ The old assertion here was "3-5 waves", which was LOYALTY's shape
+    // (100 points against a 20-35 drop). Realm of Power gives a different and
+    // better answer, and it is worth stating because it is not obvious:
+    //
+    // The per-attack cap is 50% of MAXIMUM, so from full it is always exactly
+    // two attacks - unless the settlement is developed enough for KingsAge's
+    // 2,250-2,750 band to bite instead, which needs 4,500+ points. A starting
+    // settlement is worth 294, so early conquest is a clean two-wave campaign
+    // and a well-built one costs four. Developed ground is genuinely harder to
+    // take, which falls out of the rules rather than being tuned in.
+    assert.ok(landedWaves >= 2,
+      `${landedWaves} Count(s) pressed the claim; the cap guarantees at least two`);
+    assert.ok(landedWaves <= 5, `${landedWaves} waves is more than any settlement should need`);
   });
 });
 

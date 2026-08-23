@@ -100,10 +100,11 @@ Buildings.ATTACK_MUSTER_EXCLUDES = {
 	scout = true,
 }
 
--- Noblemen are the conquest piece and nothing else. They cost a fortune, only
--- a SURVIVOR can shake a village's loyalty, and one is consumed outright when
--- it falls (world server: applyConquest). So they never ride on an ordinary
--- raid — only on an attack the player has explicitly declared a conquest.
+-- Counts are the conquest piece and nothing else. They cost a fortune; only a
+-- SURVIVOR can shake a settlement's Realm of Power; exactly ONE acts per attack
+-- however many ride; and one is consumed outright when the settlement falls
+-- (world server: applyConquest). So they never ride on an ordinary raid — only
+-- on an attack the player has explicitly declared a conquest.
 Buildings.CONQUEST_ONLY = {
 	noble = true,
 }

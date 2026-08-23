@@ -190,21 +190,18 @@ function takePrisoners(defenderCasualties: Army, share: number): Army {
 }
 
 /**
- * Spec SS1's long game: "take over the world one settlement at a time."
+ * ⚠️ The loyalty track that used to live here is GONE.
  *
- * Every Nobleman who SURVIVES a winning attack shakes the target's loyalty.
- * The size of the shake is derived from the battle seed, so a conquest is as
- * deterministic and as replayable as the fight that earned it - the same
- * battle always produces the same drop, on the server and in any replay.
+ * `LOYALTY_DROP_MIN/MAX`, `LOYALTY_ON_CAPTURE` and `loyaltyDrop()` implemented
+ * TRIBAL WARS' conquest - 0-100, 20-35 per noble, uncapped, no regeneration,
+ * reset to 25. KingsAge replaced all of it in version 0.1.18 (August 2009) with
+ * Realm of Power, which lives in combat.ts.
+ *
+ * They are deleted rather than deprecated on purpose. Leaving a second,
+ * unreachable conquest rule in the file is exactly how economy.TROOPS ended up
+ * carrying attack values that nothing read - a maintainer can tune a dead
+ * number for an hour and change nothing.
  */
-export const LOYALTY_DROP_MIN = 20;
-export const LOYALTY_DROP_MAX = 35;
-export const LOYALTY_ON_CAPTURE = 25;
-
-export function loyaltyDrop(seed: string, index: number): number {
-  const span = LOYALTY_DROP_MAX - LOYALTY_DROP_MIN;
-  return LOYALTY_DROP_MIN + Math.floor(hashFraction(`${seed}:noble:${index}`) * (span + 1));
-}
 
 /**
  * Armour, as a single defence multiplier. [OURS - Adam, 2026-08-22]

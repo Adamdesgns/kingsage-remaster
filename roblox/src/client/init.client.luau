@@ -668,7 +668,7 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 	sectionHeader(scroll, nextOrder(), string.format("NOBLEMEN  ·  %d on hand", noblesOnHand))
 	if noblesOnHand < 1 then
 		noteRow(scroll, nextOrder(),
-			"Only a surviving nobleman can break a village's loyalty and take it. They are trained at an Academy (level 1) and cost a fortune.", 56)
+			"Only a surviving Count can break a settlement's hold on itself. He needs an Academy standing, costs a fortune, and dies if half his escort does.", 56)
 		actionRow(scroll, nextOrder(), Buildings.NOBLE_PRESET.label, "Recruit", Color3.fromRGB(85, 70, 30), function()
 			invokeQueue({
 				kind = "recruit",
@@ -679,8 +679,8 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 		end)
 	else
 		noteRow(scroll, nextOrder(), if rideWithNobles
-			then "Noblemen RIDE. Each survivor breaks 20–35 loyalty; at zero the village is yours, and one nobleman stays behind as its lord."
-			else "Noblemen stay home. Turn this on to attempt a conquest rather than a raid.", 56)
+			then "Counts RIDE. One Count acts per attack and can never break more than HALF a settlement's hold, so conquest always takes at least two attacks — and the hold grows back 1% an hour if you stop."
+			else "Counts stay home. Turn this on to attempt a conquest rather than a raid.", 56)
 		actionRow(scroll, nextOrder(),
 			if rideWithNobles then "Conquest: noblemen ride" else "Raid: noblemen stay home",
 			if rideWithNobles then "Stand down" else "Ride",

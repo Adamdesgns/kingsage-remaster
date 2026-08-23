@@ -117,7 +117,13 @@ export type VillageState = {
   x: number;
   y: number;
   isCapital: boolean;
-  loyalty: number;
+  /**
+   * Realm of Power - the settlement's hold on itself. 0 to `realmOfPowerMax`,
+   * which is its own point score. REPLACES `loyalty`, which was Tribal Wars'
+   * 0-100 track and belonged to a different game.
+   */
+  realmOfPower: number;
+  realmOfPowerMax: number;
   resources: ResourceStock;
   buildings: BuildingLevels;
   army: Army;

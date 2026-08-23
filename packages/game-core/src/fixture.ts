@@ -144,7 +144,8 @@ export function createTwoPlayerWorldFixture(options: TwoPlayerFixtureOptions = {
       x: site.x,
       y: site.y,
       isCapital: true,
-      loyalty: 100,
+      realmOfPower: 0, // filled below from the settlement's own points
+      realmOfPowerMax: 0,
       resources: { wood: 1_200, stone: 1_000, iron: 800 },
       buildings: defaultBuildings(),
       army: startingArmy(),
@@ -180,7 +181,8 @@ export function createTwoPlayerWorldFixture(options: TwoPlayerFixtureOptions = {
       x: site.x,
       y: site.y,
       isCapital: true,
-      loyalty: 100,
+      realmOfPower: 0, // filled below from the settlement's own points
+      realmOfPowerMax: 0,
       // Poorer than a player capital - nobody has been running it.
       resources: { wood: 400, stone: 350, iron: 250 },
       buildings: { ...defaultBuildings(), wall: 0, barracks: 0 },
