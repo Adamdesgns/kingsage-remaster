@@ -517,9 +517,20 @@ test("DEV seeding is off by default, and when set only adds Noblemen", async () 
     plain.close();
 
     const seeded = new SharedWorldStore(join(directory, "seeded.sqlite"), { devSeedNobles: 4 });
-    const seededVillages = seeded.db.prepare("SELECT army_json FROM local_villages").all() as any[];
+    // Every village EXCEPT a Freehold. Arming the thing the drill is meant to
+    // capture would make the drill lose, invisibly - which is exactly how the
+    // 2026-08-22 conquest run died.
+    const seededVillages = seeded.db.prepare(
+      "SELECT v.army_json FROM local_villages v JOIN local_kingdoms k ON k.id = v.kingdom_id WHERE k.seat_kind != 'freehold'",
+    ).all() as any[];
+    assert.ok(seededVillages.length > 0, "there are non-Freehold villages to seed");
     for (const row of seededVillages) {
-      assert.equal(JSON.parse(row.army_json).noble, 4, "the knob seeds every village");
+      assert.equal(JSON.parse(row.army_json).noble, 4, "the knob seeds every settlement a player could hold");
+    }
+    for (const row of seeded.db.prepare(
+      "SELECT v.army_json FROM local_villages v JOIN local_kingdoms k ON k.id = v.kingdom_id WHERE k.seat_kind = 'freehold'",
+    ).all() as any[]) {
+      assert.equal(JSON.parse(row.army_json).noble ?? 0, 0, "a Freehold was handed Counts");
     }
     const seededFirst = JSON.parse(seededVillages[0].army_json);
     // Everything that is not a Nobleman must be untouched, or the knob would be

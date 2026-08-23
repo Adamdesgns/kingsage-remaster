@@ -30,7 +30,7 @@ if ($Fresh) {
 #    production leaves it unset and gets the store default (2 minutes).
 $listening = Get-NetTCPConnection -LocalPort 4178 -State Listen -ErrorAction SilentlyContinue
 if (-not $listening) {
-    $bootCmd = "`$env:PORT='4178'; `$env:KINGSAGE_ROBLOX_KEY='dev-secret-local-0001'; `$env:KINGSAGE_AUTO_RESOLVE_MS='25000'; `$env:KINGSAGE_DEV_SEED_NOBLES='5'; $dbLine Set-Location '$repo'; npm run start:world"
+    $bootCmd = "`$env:PORT='4178'; `$env:KINGSAGE_ROBLOX_KEY='dev-secret-local-0001'; `$env:KINGSAGE_AUTO_RESOLVE_MS='25000'; `$env:KINGSAGE_DEV_SEED_NOBLES='5'; `$env:KINGSAGE_DEV_SEED_ARMY='axe:120,scout:3'; $dbLine Set-Location '$repo'; npm run start:world"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", $bootCmd
     # Do not claim success until the port actually answers - the old script said
     # "world server started" unconditionally, which hid a launch failure.

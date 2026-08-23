@@ -19,12 +19,31 @@ const autoResolveMs = Number.isFinite(rawAutoResolve) && rawAutoResolve > 0 ? ra
 const rawSeedNobles = Number(process.env.KINGSAGE_DEV_SEED_NOBLES);
 const devSeedNobles = Number.isFinite(rawSeedNobles) && rawSeedNobles > 0 ? rawSeedNobles : undefined;
 
+// DEV ONLY, and a TEST FIXTURE rather than a game rule: an offensive army so a
+// Studio drill can fight without sitting through real training first. A kingdom
+// genuinely starts with nothing now, which is right for the game and useless
+// for a ten-minute recording.
+//
+// Format: "axe:60,scout:2" — troop id, colon, count, comma separated.
+// Never fires unless the variable is set, and never touches a Freehold.
+function parseDevSeedArmy(raw: string | undefined): Record<string, number> | undefined {
+  if (!raw) return undefined;
+  const army: Record<string, number> = {};
+  for (const entry of raw.split(",")) {
+    const [troop, count] = entry.split(":");
+    const parsed = Number(count);
+    if (troop && Number.isFinite(parsed) && parsed > 0) army[troop.trim()] = Math.floor(parsed);
+  }
+  return Object.keys(army).length > 0 ? army : undefined;
+}
+const devSeedArmy = parseDevSeedArmy(process.env.KINGSAGE_DEV_SEED_ARMY);
+
 function joinDefaultDatabase(root: string): string {
   return `${root}/data/kingsage-local.sqlite`;
 }
 
 mkdirSync(dirname(databasePath), { recursive: true });
-const store = new SharedWorldStore(databasePath, { autoResolveMs, devSeedNobles });
+const store = new SharedWorldStore(databasePath, { autoResolveMs, devSeedNobles, devSeedArmy });
 const app = createWorldHttpServer({ store, staticRoot, robloxKey: process.env.KINGSAGE_ROBLOX_KEY });
 
 app.server.listen(port, "127.0.0.1", () => {

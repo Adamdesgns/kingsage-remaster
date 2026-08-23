@@ -164,23 +164,50 @@ local function reportCount(): number
 	return count
 end
 
--- Nearest foreign village, so the march is short enough to sit on camera.
+-- Which kingdoms are Freeholds — abandoned settlements, never a player seat.
+local function freeholdKingdomIds(): { [string]: boolean }
+	local ids: { [string]: boolean } = {}
+	for _, kingdom in ((snapshot and snapshot.world and snapshot.world.kingdoms) or {}) do
+		if tostring(kingdom.seatKind) == "freehold" then
+			ids[tostring(kingdom.id)] = true
+		end
+	end
+	return ids
+end
+
+-- The target the tour goes for.
+--
+-- **Freeholds first, and this is the whole point of the run.** Every player
+-- capital carries an identical garrison behind an identical wall, so a starting
+-- kingdom attacking a peer LOSES — proven live on 2026-08-22 at 875 attack
+-- against 1,828 defence. A tour that picks the nearest foreign village picks a
+-- fight it cannot win and records a defeat every single time.
+--
+-- Freeholds are the game's designed first rung, so the demo now walks the loop
+-- a real new player walks. Nearest Freehold, so the march still fits on camera;
+-- nearest anything only if the world somehow has none.
 local function nearestForeign(home: any): any
 	if not snapshot or not snapshot.world or not home then
 		return nil
 	end
+	local freeholds = freeholdKingdomIds()
 	local best, bestDistance = nil, math.huge
+	local fallback, fallbackDistance = nil, math.huge
 	for _, village in snapshot.world.villages do
 		if village.kingdomId ~= snapshot.kingdom.id then
 			local dx = (tonumber(village.x) or 0) - (tonumber(home.x) or 0)
 			local dy = (tonumber(village.y) or 0) - (tonumber(home.y) or 0)
 			local distance = dx * dx + dy * dy
-			if distance < bestDistance then
-				best, bestDistance = village, distance
+			if freeholds[tostring(village.kingdomId)] then
+				if distance < bestDistance then
+					best, bestDistance = village, distance
+				end
+			elseif distance < fallbackDistance then
+				fallback, fallbackDistance = village, distance
 			end
 		end
 	end
-	return best
+	return best or fallback
 end
 
 -- One attack per play session, so a viewing run always produces a battle

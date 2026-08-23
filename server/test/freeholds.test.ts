@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { FREEHOLD_COUNT } from "../../packages/game-core/src/index.ts";
+import { FREEHOLD_COUNT, armyUnitCount } from "../../packages/game-core/src/index.ts";
 import { SharedWorldStore } from "../src/store.ts";
 
 function tempStore() {
@@ -67,5 +67,49 @@ test("a Freehold garrison survives the seed intact", () => {
     assert.equal(buildings.wall, 0, "a Freehold behind a wall is not a first rung");
   } finally {
     cleanup();
+  }
+});
+
+test("dev seeding never arms a Freehold", () => {
+  // The dev knobs exist so a Studio drill can walk a path that would otherwise
+  // take hours of real training. Seeding the TARGET as well as the attacker
+  // defeats the point - and worse, it is invisible: the drill just loses and
+  // nothing on screen says why. That is exactly how 2026-08-22's conquest run
+  // was lost, at 875 attack against 1,828 defence.
+  const directory = mkdtempSync(join(tmpdir(), "kingsage-devseed-"));
+  const store = new SharedWorldStore(join(directory, "world.sqlite"), {
+    devSeedNobles: 5,
+    devSeedArmy: { axe: 60 },
+  });
+  try {
+    const freehold = store.db.prepare("SELECT army_json FROM local_villages WHERE id = 'village-freehold-1'")
+      .get() as { army_json: string };
+    const army = JSON.parse(freehold.army_json);
+    assert.equal(army.noble ?? 0, 0, "a Freehold was handed Counts");
+    assert.equal(army.axe ?? 0, 0, "a Freehold was handed an offensive army");
+    assert.ok(army.spear > 0, "and it still has the garrison that makes it a real first rung");
+
+    // A player capital DOES get both, which is the point of the knobs.
+    const capital = store.db.prepare("SELECT army_json FROM local_villages WHERE id = 'village-1-capital'")
+      .get() as { army_json: string };
+    const capitalArmy = JSON.parse(capital.army_json);
+    assert.equal(capitalArmy.noble, 5);
+    assert.equal(capitalArmy.axe, 60);
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("with no dev knobs set, a kingdom still starts with nothing", () => {
+  const directory = mkdtempSync(join(tmpdir(), "kingsage-nodevseed-"));
+  const store = new SharedWorldStore(join(directory, "world.sqlite"));
+  try {
+    const capital = store.db.prepare("SELECT army_json FROM local_villages WHERE id = 'village-1-capital'")
+      .get() as { army_json: string };
+    assert.equal(armyUnitCount(JSON.parse(capital.army_json)), 0, "production must never hand out troops");
+  } finally {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
   }
 });

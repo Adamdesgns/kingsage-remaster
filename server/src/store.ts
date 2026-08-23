@@ -194,19 +194,33 @@ type StoreOptions = {
    */
   autoResolveMs?: number;
   /**
-   * DEV ONLY. Seeds this many Noblemen into every village at world creation.
+   * DEV ONLY. Seeds this many Counts into every NON-FREEHOLD village at world
+   * creation.
    *
-   * Conquest is deliberately a long commitment: loyalty starts at 100 and each
-   * surviving Nobleman shakes it by 20-35, so taking a village needs three to
-   * five of them at 900s and ~2800/3000/3500 each. That is the design working,
-   * but it also means the conquest path cannot be walked in a play session or
-   * a recording, and an unwalkable path is an unproven one.
+   * Conquest is deliberately a long commitment - a Count costs a fortune and
+   * takes 900s, and the 50% per-attack cap means a settlement always needs at
+   * least two of them across separate attacks. That is the design working, but
+   * it also means the conquest path cannot be walked in a play session or a
+   * recording, and an unwalkable path is an unproven one.
    *
-   * Unset (the default, and every production boot) seeds nothing and the
-   * fixture's own armies stand. This never changes a rule — only the starting
-   * garrison of a throwaway dev world.
+   * Unset (the default, and every production boot) seeds nothing.
    */
   devSeedNobles?: number;
+
+  /**
+   * DEV ONLY. Seeds an offensive army into every NON-FREEHOLD village at world
+   * creation.
+   *
+   * Needed since kingdoms started with no troops at all [Adam, 2026-08-22:
+   * "I should start with no troops if I'm starting the game from beginning to
+   * finish"]. That is right for the game and fatal for a drill: a Studio run
+   * would have to sit through real training before it could fight anything.
+   *
+   * ⚠️ This is a TEST FIXTURE and is named like one. It never fires in
+   * production, and it deliberately skips Freeholds so the thing the drill is
+   * meant to capture stays capturable.
+   */
+  devSeedArmy?: Partial<Army>;
   now?: () => Date;
 };
 
@@ -288,6 +302,8 @@ export class SharedWorldStore {
   readonly returnDurationMs?: number;
   readonly autoResolveMs: number;
   private readonly devSeedNobles: number;
+  /** DEV ONLY. An offensive army so a drill can fight without training first. */
+  private readonly devSeedArmy: Partial<Army> | undefined;
   readonly now: () => Date;
   private readonly listeners = new Set<(event: StoredWorldEvent) => void>();
 
@@ -300,6 +316,7 @@ export class SharedWorldStore {
     this.returnDurationMs = options.returnDurationMs;
     this.autoResolveMs = options.autoResolveMs ?? DEFAULT_AUTO_RESOLVE_MS;
     this.devSeedNobles = Math.max(0, Math.floor(options.devSeedNobles ?? 0));
+    this.devSeedArmy = options.devSeedArmy;
     this.now = options.now ?? (() => new Date());
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.migrate();
@@ -433,12 +450,25 @@ export class SharedWorldStore {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const [index, village] of fixture.villages.entries()) {
-        // See StoreOptions.devSeedNobles: off in production, and it adds to the
-        // garrison rather than replacing it, so nothing else about the fixture
-        // shifts underneath the tests that depend on it.
-        const army = this.devSeedNobles > 0
-          ? { ...village.army, noble: (village.army.noble ?? 0) + this.devSeedNobles }
-          : village.army;
+        // DEV SEEDING. Off in production, additive rather than replacing, so
+        // nothing else about the fixture shifts underneath the tests.
+        //
+        // ⚠️ NEVER seeds a Freehold. The knobs exist so a Studio drill can walk
+        // a path that would otherwise take hours of real training - arming the
+        // TARGET as well as the attacker defeats the point, and it does so
+        // INVISIBLY: the drill simply loses and nothing on screen says why.
+        // That is exactly how the 2026-08-22 conquest run died, at 875 attack
+        // against 1,828 defence.
+        const isFreehold = fixture.kingdoms.find((k) => k.id === village.kingdomId)?.seatKind === "freehold";
+        let army = village.army;
+        if (!isFreehold) {
+          if (this.devSeedArmy) {
+            army = addArmies(army, { ...emptyArmy(), ...this.devSeedArmy });
+          }
+          if (this.devSeedNobles > 0) {
+            army = { ...army, noble: (army.noble ?? 0) + this.devSeedNobles };
+          }
+        }
         insertVillage.run(
           village.id,
           village.worldId,
