@@ -3,25 +3,29 @@
 -- these are light, massless visual pieces welded to the existing R6 or R15
 -- body after Roblox finishes loading the player's appearance.
 --
--- The silhouette is grounded in a practical 12th-14th century commander:
--- wool surcoat and hose, mail sleeves/collar, leather belt and boots, and a
--- plain wool cap. No catalogue ids, modern accessories, fantasy plate, horns,
--- glow, particles, or per-frame work.
+-- The silhouette is grounded in a practical 14th-century commander:
+-- a split wool surcoat over a mail hauberk, close hood, hose, boots, sword belt,
+-- scabbard, and belt pouch. No catalogue ids, modern accessories, fantasy
+-- plate, horns, glow, particles, or per-frame work.
 local Players = game:GetService("Players")
 
 local CharacterStyle = {}
 
 local COSTUME_FOLDER = "KingsAgeCommanderCostume"
-local MAX_COSTUME_PARTS = 20
+local MAX_COSTUME_PARTS = 26
 
-local WOOL_RED = Color3.fromRGB(111, 42, 38)
-local WOOL_DARK = Color3.fromRGB(55, 48, 42)
-local WOOL_HOSE = Color3.fromRGB(66, 61, 54)
-local MAIL = Color3.fromRGB(105, 108, 108)
-local MAIL_DARK = Color3.fromRGB(76, 80, 81)
-local LEATHER = Color3.fromRGB(72, 48, 31)
-local LEATHER_LIGHT = Color3.fromRGB(103, 70, 40)
-local BUCKLE = Color3.fromRGB(171, 128, 55)
+-- Natural dyes and worked materials stay deliberately muted. The lighter
+-- madder-red outer cloth keeps the costume readable under the world's warm
+-- grade without becoming a saturated fantasy uniform.
+local WOOL_RED = Color3.fromRGB(145, 57, 48)
+local WOOL_RED_SHADE = Color3.fromRGB(116, 43, 38)
+local WOOL_HOOD = Color3.fromRGB(103, 81, 58)
+local WOOL_HOSE = Color3.fromRGB(76, 69, 57)
+local MAIL = Color3.fromRGB(128, 131, 128)
+local MAIL_DARK = Color3.fromRGB(94, 99, 97)
+local LEATHER = Color3.fromRGB(82, 52, 30)
+local LEATHER_LIGHT = Color3.fromRGB(121, 79, 42)
+local BUCKLE = Color3.fromRGB(169, 126, 57)
 
 local started = false
 local hookedPlayers: { [Player]: boolean } = {}
@@ -93,7 +97,7 @@ local function applyCostume(character: Model)
 
 		local costume = Instance.new("Folder")
 		costume.Name = COSTUME_FOLDER
-		costume:SetAttribute("Era", "12th-14th century grounded commander")
+		costume:SetAttribute("Era", "14th-century grounded commander")
 		costume:SetAttribute("ExternalAssetIds", false)
 		costume:SetAttribute("VisualPartBudget", MAX_COSTUME_PARTS)
 		costume.Parent = character
@@ -148,23 +152,24 @@ local function applyCostume(character: Model)
 
 		local head = bodyPart(character, "Head")
 		if head then
-			-- A low wool cap leaves the face unobstructed and replaces modern hair,
-			-- helmets, headphones and other catalogue accessories without an id.
+			-- A close cloth hood replaces the cap-like original. Its rounded crown
+			-- is shifted toward the back of the skull: the front face plane stays
+			-- exposed while the taller rear silhouette joins the nape like a hood.
 			piece(
-				"WoolCap",
+				"HoodCrown",
 				head,
-				Vector3.new(head.Size.X * 1.06, head.Size.Y * 0.38, head.Size.Z * 1.06),
-				CFrame.new(0, head.Size.Y * 0.34, 0),
-				WOOL_DARK,
+				Vector3.new(head.Size.X * 1.04, head.Size.Y * 0.72, head.Size.Z * 0.9),
+				CFrame.new(0, head.Size.Y * 0.18, head.Size.Z * 0.14),
+				WOOL_HOOD,
 				Enum.Material.Fabric,
 				Enum.PartType.Ball
 			)
 			piece(
-				"CapBand",
+				"HoodNape",
 				head,
-				Vector3.new(head.Size.X * 1.07, 0.16, head.Size.Z * 1.07),
-				CFrame.new(0, head.Size.Y * 0.23, 0),
-				LEATHER,
+				Vector3.new(head.Size.X * 0.92, head.Size.Y * 0.78, 0.2),
+				CFrame.new(0, -head.Size.Y * 0.14, head.Size.Z / 2 + 0.11),
+				WOOL_HOOD,
 				Enum.Material.Fabric,
 				nil
 			)
@@ -174,36 +179,77 @@ local function applyCostume(character: Model)
 			local upperTorso = bodyPart(character, "UpperTorso")
 			local lowerTorso = bodyPart(character, "LowerTorso")
 			if upperTorso then
-				shell("WoolTunicUpper", upperTorso, Vector3.new(0.14, 0.08, 0.14), WOOL_RED, Enum.Material.Fabric)
-				piece("SurcoatUpper", upperTorso,
-					Vector3.new(upperTorso.Size.X * 0.72, upperTorso.Size.Y * 0.9, 0.14),
-					CFrame.new(0, -0.03, -(upperTorso.Size.Z / 2 + 0.09)),
-					WOOL_DARK, Enum.Material.Fabric, nil)
+				-- Mail remains visible at the shoulders and sides; wool panels lie
+				-- over it instead of turning the whole torso into one cloth brick.
+				shell("MailHauberkUpper", upperTorso, Vector3.new(0.12, 0.08, 0.12), MAIL_DARK, Enum.Material.Metal)
+				piece("SurcoatFrontUpper", upperTorso,
+					Vector3.new(upperTorso.Size.X * 0.72, upperTorso.Size.Y * 0.92, 0.12),
+					CFrame.new(0, -0.03, -(upperTorso.Size.Z / 2 + 0.08)),
+					WOOL_RED, Enum.Material.Fabric, nil)
+				piece("SurcoatBackUpper", upperTorso,
+					Vector3.new(upperTorso.Size.X * 0.72, upperTorso.Size.Y * 0.92, 0.12),
+					CFrame.new(0, -0.03, upperTorso.Size.Z / 2 + 0.08),
+					WOOL_RED_SHADE, Enum.Material.Fabric, nil)
+				-- The short hood mantle breaks the block torso silhouette and visually
+				-- connects the rear hood to the shoulders without touching either arm.
+				piece("HoodMantle", upperTorso,
+					Vector3.new(upperTorso.Size.X * 0.86, 0.3, 0.14),
+					CFrame.new(0, upperTorso.Size.Y / 2 - 0.3, upperTorso.Size.Z / 2 + 0.1),
+					WOOL_HOOD, Enum.Material.Fabric, nil)
 				piece("MailCollar", upperTorso,
-					Vector3.new(upperTorso.Size.X + 0.18, 0.2, upperTorso.Size.Z + 0.18),
-					CFrame.new(0, upperTorso.Size.Y / 2 - 0.12, 0),
-					MAIL_DARK, Enum.Material.Metal, nil)
+					Vector3.new(upperTorso.Size.X + 0.18, 0.18, upperTorso.Size.Z + 0.18),
+					CFrame.new(0, upperTorso.Size.Y / 2 - 0.1, 0),
+					MAIL, Enum.Material.Metal, nil)
 			end
 			if lowerTorso then
-				shell("WoolTunicLower", lowerTorso, Vector3.new(0.16, 0.1, 0.16), WOOL_RED, Enum.Material.Fabric)
-				piece("SurcoatSkirt", lowerTorso,
-					Vector3.new(lowerTorso.Size.X * 0.76, lowerTorso.Size.Y + 0.3, 0.15),
-					CFrame.new(0, -0.12, -(lowerTorso.Size.Z / 2 + 0.1)),
-					WOOL_DARK, Enum.Material.Fabric, nil)
+				shell("MailHauberkLower", lowerTorso, Vector3.new(0.14, 0.1, 0.14), MAIL_DARK, Enum.Material.Metal)
+				local panelWidth = lowerTorso.Size.X * 0.34
+				local panelX = lowerTorso.Size.X * 0.19
+				local panelHeight = lowerTorso.Size.Y + 0.42
+				local panelY = -0.14
+				local frontZ = -(lowerTorso.Size.Z / 2 + 0.09)
+				local backZ = lowerTorso.Size.Z / 2 + 0.09
+				piece("SurcoatFrontLeft", lowerTorso, Vector3.new(panelWidth, panelHeight, 0.13),
+					CFrame.new(-panelX, panelY, frontZ) * CFrame.Angles(0, 0, math.rad(-2)),
+					WOOL_RED, Enum.Material.Fabric, nil)
+				piece("SurcoatFrontRight", lowerTorso, Vector3.new(panelWidth, panelHeight, 0.13),
+					CFrame.new(panelX, panelY, frontZ) * CFrame.Angles(0, 0, math.rad(2)),
+					WOOL_RED, Enum.Material.Fabric, nil)
+				piece("SurcoatBackLeft", lowerTorso, Vector3.new(panelWidth, panelHeight, 0.13),
+					CFrame.new(-panelX, panelY, backZ) * CFrame.Angles(0, 0, math.rad(-2)),
+					WOOL_RED_SHADE, Enum.Material.Fabric, nil)
+				piece("SurcoatBackRight", lowerTorso, Vector3.new(panelWidth, panelHeight, 0.13),
+					CFrame.new(panelX, panelY, backZ) * CFrame.Angles(0, 0, math.rad(2)),
+					WOOL_RED_SHADE, Enum.Material.Fabric, nil)
 				piece("LeatherBelt", lowerTorso,
-					Vector3.new(lowerTorso.Size.X + 0.22, 0.24, lowerTorso.Size.Z + 0.22),
-					CFrame.new(0, lowerTorso.Size.Y / 2 - 0.15, 0),
+					Vector3.new(lowerTorso.Size.X + 0.22, 0.14, lowerTorso.Size.Z + 0.22),
+					CFrame.new(0, lowerTorso.Size.Y / 2 - 0.1, 0),
 					LEATHER, Enum.Material.Fabric, nil)
 				piece("BeltBuckle", lowerTorso,
-					Vector3.new(0.3, 0.28, 0.13),
-					CFrame.new(0, lowerTorso.Size.Y / 2 - 0.15, -(lowerTorso.Size.Z / 2 + 0.18)),
+					Vector3.new(0.24, 0.2, 0.11),
+					CFrame.new(0, lowerTorso.Size.Y / 2 - 0.1, -(lowerTorso.Size.Z / 2 + 0.17)),
 					BUCKLE, Enum.Material.Metal, nil)
+				piece("SwordScabbard", lowerTorso,
+					Vector3.new(0.2, lowerTorso.Size.Y + 1.35, 0.22),
+					CFrame.new(-lowerTorso.Size.X / 2 - 0.2, -lowerTorso.Size.Y * 0.52, 0.12)
+						* CFrame.Angles(0, 0, math.rad(-9)),
+					LEATHER_LIGHT, Enum.Material.Fabric, nil)
+				piece("BeltPouch", lowerTorso,
+					Vector3.new(0.38, 0.42, 0.2),
+					CFrame.new(lowerTorso.Size.X * 0.34, lowerTorso.Size.Y * 0.04, lowerTorso.Size.Z / 2 + 0.16),
+					LEATHER, Enum.Material.Fabric, nil)
 			end
 
-			for _, name in { "LeftUpperArm", "LeftLowerArm", "RightUpperArm", "RightLowerArm" } do
+			for _, name in { "LeftUpperArm", "RightUpperArm" } do
 				local arm = bodyPart(character, name)
 				if arm then
 					shell("MailSleeve_" .. name, arm, Vector3.new(0.09, 0.07, 0.09), MAIL, Enum.Material.Metal)
+				end
+			end
+			for _, name in { "LeftLowerArm", "RightLowerArm" } do
+				local arm = bodyPart(character, name)
+				if arm then
+					shell("LeatherVambrace_" .. name, arm, Vector3.new(0.08, 0.06, 0.08), LEATHER_LIGHT, Enum.Material.Fabric)
 				end
 			end
 			for _, name in { "LeftUpperLeg", "RightUpperLeg" } do
@@ -221,32 +267,63 @@ local function applyCostume(character: Model)
 		else
 			local torso = bodyPart(character, "Torso")
 			if torso then
-				shell("WoolTunic", torso, Vector3.new(0.14, 0.08, 0.14), WOOL_RED, Enum.Material.Fabric)
-				piece("Surcoat", torso,
-					Vector3.new(torso.Size.X * 0.74, torso.Size.Y + 0.18, 0.14),
-					CFrame.new(0, -0.06, -(torso.Size.Z / 2 + 0.09)),
-					WOOL_DARK, Enum.Material.Fabric, nil)
+				shell("MailHauberk", torso, Vector3.new(0.14, 0.08, 0.14), MAIL_DARK, Enum.Material.Metal)
+				local panelWidth = torso.Size.X * 0.34
+				local panelX = torso.Size.X * 0.19
+				local panelHeight = torso.Size.Y + 0.38
+				local panelY = -0.15
+				local frontZ = -(torso.Size.Z / 2 + 0.09)
+				local backZ = torso.Size.Z / 2 + 0.09
+				piece("SurcoatFrontLeft", torso, Vector3.new(panelWidth, panelHeight, 0.13),
+					CFrame.new(-panelX, panelY, frontZ) * CFrame.Angles(0, 0, math.rad(-2)),
+					WOOL_RED, Enum.Material.Fabric, nil)
+				piece("SurcoatFrontRight", torso, Vector3.new(panelWidth, panelHeight, 0.13),
+					CFrame.new(panelX, panelY, frontZ) * CFrame.Angles(0, 0, math.rad(2)),
+					WOOL_RED, Enum.Material.Fabric, nil)
+				piece("SurcoatBackLeft", torso, Vector3.new(panelWidth, panelHeight, 0.13),
+					CFrame.new(-panelX, panelY, backZ) * CFrame.Angles(0, 0, math.rad(-2)),
+					WOOL_RED_SHADE, Enum.Material.Fabric, nil)
+				piece("SurcoatBackRight", torso, Vector3.new(panelWidth, panelHeight, 0.13),
+					CFrame.new(panelX, panelY, backZ) * CFrame.Angles(0, 0, math.rad(2)),
+					WOOL_RED_SHADE, Enum.Material.Fabric, nil)
+				piece("HoodMantle", torso,
+					Vector3.new(torso.Size.X * 0.86, 0.3, 0.14),
+					CFrame.new(0, torso.Size.Y / 2 - 0.3, torso.Size.Z / 2 + 0.1),
+					WOOL_HOOD, Enum.Material.Fabric, nil)
 				piece("MailCollar", torso,
-					Vector3.new(torso.Size.X + 0.18, 0.2, torso.Size.Z + 0.18),
-					CFrame.new(0, torso.Size.Y / 2 - 0.12, 0),
-					MAIL_DARK, Enum.Material.Metal, nil)
+					Vector3.new(torso.Size.X + 0.18, 0.18, torso.Size.Z + 0.18),
+					CFrame.new(0, torso.Size.Y / 2 - 0.1, 0),
+					MAIL, Enum.Material.Metal, nil)
 				piece("LeatherBelt", torso,
-					Vector3.new(torso.Size.X + 0.22, 0.24, torso.Size.Z + 0.22),
+					Vector3.new(torso.Size.X + 0.22, 0.14, torso.Size.Z + 0.22),
 					CFrame.new(0, -(torso.Size.Y / 2 - 0.3), 0),
 					LEATHER, Enum.Material.Fabric, nil)
 				piece("BeltBuckle", torso,
-					Vector3.new(0.3, 0.28, 0.13),
+					Vector3.new(0.24, 0.2, 0.11),
 					CFrame.new(0, -(torso.Size.Y / 2 - 0.3), -(torso.Size.Z / 2 + 0.18)),
 					BUCKLE, Enum.Material.Metal, nil)
+				piece("SwordScabbard", torso,
+					Vector3.new(0.2, torso.Size.Y * 0.92, 0.22),
+					CFrame.new(-torso.Size.X / 2 - 0.2, -torso.Size.Y * 0.48, 0.12)
+						* CFrame.Angles(0, 0, math.rad(-9)),
+					LEATHER_LIGHT, Enum.Material.Fabric, nil)
+				piece("BeltPouch", torso,
+					Vector3.new(0.4, 0.44, 0.2),
+					CFrame.new(torso.Size.X * 0.35, -(torso.Size.Y / 2 - 0.34), torso.Size.Z / 2 + 0.16),
+					LEATHER, Enum.Material.Fabric, nil)
 			end
 
 			for _, name in { "Left Arm", "Right Arm" } do
 				local arm = bodyPart(character, name)
 				if arm then
 					piece("MailSleeve_" .. name, arm,
-						Vector3.new(arm.Size.X + 0.08, arm.Size.Y * 0.72, arm.Size.Z + 0.08),
-						CFrame.new(0, arm.Size.Y * 0.14, 0),
+						Vector3.new(arm.Size.X + 0.08, arm.Size.Y * 0.64, arm.Size.Z + 0.08),
+						CFrame.new(0, arm.Size.Y * 0.18, 0),
 						MAIL, Enum.Material.Metal, nil)
+					piece("LeatherVambrace_" .. name, arm,
+						Vector3.new(arm.Size.X + 0.09, arm.Size.Y * 0.36, arm.Size.Z + 0.09),
+						CFrame.new(0, -arm.Size.Y * 0.32, 0),
+						LEATHER_LIGHT, Enum.Material.Fabric, nil)
 				end
 			end
 			for _, name in { "Left Leg", "Right Leg" } do

@@ -17,9 +17,9 @@ local FOREST_INK = Color3.fromRGB(67, 88, 54)
 local HIGHLAND_INK = Color3.fromRGB(106, 91, 71)
 local MARCH_INK = Color3.fromRGB(134, 105, 57)
 local RIVER_INK = Color3.fromRGB(57, 111, 132)
-local REGION_INK = Color3.fromRGB(112, 45, 38)
 local WAR_RED = Color3.fromRGB(126, 30, 31)
 local HERALDIC_GOLD = Color3.fromRGB(194, 143, 48)
+local CANDLE_WAX = Color3.fromRGB(226, 197, 135)
 local LAMP_GLOW = Color3.fromRGB(255, 184, 104)
 
 local function ensureTable(player: Player)
@@ -74,8 +74,8 @@ local function ensureTable(player: Player)
 	-- future cosmetic edit fails inside the protected decoration pass below.
 	local tableTop = makePart(
 		"TableTop",
-		Vector3.new(18, 0.9, 12),
-		CFrame.new(0, 4, 0),
+		Vector3.new(20, 1.2, 13),
+		CFrame.new(0, 4.2, 0),
 		DARK_OAK,
 		Enum.Material.WoodPlanks,
 		true
@@ -83,14 +83,14 @@ local function ensureTable(player: Player)
 	tableModel.PrimaryPart = tableTop
 
 	for _, legPosition in {
-		Vector3.new(-7.7, 2, -4.7),
-		Vector3.new(7.7, 2, -4.7),
-		Vector3.new(-7.7, 2, 4.7),
-		Vector3.new(7.7, 2, 4.7),
+		Vector3.new(-8.5, 2.1, -5.1),
+		Vector3.new(8.5, 2.1, -5.1),
+		Vector3.new(-8.5, 2.1, 5.1),
+		Vector3.new(8.5, 2.1, 5.1),
 	} do
 		makePart(
 			"TableLeg",
-			Vector3.new(1.25, 4, 1.25),
+			Vector3.new(1.8, 4.2, 1.8),
 			CFrame.new(legPosition),
 			DARK_OAK,
 			Enum.Material.WoodPlanks,
@@ -113,43 +113,49 @@ local function ensureTable(player: Player)
 	prompt.Parent = tableModel
 
 	local decorationOk, decorationError = pcall(function()
+		-- Deep aprons and low stretchers turn the slab into a credible trestle
+		-- campaign table. They use the same collision footprint as the proven top
+		-- and legs, so the approach aisle and prompt reach remain unchanged.
+		makePart("NorthApron", Vector3.new(18.2, 1.45, 0.75), CFrame.new(0, 3.35, -5.65), DARK_OAK, Enum.Material.WoodPlanks, true)
+		makePart("SouthApron", Vector3.new(18.2, 1.45, 0.75), CFrame.new(0, 3.35, 5.65), DARK_OAK, Enum.Material.WoodPlanks, true)
+		makePart("WestApron", Vector3.new(0.75, 1.45, 10.6), CFrame.new(-9.15, 3.35, 0), DARK_OAK, Enum.Material.WoodPlanks, true)
+		makePart("EastApron", Vector3.new(0.75, 1.45, 10.6), CFrame.new(9.15, 3.35, 0), DARK_OAK, Enum.Material.WoodPlanks, true)
+		makePart("NorthStretcher", Vector3.new(15.4, 0.7, 0.8), CFrame.new(0, 1.35, -4.8), OAK_EDGE, Enum.Material.WoodPlanks, false)
+		makePart("SouthStretcher", Vector3.new(15.4, 0.7, 0.8), CFrame.new(0, 1.35, 4.8), OAK_EDGE, Enum.Material.WoodPlanks, false)
+
 		-- Raised oak rim keeps the inset map readable from every approach.
-		makePart("NorthRim", Vector3.new(18.4, 0.5, 0.45), CFrame.new(0, 4.7, -5.78), OAK_EDGE, Enum.Material.WoodPlanks, false)
-		makePart("SouthRim", Vector3.new(18.4, 0.5, 0.45), CFrame.new(0, 4.7, 5.78), OAK_EDGE, Enum.Material.WoodPlanks, false)
-		makePart("WestRim", Vector3.new(0.45, 0.5, 11.1), CFrame.new(-8.78, 4.7, 0), OAK_EDGE, Enum.Material.WoodPlanks, false)
-		makePart("EastRim", Vector3.new(0.45, 0.5, 11.1), CFrame.new(8.78, 4.7, 0), OAK_EDGE, Enum.Material.WoodPlanks, false)
+		makePart("NorthRim", Vector3.new(20.4, 0.55, 0.5), CFrame.new(0, 5.08, -6.22), OAK_EDGE, Enum.Material.WoodPlanks, false)
+		makePart("SouthRim", Vector3.new(20.4, 0.55, 0.5), CFrame.new(0, 5.08, 6.22), OAK_EDGE, Enum.Material.WoodPlanks, false)
+		makePart("WestRim", Vector3.new(0.5, 0.55, 11.9), CFrame.new(-9.72, 5.08, 0), OAK_EDGE, Enum.Material.WoodPlanks, false)
+		makePart("EastRim", Vector3.new(0.5, 0.55, 11.9), CFrame.new(9.72, 5.08, 0), OAK_EDGE, Enum.Material.WoodPlanks, false)
 
-		makePart("ParchmentMap", Vector3.new(16.4, 0.14, 10.2), CFrame.new(0, 4.53, 0), PARCHMENT, Enum.Material.Fabric, false)
+		makePart("ParchmentMap", Vector3.new(18.2, 0.16, 11.2), CFrame.new(0, 4.93, 0), PARCHMENT, Enum.Material.Fabric, false)
 
-		-- Heraldic cloth hangs from the short ends without blocking the aisle.
-		makePart("WestCloth", Vector3.new(0.16, 2.2, 6.4), CFrame.new(-9.08, 3.45, 0), WAR_RED, Enum.Material.Fabric, false)
-		makePart("EastCloth", Vector3.new(0.16, 2.2, 6.4), CFrame.new(9.08, 3.45, 0), WAR_RED, Enum.Material.Fabric, false)
-		makePart("WestGoldTrim", Vector3.new(0.19, 0.22, 6.5), CFrame.new(-9.1, 2.38, 0), HERALDIC_GOLD, Enum.Material.Fabric, false)
-		makePart("EastGoldTrim", Vector3.new(0.19, 0.22, 6.5), CFrame.new(9.1, 2.38, 0), HERALDIC_GOLD, Enum.Material.Fabric, false)
+		-- Small iron-brass corner caps keep the restraint of a working table while
+		-- catching just enough warm light to describe its thickness.
+		for _, capPosition in {
+			Vector3.new(-8.85, 5.04, -5.35), Vector3.new(8.85, 5.04, -5.35),
+			Vector3.new(-8.85, 5.04, 5.35), Vector3.new(8.85, 5.04, 5.35),
+		} do
+			makePart("TableCornerCap", Vector3.new(1.45, 0.28, 1.45), CFrame.new(capPosition), HERALDIC_GOLD, Enum.Material.Metal, false)
+		end
 
 		-- These shapes are a fixed cartographer's illustration, never live army,
 		-- scout, ownership, or resource data.
-		makePart("ForestRelief", Vector3.new(3.3, 0.1, 1.8), CFrame.new(-4.1, 4.66, -2.4) * CFrame.Angles(0, math.rad(12), 0), FOREST_INK, Enum.Material.Grass, false)
-		makePart("HighlandRelief", Vector3.new(2.7, 0.16, 1.5), CFrame.new(0.3, 4.69, 1.9) * CFrame.Angles(0, math.rad(-18), 0), HIGHLAND_INK, Enum.Material.Slate, false)
-		makePart("MarchRelief", Vector3.new(2.9, 0.12, 1.25), CFrame.new(4.1, 4.67, -2.2) * CFrame.Angles(0, math.rad(20), 0), MARCH_INK, Enum.Material.Ground, false)
+		makePart("ForestRelief", Vector3.new(3.6, 0.1, 2), CFrame.new(-4.55, 5.05, -2.55) * CFrame.Angles(0, math.rad(12), 0), FOREST_INK, Enum.Material.Grass, false)
+		makePart("HighlandRelief", Vector3.new(2.9, 0.16, 1.65), CFrame.new(0.35, 5.08, 2.15) * CFrame.Angles(0, math.rad(-18), 0), HIGHLAND_INK, Enum.Material.Slate, false)
+		makePart("MarchRelief", Vector3.new(3.15, 0.12, 1.4), CFrame.new(4.55, 5.06, -2.35) * CFrame.Angles(0, math.rad(20), 0), MARCH_INK, Enum.Material.Ground, false)
 
-		makePart("KingRoadWest", Vector3.new(5.7, 0.08, 0.24), CFrame.new(-2.25, 4.72, 0.2) * CFrame.Angles(0, math.rad(-12), 0), PARCHMENT_SHADOW, Enum.Material.Ground, false)
-		makePart("KingRoadEast", Vector3.new(4.8, 0.08, 0.24), CFrame.new(2.85, 4.72, -0.75) * CFrame.Angles(0, math.rad(19), 0), PARCHMENT_SHADOW, Enum.Material.Ground, false)
+		makePart("KingRoadWest", Vector3.new(6.2, 0.08, 0.24), CFrame.new(-2.5, 5.11, 0.25) * CFrame.Angles(0, math.rad(-12), 0), PARCHMENT_SHADOW, Enum.Material.Ground, false)
+		makePart("KingRoadEast", Vector3.new(5.2, 0.08, 0.24), CFrame.new(3.15, 5.11, -0.8) * CFrame.Angles(0, math.rad(19), 0), PARCHMENT_SHADOW, Enum.Material.Ground, false)
 
-		makePart("RiverNorth", Vector3.new(5.2, 0.09, 0.3), CFrame.new(-2.6, 4.74, -1.2) * CFrame.Angles(0, math.rad(24), 0), RIVER_INK, Enum.Material.Glass, false)
-		makePart("RiverSouth", Vector3.new(4.7, 0.09, 0.3), CFrame.new(1.65, 4.74, 0.55) * CFrame.Angles(0, math.rad(35), 0), RIVER_INK, Enum.Material.Glass, false)
-
-		makePart("RegionLineNorth", Vector3.new(3.7, 0.07, 0.13), CFrame.new(2.65, 4.76, -3.25) * CFrame.Angles(0, math.rad(-15), 0), REGION_INK, Enum.Material.SmoothPlastic, false)
-		makePart("RegionLineEast", Vector3.new(0.13, 0.07, 3.2), CFrame.new(5.0, 4.76, 1.15) * CFrame.Angles(0, math.rad(8), 0), REGION_INK, Enum.Material.SmoothPlastic, false)
-		makePart("RegionLineSouth", Vector3.new(3.8, 0.07, 0.13), CFrame.new(-2.55, 4.76, 3.25) * CFrame.Angles(0, math.rad(11), 0), REGION_INK, Enum.Material.SmoothPlastic, false)
-		makePart("RegionLineWest", Vector3.new(0.13, 0.07, 2.9), CFrame.new(-5.45, 4.76, 0.75) * CFrame.Angles(0, math.rad(-9), 0), REGION_INK, Enum.Material.SmoothPlastic, false)
+		makePart("RiverNorth", Vector3.new(5.7, 0.09, 0.3), CFrame.new(-2.85, 5.13, -1.3) * CFrame.Angles(0, math.rad(24), 0), RIVER_INK, Enum.Material.Glass, false)
+		makePart("RiverSouth", Vector3.new(5.1, 0.09, 0.3), CFrame.new(1.8, 5.13, 0.6) * CFrame.Angles(0, math.rad(35), 0), RIVER_INK, Enum.Material.Glass, false)
 
 		local pinSpecs = {
-			{ position = Vector3.new(-5.4, 5.15, 2.8), color = WAR_RED },
-			{ position = Vector3.new(-1.6, 5.15, -2.7), color = HERALDIC_GOLD },
-			{ position = Vector3.new(1.35, 5.15, 2.65), color = WAR_RED },
-			{ position = Vector3.new(3.3, 5.15, -1.05), color = HERALDIC_GOLD },
-			{ position = Vector3.new(5.65, 5.15, 2.35), color = WAR_RED },
+			{ position = Vector3.new(-5.8, 5.5, 3), color = WAR_RED },
+			{ position = Vector3.new(-1.7, 5.5, -2.9), color = HERALDIC_GOLD },
+			{ position = Vector3.new(3.6, 5.5, -1.15), color = WAR_RED },
 		}
 		for index, pinSpec in pinSpecs do
 			local pin = makePart(
@@ -166,7 +172,7 @@ local function ensureTable(player: Player)
 		local compass = makePart(
 			"CompassMedallion",
 			Vector3.new(0.1, 1.35, 1.35),
-			CFrame.new(6.75, 4.76, -4.05) * CFrame.Angles(0, 0, math.rad(90)),
+			CFrame.new(7.45, 5.15, -4.45) * CFrame.Angles(0, 0, math.rad(90)),
 			HERALDIC_GOLD,
 			Enum.Material.Metal,
 			false
@@ -175,10 +181,10 @@ local function ensureTable(player: Player)
 
 		local commandLamp = makePart(
 			"CommandLamp",
-			Vector3.new(0.72, 0.6, 0.6),
-			CFrame.new(7.25, 5.08, 4.45) * CFrame.Angles(0, 0, math.rad(90)),
-			LAMP_GLOW,
-			Enum.Material.Neon,
+			Vector3.new(1.15, 0.42, 0.42),
+			CFrame.new(8.15, 5.61, 4.85) * CFrame.Angles(0, 0, math.rad(90)),
+			CANDLE_WAX,
+			Enum.Material.SmoothPlastic,
 			false
 		)
 		commandLamp.Shape = Enum.PartType.Cylinder
@@ -186,8 +192,8 @@ local function ensureTable(player: Player)
 		local warmLight = Instance.new("PointLight")
 		warmLight.Name = "CampaignGlow"
 		warmLight.Color = LAMP_GLOW
-		warmLight.Brightness = 1.25
-		warmLight.Range = 17
+		warmLight.Brightness = 1.05
+		warmLight.Range = 20
 		warmLight.Shadows = false
 		warmLight.Parent = commandLamp
 	end)

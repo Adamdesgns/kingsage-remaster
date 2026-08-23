@@ -17,6 +17,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
 
 local remotes = ReplicatedStorage:WaitForChild("WorldRemotes")
 local stateSync = remotes:WaitForChild("StateSync") :: RemoteEvent
@@ -81,6 +82,47 @@ local function humanoid(): Humanoid?
 	return character:FindFirstChildOfClass("Humanoid")
 end
 
+-- Give every capture run two clean establishing shots before the avatar starts
+-- walking.  The ordinary Roblox follow camera is intentionally conservative:
+-- beside a wall it squeezes itself between the masonry and the character,
+-- which made the rebuilt keep look like a flat stone texture in screenshots.
+-- These are camera-only demo beats.  They do not move a building, spoof state,
+-- or exist in the normal player-controlled place.
+local followFieldOfView: number? = nil
+local function showcaseCamera(
+	model: Model,
+	positionOffset: Vector3,
+	lookOffset: Vector3,
+	fieldOfView: number
+)
+	local centerX = tonumber(model:GetAttribute("CenterX")) or 0
+	local centerZ = tonumber(model:GetAttribute("CenterZ")) or 0
+	local center = Vector3.new(centerX, 0, centerZ)
+	local target = center + lookOffset
+	if followFieldOfView == nil then
+		followFieldOfView = camera.FieldOfView
+	end
+	camera.CameraType = Enum.CameraType.Scriptable
+	camera.FieldOfView = fieldOfView
+	camera.CFrame = CFrame.lookAt(center + positionOffset, target)
+	-- Scriptable cameras do not receive the default camera controller's focus
+	-- updates. Point Focus at the architecture so Roblox keeps the hero subject,
+	-- rather than the empty horizon, as the rendering priority for the shot.
+	camera.Focus = CFrame.new(target)
+end
+
+local function restoreFollowCamera()
+	local h = humanoid()
+	camera.CameraType = Enum.CameraType.Custom
+	if followFieldOfView ~= nil then
+		camera.FieldOfView = followFieldOfView
+		followFieldOfView = nil
+	end
+	if h then
+		camera.CameraSubject = h
+	end
+end
+
 local function walkTo(model: Model, relX: number, relZ: number, timeout: number)
 	local h = humanoid()
 	if not h then
@@ -98,6 +140,23 @@ local function walkTo(model: Model, relX: number, relZ: number, timeout: number)
 		waited += task.wait(0.2)
 	end
 	connection:Disconnect()
+end
+
+local function walkToStructure(model: Model, buildingName: string, timeout: number)
+	local building = model:FindFirstChild(buildingName)
+	local structure = building and building:FindFirstChild("Structure")
+	if not structure or not structure:IsA("Model") or not structure.PrimaryPart then
+		warn(string.format("[Demo] no reachable Structure anchor for %s", buildingName))
+		return
+	end
+
+	-- The interaction anchor is already placed just outside the real doorway.
+	-- Deriving this destination from the built model keeps the tour aligned when
+	-- the settlement layout changes instead of reviving stale grey-box coordinates.
+	local centerX = tonumber(model:GetAttribute("CenterX")) or 0
+	local centerZ = tonumber(model:GetAttribute("CenterZ")) or 0
+	local anchor = structure.PrimaryPart.Position
+	walkTo(model, anchor.X - centerX, anchor.Z - centerZ, timeout)
 end
 
 local function findPrompt(model: Model, buildingName: string, promptName: string): ProximityPrompt?
@@ -376,19 +435,31 @@ task.spawn(function()
 			continue
 		end
 
-		task.wait(3) -- let the founding view breathe on camera
+		-- Eight seconds at each angle is deliberate: it is long enough for a
+		-- human or automated audit to capture a stable frame without racing the
+		-- self-driving tour. Both cameras stay on the open centreline inside the
+		-- gate. The first is a close elevated hero view down the gate-to-keep axis;
+		-- it shows the working districts as a settlement instead of shrinking the
+		-- whole place into a foggy map thumbnail.
+		showcaseCamera(model, Vector3.new(0, 42, 154), Vector3.new(0, 12, 26), 58)
+		task.wait(8)
+		-- The second beat sits at player height on the unobstructed main road.
+		-- Barracks and timber frame the edges while the keep remains the landmark;
+		-- x=0 avoids facades, fences, planters and the gatehouse collision volume.
+		showcaseCamera(model, Vector3.new(0, 7.2, 132), Vector3.new(0, 10.5, 24), 68)
+		task.wait(8)
+		restoreFollowCamera()
+		task.wait(1)
 		-- up the main street from the gate
 		walkTo(model, 0, 35, 8)
-		-- west to the timber camp's street-facing doorway, order a REAL
-		-- upgrade via its prompt. The rebuilt district sits on the outer lane,
-		-- so the tour must walk to the actual entrance instead of the retired
-		-- grey-box coordinates near the keep.
-		walkTo(model, -98, 45, 16)
+		-- west to the timber camp's real street-facing interaction anchor,
+		-- then order a REAL upgrade through its prompt.
+		walkToStructure(model, "B_timber", 16)
 		holdPrompt(model, "B_timber", "InteractPrompt")
 		task.wait(3) -- toast + queue row appear
 		-- east to the barracks, REAL recruit order
 		walkTo(model, 0, 45, 14)
-		walkTo(model, 98, 45, 16)
+		walkToStructure(model, "B_barracks", 16)
 		holdPrompt(model, "B_barracks", "RecruitPrompt")
 		task.wait(3)
 		-- to the war table: the camera lifts into the command view

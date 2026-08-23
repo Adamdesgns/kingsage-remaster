@@ -63,14 +63,22 @@ contains only the already-public village id and gate position.
   fails when run alone. This redesign changes neither `server/` nor
   `roblox/src/shared/Buildings.luau`, the files exercised by that fixture.
 - `git diff --check`: **PASS**.
-- Roblox Studio proof is still pending. Studio opened to a `Login Failed`
-  dialog on 2026-08-23, so no after image is represented as verified yet.
+- A live Studio pass on 2026-08-23 verified the compact non-overlapping HUD,
+  removal of the oversized PlayerList card, the real owner settlement, the
+  reachable war-table prompt, and the self-driving tour against a fresh isolated
+  world database. That pass exposed a too-distant overview and prototype-looking
+  keep interior; both were corrected in the final source rather than accepted.
+- The final v3 place then built successfully with closer gate-to-keep and
+  player-height street cameras, a sealed/dressed keep interior, a rebuilt oak
+  campaign table, brighter era-correct commander layers, and corrected weapon
+  swings. Static gates pass; a fresh matching-angle screenshot of that exact v3
+  build remains the honest visual acceptance gate.
 
 ## Acceptance
 
-The pass is only visually accepted when the updated build has matching-angle after
+The pass is only visually accepted when the final v3 build has matching-angle after
 captures for the main street, elevated settlement, gate and war room. Code checks
-must pass first. The same pass must inspect the commander costume on both R6 and R15
+already pass. The same pass must inspect the commander costume on both R6 and R15
 for a clear face and normal movement, animations, scale and camera. A real-phone
 join/walk/prompt/table check and the existing 200-troop performance drill remain
 separate gates; desktop screenshots cannot replace them.

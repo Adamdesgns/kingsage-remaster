@@ -13,11 +13,28 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+
+-- The expanded Roblox PlayerList is the large avatar card that covered the
+-- settlement in the first visual run. This game already presents identity and
+-- realm state in its own HUD, so disable that one CoreGui surface only. CoreGui
+-- may not be registered on the first client tick, hence the bounded retry.
+task.spawn(function()
+	for attempt = 1, 8 do
+		local ok = pcall(function()
+			StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+		end)
+		if ok then
+			return
+		end
+		task.wait(math.min(0.1 * (2 ^ (attempt - 1)), 1))
+	end
+end)
 
 local shared = ReplicatedStorage:WaitForChild("WorldShared")
 local Buildings = require(shared:WaitForChild("Buildings"))
@@ -508,6 +525,7 @@ end
 
 type ResourceChip = {
 	frame: Frame,
+	title: TextLabel,
 	value: TextLabel,
 	rate: TextLabel,
 	fill: Frame,
@@ -519,13 +537,13 @@ local RESOURCE_ACCENTS: { [string]: Color3 } = {
 	iron = Color3.fromRGB(178, 142, 81),
 }
 
--- Three compact chips keep amount, hourly production and storage together.
--- Their text is fixed-size on purpose: TextScaled made the old one-line HUD
--- unreadably small as the viewport narrowed.
+-- Three short resource cards are the only persistent block at top-centre.
+-- Amount, hourly production and the capacity line remain visible without the
+-- 52px two-storey bar that obscured building prompts at a 916x599 viewport.
 local resourceBar = Instance.new("Frame")
 resourceBar.Name = "Resources"
-resourceBar.Size = UDim2.new(0, 486, 0, 52)
-resourceBar.Position = UDim2.new(0.5, -243, 0, 8)
+resourceBar.Size = UDim2.new(0, 318, 0, 36)
+resourceBar.Position = UDim2.new(0.5, -159, 0, 8)
 resourceBar.BackgroundTransparency = 1
 resourceBar.ZIndex = 3
 resourceBar.Parent = gui
@@ -553,39 +571,39 @@ local function createResourceChip(resourceName: string, titleText: string, order
 	addStroke(chip, accent, 0.42)
 
 	local title = makeLabel(chip, "Title")
-	title.Size = UDim2.new(0.54, 0, 0, 17)
-	title.Position = UDim2.new(0, 9, 0, 3)
+	title.Size = UDim2.new(0.42, 0, 0, 13)
+	title.Position = UDim2.new(0, 7, 0, 1)
 	title.Text = titleText
 	title.TextColor3 = HUD_MUTED
 	title.TextScaled = false
-	title.TextSize = 12
+	title.TextSize = 9
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.ZIndex = 4
 
 	local rate = makeLabel(chip, "Rate")
-	rate.Size = UDim2.new(0.42, -9, 0, 17)
-	rate.Position = UDim2.new(0.58, 0, 0, 3)
+	rate.Size = UDim2.new(0.5, -7, 0, 13)
+	rate.Position = UDim2.new(0.5, 0, 0, 1)
 	rate.Text = "+0/h"
 	rate.TextColor3 = accent
 	rate.TextScaled = false
-	rate.TextSize = 12
+	rate.TextSize = 9
 	rate.TextXAlignment = Enum.TextXAlignment.Right
 	rate.ZIndex = 4
 
 	local value = makeLabel(chip, "Value")
-	value.Size = UDim2.new(1, -18, 0, 24)
-	value.Position = UDim2.new(0, 9, 0, 18)
+	value.Size = UDim2.new(1, -14, 0, 18)
+	value.Position = UDim2.new(0, 7, 0, 13)
 	value.Text = "0"
 	value.TextColor3 = HUD_CREAM
 	value.TextScaled = false
-	value.TextSize = 14
+	value.TextSize = 12
 	value.TextXAlignment = Enum.TextXAlignment.Left
 	value.ZIndex = 4
 
 	local track = Instance.new("Frame")
 	track.Name = "CapacityTrack"
-	track.Size = UDim2.new(1, -18, 0, 3)
-	track.Position = UDim2.new(0, 9, 1, -7)
+	track.Size = UDim2.new(1, -14, 0, 2)
+	track.Position = UDim2.new(0, 7, 1, -4)
 	track.BackgroundColor3 = Color3.fromRGB(67, 62, 53)
 	track.BorderSizePixel = 0
 	track.ZIndex = 4
@@ -601,19 +619,19 @@ local function createResourceChip(resourceName: string, titleText: string, order
 	fill.Parent = track
 	addCorner(fill, 2)
 
-	resourceChips[resourceName] = { frame = chip, value = value, rate = rate, fill = fill }
+	resourceChips[resourceName] = { frame = chip, title = title, value = value, rate = rate, fill = fill }
 end
 
 createResourceChip("wood", "WOOD", 1)
 createResourceChip("stone", "STONE", 2)
 createResourceChip("iron", "IRON", 3)
 
--- A restrained sense of place: it is useful while walking the world, but
--- fades away when a table, battle or holding screen already owns attention.
+-- The place name follows the target treatment: a small bottom-centre caption,
+-- not a full-width realm bar competing with prompts and the play space.
 local locationLabel = Instance.new("TextLabel")
 locationLabel.Name = "Location"
-locationLabel.Size = UDim2.new(0, 300, 0, 30)
-locationLabel.Position = UDim2.new(0, 8, 0, 8)
+locationLabel.Size = UDim2.new(0, 300, 0, 24)
+locationLabel.Position = UDim2.new(0.5, -150, 1, -32)
 locationLabel.BackgroundColor3 = HUD_CHARCOAL
 locationLabel.BackgroundTransparency = 1
 locationLabel.BorderSizePixel = 0
@@ -621,15 +639,15 @@ locationLabel.TextColor3 = HUD_CREAM
 locationLabel.TextTransparency = 1
 locationLabel.Font = Enum.Font.GothamBold
 locationLabel.TextScaled = false
-locationLabel.TextSize = 12
+locationLabel.TextSize = 11
 locationLabel.TextTruncate = Enum.TextTruncate.AtEnd
-locationLabel.TextXAlignment = Enum.TextXAlignment.Left
+locationLabel.TextXAlignment = Enum.TextXAlignment.Center
+locationLabel.TextStrokeColor3 = HUD_CHARCOAL
+locationLabel.TextStrokeTransparency = 1
 locationLabel.Text = ""
 locationLabel.Visible = false
 locationLabel.ZIndex = 3
 locationLabel.Parent = gui
-addCorner(locationLabel, 6)
-addStroke(locationLabel, HUD_GOLD, 0.5)
 
 local locationShown = false
 local locationTween: Tween? = nil
@@ -644,14 +662,14 @@ local function setLocationVisible(visible: boolean)
 	if visible then
 		locationLabel.Visible = true
 		locationTween = TweenService:Create(locationLabel, TweenInfo.new(0.22), {
-			BackgroundTransparency = 0.1,
 			TextTransparency = 0,
+			TextStrokeTransparency = 0.25,
 		})
 		locationTween:Play()
 	else
 		local tween = TweenService:Create(locationLabel, TweenInfo.new(0.18), {
-			BackgroundTransparency = 1,
 			TextTransparency = 1,
+			TextStrokeTransparency = 1,
 		})
 		locationTween = tween
 		tween:Play()
@@ -663,19 +681,21 @@ local function setLocationVisible(visible: boolean)
 	end
 end
 
--- queue panel
+-- One compact order badge. The first active item stays live and reports how
+-- many more are queued; the HUD never expands into a centred orders panel.
 local queuePanel = Instance.new("ScrollingFrame")
 queuePanel.Name = "Queues"
-queuePanel.Size = UDim2.new(0, 76, 0, 28)
-queuePanel.Position = UDim2.new(1, -84, 0, 8)
+queuePanel.Size = UDim2.new(0, 240, 0, 36)
+queuePanel.Position = UDim2.new(1, -248, 0, 8)
 queuePanel.BackgroundColor3 = HUD_CHARCOAL
 queuePanel.BackgroundTransparency = 0.08
 queuePanel.BorderSizePixel = 0
 queuePanel.CanvasSize = UDim2.new()
-queuePanel.AutomaticCanvasSize = Enum.AutomaticSize.Y
+queuePanel.AutomaticCanvasSize = Enum.AutomaticSize.None
 queuePanel.ScrollBarImageColor3 = HUD_GOLD
-queuePanel.ScrollBarThickness = 4
+queuePanel.ScrollBarThickness = 0
 queuePanel.ScrollingDirection = Enum.ScrollingDirection.Y
+queuePanel.ScrollingEnabled = false
 queuePanel.ZIndex = 3
 queuePanel.Parent = gui
 addCorner(queuePanel, 6)
@@ -684,27 +704,28 @@ addStroke(queuePanel, HUD_GOLD, 0.42)
 local queuePadding = Instance.new("UIPadding")
 queuePadding.PaddingLeft = UDim.new(0, 8)
 queuePadding.PaddingRight = UDim.new(0, 8)
-queuePadding.PaddingTop = UDim.new(0, 5)
-queuePadding.PaddingBottom = UDim.new(0, 5)
+queuePadding.PaddingTop = UDim.new(0, 4)
+queuePadding.PaddingBottom = UDim.new(0, 4)
 queuePadding.Parent = queuePanel
 
 local queueList = Instance.new("UIListLayout")
 queueList.SortOrder = Enum.SortOrder.LayoutOrder
-queueList.Padding = UDim.new(0, 3)
+queueList.Padding = UDim.new(0, 0)
 queueList.Parent = queuePanel
 
 local queueTitle = makeLabel(queuePanel, "Title")
-queueTitle.Size = UDim2.new(1, -16, 0, 18)
+queueTitle.Size = UDim2.new(1, -16, 0, 0)
 queueTitle.LayoutOrder = 0
 queueTitle.Text = "ACTIVE ORDERS"
-	queueTitle.TextColor3 = HUD_GOLD
-	queueTitle.TextScaled = false
-	queueTitle.TextSize = 12
+queueTitle.TextColor3 = HUD_GOLD
+queueTitle.TextScaled = false
+queueTitle.TextSize = 10
 queueTitle.TextXAlignment = Enum.TextXAlignment.Left
 queueTitle.ZIndex = 4
+queueTitle.Visible = false
 
 local queueIsIdle = true
-local queueContentHeight = 28
+local queueContentHeight = 36
 local applyHudLayout: () -> () = function() end
 
 -- live countdown rows for the 1 Hz ticker (plain tables; no per-frame
@@ -839,30 +860,96 @@ local function refreshHudModeVisibility()
 end
 
 -- ScreenGui ignores Roblox's inset so it can own the whole screen; the HUD
--- therefore measures that inset itself. Wide screens keep the three regions
--- on one line. Narrow screens stack active work below the resource chips, but
--- preserve the tiny idle pill beside the location label.
+-- therefore measures that inset itself. Resources and the single order badge
+-- share one 36px row at every size. The location caption sits at the safe
+-- bottom edge, leaving prompts and the player's sightline completely clear.
 applyHudLayout = function()
 	local viewport = camera.ViewportSize
 	if viewport.X <= 1 or viewport.Y <= 1 then
 		return
 	end
 	local topLeftInset, bottomRightInset = GuiService:GetGuiInset()
-	local safeTop = math.max(math.floor(topLeftInset.Y) + 8, 8)
-	local safeLeft = math.max(math.floor(topLeftInset.X) + 8, 8)
-	local safeRight = math.max(math.floor(bottomRightInset.X) + 8, 8)
-	local safeBottom = math.max(math.floor(bottomRightInset.Y) + 8, 8)
-	local margin = 8
-	local gap = 6
+	local safeTop = math.max(math.floor(topLeftInset.Y) + 6, 6)
+	local safeLeft = math.max(math.floor(topLeftInset.X) + 6, 6)
+	local safeRight = math.max(math.floor(bottomRightInset.X) + 6, 6)
+	local safeBottom = math.max(math.floor(bottomRightInset.Y) + 6, 6)
+	local gap = 4
+	local rowHeight = 36
 	local availableWidth = math.max(math.floor(viewport.X) - safeLeft - safeRight, 1)
-	local resourceWidth = math.min(486, availableWidth)
+
+	-- Keep the resource cluster visually centred while reserving a fixed right
+	-- edge for the order badge. On very small windows the resources compress
+	-- before either element is allowed to overlap.
+	local queueWidth = math.min(240, math.max(84, math.floor(availableWidth * 0.26)))
+	queueWidth = math.min(queueWidth, math.max(1, availableWidth - gap - 72))
+	local resourceWidth = math.min(318, math.max(168, math.floor(availableWidth * 0.4)))
+	resourceWidth = math.min(resourceWidth, math.max(1, availableWidth - queueWidth - gap))
+	local queueX = safeLeft + availableWidth - queueWidth
 	local resourceX = safeLeft + math.floor((availableWidth - resourceWidth) / 2)
-	resourceBar.Size = UDim2.fromOffset(resourceWidth, 52)
+	if resourceX + resourceWidth > queueX - gap then
+		resourceX = queueX - gap - resourceWidth
+	end
+	if resourceX < safeLeft then
+		resourceX = safeLeft
+		resourceWidth = math.max(1, queueX - gap - safeLeft)
+	end
+	resourceBar.Size = UDim2.fromOffset(resourceWidth, rowHeight)
 	resourceBar.Position = UDim2.fromOffset(resourceX, safeTop)
-	local alertTop = safeTop + 52 + gap
-	banner.Position = UDim2.fromOffset(0, alertTop)
+	resourceList.Padding = UDim.new(0, if resourceWidth < 210 then 2 else 4)
+
+	local microResources = resourceWidth < 210
+	local showRates = resourceWidth >= 150
+	for _, chip in resourceChips do
+		chip.title.Text = if microResources then string.sub(chip.frame.Name, 1, 1) else chip.frame.Name
+		chip.title.Size = if microResources then UDim2.new(0, 14, 0, 13) else UDim2.new(0.42, 0, 0, 13)
+		chip.title.Position = UDim2.new(0, if microResources then 5 else 7, 0, 1)
+		chip.title.TextSize = if microResources then 8 else 9
+		chip.rate.Visible = showRates
+		chip.rate.Size = if microResources then UDim2.new(1, -22, 0, 13) else UDim2.new(0.5, -7, 0, 13)
+		chip.rate.Position = if microResources then UDim2.new(0, 17, 0, 1) else UDim2.new(0.5, 0, 0, 1)
+		chip.rate.TextSize = if microResources then 8 else 9
+		chip.value.Position = UDim2.new(0, if microResources then 5 else 7, 0, 13)
+		chip.value.Size = UDim2.new(1, if microResources then -10 else -14, 0, 18)
+		chip.value.TextSize = if microResources then 11 else 12
+	end
+
+	queuePanel.Size = UDim2.fromOffset(queueWidth, rowHeight)
+	queuePanel.Position = UDim2.fromOffset(queueX, safeTop)
+	queuePanel.ScrollingEnabled = false
+	queuePanel.ScrollBarThickness = 0
+	queueTitle.Visible = false
+	for _, row in queueRows do
+		local container = row.container
+		if container then
+			container.Size = UDim2.new(1, -16, 0, 28)
+			local timerLabel = row.timerLabel
+			local timerVisible = timerLabel ~= nil and timerLabel.Visible
+			local timerWidth = if queueWidth < 130 then 44 else 58
+			row.label.Size = if timerVisible
+				then UDim2.new(1, -(timerWidth + 8), 1, 0)
+				else UDim2.new(1, -4, 1, 0)
+			row.label.Position = UDim2.new(0, 4, 0, 0)
+			row.label.TextSize = if queueWidth < 130 then 9 else 11
+			if timerLabel then
+				timerLabel.Size = UDim2.new(0, timerWidth, 1, 0)
+				timerLabel.Position = UDim2.new(1, -timerWidth - 2, 0, 0)
+				timerLabel.TextSize = if queueWidth < 130 then 9 else 10
+			end
+		end
+	end
+
+	local locationWidth = math.min(300, math.max(160, math.floor(availableWidth * 0.48)), availableWidth)
+	locationLabel.Size = UDim2.fromOffset(locationWidth, 24)
+	locationLabel.Position = UDim2.fromOffset(
+		safeLeft + math.floor((availableWidth - locationWidth) / 2),
+		math.max(safeTop + rowHeight + gap, math.floor(viewport.Y) - safeBottom - 24)
+	)
+	locationLabel.TextSize = if availableWidth < 480 then 10 else 11
+
+	local alertTop = safeTop + rowHeight + gap
+	banner.Size = UDim2.fromOffset(availableWidth, 30)
+	banner.Position = UDim2.fromOffset(safeLeft, alertTop)
 	local battleCallNode = gui:FindFirstChild("BattleCall")
-	local alertVisible = banner.Visible
 	if battleCallNode and battleCallNode:IsA("GuiObject") then
 		local battleCallWidth = math.min(360, availableWidth)
 		battleCallNode.Size = UDim2.fromOffset(battleCallWidth, 34)
@@ -870,44 +957,7 @@ applyHudLayout = function()
 			safeLeft + math.floor((availableWidth - battleCallWidth) / 2),
 			alertTop
 		)
-		alertVisible = alertVisible or battleCallNode.Visible
 	end
-
-	if viewport.X >= 1120 then
-		local queueWidth = if queueIsIdle then 76 else 300
-		local queueHeight = if queueIsIdle
-			then 28
-			else math.min(queueContentHeight, math.max(28, math.floor(viewport.Y) - safeTop - margin))
-		local leftRoom = math.max(resourceX - safeLeft - gap, 1)
-		locationLabel.Size = UDim2.fromOffset(math.min(300, leftRoom), 30)
-		locationLabel.Position = UDim2.fromOffset(safeLeft, safeTop)
-		queuePanel.Size = UDim2.fromOffset(queueWidth, queueHeight)
-		queuePanel.Position = UDim2.fromOffset(math.floor(viewport.X) - safeRight - queueWidth, safeTop)
-	else
-		local secondRowTop = alertTop + (if alertVisible then 40 else 0)
-		if queueIsIdle then
-			local locationWidth = math.max(1, availableWidth - 76 - gap)
-			locationLabel.Size = UDim2.fromOffset(locationWidth, 30)
-			locationLabel.Position = UDim2.fromOffset(safeLeft, secondRowTop)
-			queuePanel.Size = UDim2.fromOffset(76, 28)
-			queuePanel.Position = UDim2.fromOffset(safeLeft + locationWidth + gap, secondRowTop)
-		else
-			locationLabel.Size = UDim2.fromOffset(availableWidth, 30)
-			locationLabel.Position = UDim2.fromOffset(safeLeft, secondRowTop)
-			local queueTop = secondRowTop + 30 + gap
-			local queueWidth = math.min(320, availableWidth)
-			local queueHeight = math.min(queueContentHeight, math.max(28, math.floor(viewport.Y) - queueTop - safeBottom))
-			queuePanel.Size = UDim2.fromOffset(queueWidth, queueHeight)
-			queuePanel.Position = UDim2.fromOffset(
-				safeLeft + math.floor((availableWidth - queueWidth) / 2),
-				queueTop
-			)
-		end
-	end
-
-	local visibleHeight = queuePanel.Size.Y.Offset
-	queuePanel.ScrollingEnabled = not queueIsIdle and queueContentHeight > visibleHeight
-	queuePanel.ScrollBarThickness = if queuePanel.ScrollingEnabled then 4 else 0
 
 	local toastWidth = math.min(420, availableWidth)
 	toastFrame.Size = UDim2.fromOffset(toastWidth, 200)
@@ -2192,13 +2242,10 @@ local function updateResourceChip(resourceName: string, amountValue: any, produc
 	local production = math.max(tonumber(productionValue) or 0, 0)
 	local capacity = math.max(tonumber(capacityValue) or 0, 0)
 	chip.rate.Text = string.format("+%s/h", compactAmount(production))
+	chip.value.Text = compactAmount(amount)
 	if capacity > 0 then
-		chip.value.Text = if camera.ViewportSize.X < 600
-			then compactAmount(amount)
-			else string.format("%s / %s", compactAmount(amount), compactAmount(capacity))
 		chip.fill.Size = UDim2.new(math.clamp(amount / capacity, 0, 1), 0, 1, 0)
 	else
-		chip.value.Text = compactAmount(amount)
 		chip.fill.Size = UDim2.new(0, 0, 1, 0)
 	end
 end
@@ -2219,12 +2266,11 @@ local function refreshHud()
 	if snapshot and capital then
 		local worldName = tostring((snapshot.world and snapshot.world.name) or "The Realm")
 		local capitalName = tostring(capital.name or "Capital")
-		locationLabel.Text = string.format("  %s  ·  %s", worldName, capitalName)
+		locationLabel.Text = string.upper(string.format("—  %s · %s  —", worldName, capitalName))
 	end
 	refreshLocationVisibility()
 
 	-- rebuild queue rows (few of them; cheap at heartbeat cadence)
-	local keptQueueScroll = queuePanel.CanvasPosition
 	for _, row in queueRows do
 		if row.container then
 			row.container:Destroy()
@@ -2236,7 +2282,7 @@ local function refreshHud()
 	if not snapshot then
 		queueIsIdle = true
 		queueTitle.Visible = false
-		queueContentHeight = 28
+		queueContentHeight = 36
 		applyHudLayout()
 		return
 	end
@@ -2335,16 +2381,16 @@ local function refreshHud()
 
 	if #entries == 0 then
 		local empty = makeLabel(queuePanel, "Empty")
-		empty.Size = UDim2.new(1, -16, 0, 18)
+		empty.Size = UDim2.new(1, -16, 0, 28)
 		empty.LayoutOrder = 1
 		empty.Text = "IDLE"
 		empty.TextColor3 = HUD_GOLD
 		empty.TextScaled = false
-		empty.TextSize = 12
+		empty.TextSize = 11
 		empty.ZIndex = 4
 		queueTitle.Visible = false
 		queueIsIdle = true
-		queueContentHeight = 28
+		queueContentHeight = 36
 		queuePanel.CanvasPosition = Vector2.zero
 		table.insert(queueRows, {
 			container = nil,
@@ -2360,46 +2406,45 @@ local function refreshHud()
 		return
 	end
 
-	queueTitle.Visible = true
+	queueTitle.Visible = false
 	queueIsIdle = false
-	local contentHeight = 28
+	local contentHeight = 36
 	for index, entry in entries do
-		local primary = index == 1
-		local rowHeight = if primary then 42 else 26
+		if index > 1 then
+			break
+		end
+		local rowHeight = 28
 		local startedAt = entry.startedAt
 		local completesAt = entry.completesAt
 		local hasProgress = startedAt ~= nil and completesAt ~= nil and completesAt > startedAt
 		local row = Instance.new("Frame")
 		row.Name = "Job" .. index
 		row.Size = UDim2.new(1, -16, 0, rowHeight)
-		row.BackgroundColor3 = if primary then Color3.fromRGB(56, 47, 33) else HUD_CHARCOAL_SOFT
-		row.BackgroundTransparency = if primary then 0.08 else 0.35
+		row.BackgroundColor3 = HUD_CHARCOAL
+		row.BackgroundTransparency = 1
 		row.BorderSizePixel = 0
 		row.LayoutOrder = index
 		row.ZIndex = 4
 		row.Parent = queuePanel
-		addCorner(row, 4)
-		if primary then
-			addStroke(row, HUD_GOLD, 0.35)
-		end
 
 		local label = makeLabel(row, "Label")
-		label.Size = if entry.completesAt then UDim2.new(1, -78, 1, -4) else UDim2.new(1, -16, 1, -4)
-		label.Position = UDim2.new(0, 8, 0, 0)
+		label.Size = if entry.completesAt then UDim2.new(1, -66, 1, 0) else UDim2.new(1, -4, 1, 0)
+		label.Position = UDim2.new(0, 4, 0, 0)
 		label.TextXAlignment = Enum.TextXAlignment.Left
 		label.TextTruncate = Enum.TextTruncate.AtEnd
 		label.TextScaled = false
-		label.TextSize = if primary then 14 else 12
+		label.TextSize = 11
 		label.TextColor3 = HUD_CREAM
-		label.Text = if primary then "NOW · " .. entry.text else entry.text
+		local overflowText = if #entries > 1 then string.format("  +%d", #entries - 1) else ""
+		label.Text = "ORDER · " .. entry.text .. overflowText
 		label.ZIndex = 5
 
 		local timerLabel = makeLabel(row, "Timer")
-		timerLabel.Size = UDim2.new(0, 64, 1, -4)
-		timerLabel.Position = UDim2.new(1, -70, 0, 0)
+		timerLabel.Size = UDim2.new(0, 58, 1, 0)
+		timerLabel.Position = UDim2.new(1, -60, 0, 0)
 		timerLabel.TextXAlignment = Enum.TextXAlignment.Right
 		timerLabel.TextScaled = false
-		timerLabel.TextSize = if primary then 13 else 11
+		timerLabel.TextSize = 10
 		timerLabel.TextColor3 = HUD_GOLD
 		timerLabel.Text = ""
 		timerLabel.Visible = entry.completesAt ~= nil
@@ -2407,8 +2452,8 @@ local function refreshHud()
 
 		local progressTrack = Instance.new("Frame")
 		progressTrack.Name = "ProgressTrack"
-		progressTrack.Size = UDim2.new(1, -16, 0, 2)
-		progressTrack.Position = UDim2.new(0, 8, 1, -4)
+		progressTrack.Size = UDim2.new(1, -8, 0, 2)
+		progressTrack.Position = UDim2.new(0, 4, 1, -2)
 		progressTrack.BackgroundColor3 = Color3.fromRGB(76, 69, 57)
 		progressTrack.BorderSizePixel = 0
 		progressTrack.Visible = hasProgress
@@ -2423,7 +2468,7 @@ local function refreshHud()
 		progressFill.ZIndex = 6
 		progressFill.Parent = progressTrack
 
-		local baseText = if primary then "NOW · " .. entry.text else entry.text
+		local baseText = "ORDER · " .. entry.text .. overflowText
 		table.insert(queueRows, {
 			container = row,
 			label = label,
@@ -2434,15 +2479,10 @@ local function refreshHud()
 			lastShown = nil,
 			progressFill = if hasProgress then progressFill else nil,
 		})
-		contentHeight += rowHeight + 3
 	end
 	queueContentHeight = contentHeight
+	queuePanel.CanvasPosition = Vector2.zero
 	applyHudLayout()
-	task.defer(function()
-		if queuePanel.Parent and not queueIsIdle then
-			queuePanel.CanvasPosition = keptQueueScroll
-		end
-	end)
 end
 
 -- countdown ticker: display only; writes a label only when its second changes

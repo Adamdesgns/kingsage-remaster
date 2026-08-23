@@ -55,13 +55,16 @@ local LAYOUT: { [string]: Placement } = {
 	-- WarTable owns settlement-local (0, 0, 16); keeping the hall at z=20
 	-- leaves the table four studs behind its centre with a clear aisle.
 	hq = { at = Vector3.new(0, 0, 20), yaw = 0 },
-	market = { at = Vector3.new(-100, 0, 144), yaw = 90 },
-	warehouse = { at = Vector3.new(100, 0, 144), yaw = -90 },
-	barracks = { at = Vector3.new(115, 0, 45), yaw = -90 },
+	-- The first four working buildings flank the arrival route instead of
+	-- hiding against the curtain wall. Their open fronts, stalls and rooflines
+	-- now form the human-scale foreground before the keep becomes a landmark.
+	market = { at = Vector3.new(-60, 0, 144), yaw = 90 },
+	warehouse = { at = Vector3.new(60, 0, 144), yaw = -90 },
+	barracks = { at = Vector3.new(70, 0, 45), yaw = -90 },
 	stable = { at = Vector3.new(115, 0, -60), yaw = -90 },
 	workshop = { at = Vector3.new(115, 0, -154), yaw = -90 },
 	smithy = { at = Vector3.new(48, 0, -95), yaw = 0 },
-	timber = { at = Vector3.new(-115, 0, 45), yaw = 90 },
+	timber = { at = Vector3.new(-70, 0, 45), yaw = 90 },
 	quarry = { at = Vector3.new(-115, 0, -42), yaw = 90 },
 	iron = { at = Vector3.new(-115, 0, -127), yaw = 90 },
 	farm = { at = Vector3.new(-35, 0, -90), yaw = 0 },
@@ -111,11 +114,14 @@ end
 -- character cottage wall, 34 is a three-storey keep. Nothing here is taller
 -- than it would be if you stood next to it.
 local SPEC: { [string]: BuildingSpec } = {
-	hq        = spec(38, 38, 24, 10, PALETTE.stone,       MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
+	-- A broad eighteen-stud hall keeps the WarTable interior intact while
+	-- dropping the eave below the player's sightline. The crossing tower still
+	-- provides the civic landmark; the facade no longer fills the whole frame.
+	hq        = spec(36, 34, 18,  9, PALETTE.stone,       MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
 	academy   = spec(34, 34, 26, 12, PALETTE.stoneWarm,   MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
-	barracks  = spec(64, 28, 15,  9, PALETTE.stoneDark,   MATERIAL.block,   PALETTE.roofTile,  MATERIAL.roof,   true,  true),
-	stable    = spec(58, 26, 13,  8, PALETTE.timberLight, MATERIAL.timber,  PALETTE.thatch,    MATERIAL.thatch, true,  false),
-	workshop  = spec(44, 32, 15,  9, PALETTE.stoneDark,   MATERIAL.block,   PALETTE.roofTile,  MATERIAL.roof,   true,  false),
+	barracks  = spec(64, 28, 15,  9, PALETTE.stoneWarm,   MATERIAL.plaster, PALETTE.roofTile,  MATERIAL.roof,   true,  true),
+	stable    = spec(58, 26, 13,  8, PALETTE.plaster,     MATERIAL.plaster, PALETTE.thatch,    MATERIAL.thatch, true,  false),
+	workshop  = spec(44, 32, 15,  9, PALETTE.stoneWarm,   MATERIAL.plaster, PALETTE.roofTile,  MATERIAL.roof,   true,  false),
 	smithy    = spec(32, 28, 14,  8, PALETTE.stoneDark,   MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
 	warehouse = spec(48, 36, 18, 10, PALETTE.plaster,     MATERIAL.plaster, PALETTE.roofTile,  MATERIAL.roof,   true,  false),
 	market    = spec(44, 36, 13,  8, PALETTE.plaster,     MATERIAL.plaster, PALETTE.roofTile,  MATERIAL.roof,   true,  false),
@@ -292,6 +298,124 @@ local function gateHalf(): number
 	return 11 -- a 22-stud gate: four characters abreast
 end
 
+-- Permanent street furniture is part of the owned presentation layer, never
+-- the fog-safe shell. Every piece is collisionless, deterministic and counted
+-- against one explicit phone budget. It gives even a level-one village the
+-- visual cadence of a working place without inventing villagers or gameplay.
+local STREET_DETAIL_BUDGET = 80
+local function renderStreetscape(model: Model, origin: CFrame): number
+	local madeCount = 0
+	local function addDetail(
+		name: string,
+		size: Vector3,
+		offset: CFrame,
+		colour: Color3,
+		material: Enum.Material
+	): Part
+		madeCount += 1
+		assert(madeCount <= STREET_DETAIL_BUDGET, "streetscape exceeded visual part budget")
+		local made = WorldStyle.part(name, size, origin * offset, model, colour, material)
+		made:SetAttribute("StreetscapeDetail", true)
+		decorative(made)
+		return made
+	end
+
+	local streetLength = WALL_HALF * 2 - 20
+	for _, side in { -1, 1 } do
+		addDetail("StreetShoulder", Vector3.new(4, 0.42, streetLength),
+			CFrame.new(side * 14, 0.22, 0), PALETTE.pathEdge, MATERIAL.dirt)
+		addDetail("StreetShoulder", Vector3.new(streetLength, 0.42, 4),
+			CFrame.new(0, 0.22, side * 12), PALETTE.pathEdge, MATERIAL.dirt)
+	end
+
+	-- Thin, irregular traffic wear over the cobble breaks up the single clean
+	-- strip while remaining flat enough never to affect character movement.
+	for index, patch in {
+		{ -5, 165, 8, 18, -11 }, { 5, 139, 7, 15, 9 },
+		{ -4, 111, 6, 14, 6 }, { 4, 84, 8, 17, -8 },
+		{ -5, 54, 7, 13, 12 }, { 5, 28, 6, 15, -5 },
+		{ -4, -34, 7, 17, 8 }, { 4, -74, 6, 14, -10 },
+	} do
+		local mark = addDetail("RoadWear" .. index, Vector3.new(0.12, patch[3], patch[4]),
+			CFrame.new(patch[1], 0.64, patch[2])
+				* CFrame.Angles(0, math.rad(patch[5]), 0)
+				* CFrame.Angles(0, 0, math.rad(90)),
+			PALETTE.dirt, MATERIAL.dirt)
+		mark.Shape = Enum.PartType.Cylinder
+	end
+
+	-- Low roadside fences frame the route without becoming barriers. Their
+	-- open rhythm keeps the arrival view aimed at doors, roofs and the keep.
+	for _, side in { -1, 1 } do
+		for _, centreZ in { 112, 82, 52 } do
+			local x = side * 27
+			for _, endZ in { -8, 8 } do
+				addDetail("FencePost", Vector3.new(1.25, 4.4, 1.25),
+					CFrame.new(x, 2.2, centreZ + endZ), PALETTE.timberDark, MATERIAL.timber)
+			end
+			for _, railY in { 1.7, 3.2 } do
+				addDetail("FenceRail", Vector3.new(1, 0.8, 16),
+					CFrame.new(x, railY, centreZ), PALETTE.timber, MATERIAL.timber)
+			end
+		end
+	end
+
+	-- Stone trough-planters and varied shrubs soften the wall-to-road geometry.
+	for index, position in {
+		Vector3.new(-19, 0, 133), Vector3.new(19, 0, 123),
+		Vector3.new(-19, 0, 96), Vector3.new(19, 0, 89),
+		Vector3.new(-19, 0, 64), Vector3.new(19, 0, 57),
+	} do
+		addDetail("StreetPlanter", Vector3.new(5.2, 1.3, 5.2),
+			CFrame.new(position.X, 0.65, position.Z), PALETTE.stoneWarm, MATERIAL.stone)
+		local shrub = addDetail("StreetShrub", Vector3.new(4.2 + index % 2, 3.6, 4.2 + index % 2),
+			CFrame.new(position.X, 2.6, position.Z),
+			if index % 3 == 0 then PALETTE.moss else PALETTE.foliage, MATERIAL.grass)
+		shrub.Shape = Enum.PartType.Ball
+		local sideOffset = if index % 2 == 0 then -1.5 else 1.5
+		local shrubCluster = addDetail("StreetShrubCluster", Vector3.new(3.1, 2.8, 3.1),
+			CFrame.new(position.X + sideOffset, 2.9, position.Z + sideOffset * 0.45),
+			if index % 3 == 0 then PALETTE.foliage else PALETTE.moss, MATERIAL.grass)
+		shrubCluster.Shape = Enum.PartType.Ball
+	end
+
+	-- Two inward-facing benches make the keep court feel used while keeping the
+	-- full central aisle clear for the WarTable route and interaction prompts.
+	for _, side in { -1, 1 } do
+		local x = side * 33
+		addDetail("CourtBenchSeat", Vector3.new(2.5, 0.8, 9),
+			CFrame.new(x, 2.1, 69), PALETTE.timberLight, MATERIAL.timber)
+		addDetail("CourtBenchBack", Vector3.new(0.8, 3.2, 9),
+			CFrame.new(x + side * 1.1, 3.4, 69), PALETTE.timber, MATERIAL.timber)
+		for _, zOffset in { -3.2, 3.2 } do
+			addDetail("CourtBenchLeg", Vector3.new(1.1, 2, 1.1),
+				CFrame.new(x, 1, 69 + zOffset), PALETTE.timberDark, MATERIAL.timber)
+		end
+	end
+
+	-- Shallow interior buttresses give the long curtain walls a load-bearing
+	-- cadence. They remain decorative, so pathing and wall collision are exactly
+	-- the same as the audited shell.
+	for _, x in { -120, -40, 40, 120 } do
+		addDetail("WallButtress", Vector3.new(4, 10, 6),
+			CFrame.new(x, 5, -WALL_HALF + 4.2), PALETTE.stoneDark, MATERIAL.stone)
+	end
+	for _, x in { -120, -70, 70, 120 } do
+		addDetail("WallButtress", Vector3.new(4, 10, 6),
+			CFrame.new(x, 5, WALL_HALF - 4.2), PALETTE.stoneDark, MATERIAL.stone)
+	end
+	for _, z in { -120, -40, 40, 120 } do
+		for _, side in { -1, 1 } do
+			addDetail("WallButtress", Vector3.new(6, 10, 4),
+				CFrame.new(side * (WALL_HALF - 4.2), 5, z), PALETTE.stoneDark, MATERIAL.stone)
+		end
+	end
+
+	model:SetAttribute("StreetscapePartCount", madeCount)
+	model:SetAttribute("StreetscapePartBudget", STREET_DETAIL_BUDGET)
+	return madeCount
+end
+
 --- A curtain wall with battlements, corner towers and a gatehouse.
 ---
 --- Four flat slabs are a fence. Crenellations, towers and an arched gate are
@@ -426,25 +550,27 @@ local function renderShellWalls(model: Model, origin: CFrame, detailed: boolean)
 	-- than buildings dropped on grass. Foreign villages omit all internal road
 	-- geometry because fog only promises their exterior silhouette.
 	if detailed then
-		local street = WorldStyle.part("StreetMain", Vector3.new(18, 0.6, WALL_HALF * 2 - 20),
-			origin * CFrame.new(0, 0.3, 0), model, PALETTE.road, MATERIAL.road)
+		local streetLength = WALL_HALF * 2 - 20
+		local street = WorldStyle.part("StreetMain", Vector3.new(24, 0.6, streetLength),
+			origin * CFrame.new(0, 0.3, 0), model, PALETTE.cobbleLight, MATERIAL.road)
 		street.CastShadow = false
-		local cross = WorldStyle.part("StreetCross", Vector3.new(WALL_HALF * 2 - 20, 0.6, 18),
+		local cross = WorldStyle.part("StreetCross", Vector3.new(streetLength, 0.6, 20),
 			origin * CFrame.new(0, 0.3, 0), model, PALETTE.road, MATERIAL.road)
 		cross.CastShadow = false
 		local paving = {
-			{ "GateCourt", Vector3.new(72, 0.55, 50), Vector3.new(0, 0.32, 147) },
-			{ "KeepPlaza", Vector3.new(96, 0.55, 50), Vector3.new(0, 0.32, 61) },
-			{ "LaneWest", Vector3.new(11, 0.5, 205), Vector3.new(-82, 0.31, -2) },
-			{ "LaneEast", Vector3.new(11, 0.5, 205), Vector3.new(82, 0.31, -2) },
+			{ "GateCourt", Vector3.new(74, 0.55, 50), Vector3.new(0, 0.32, 147) },
+			{ "KeepPlaza", Vector3.new(82, 0.55, 44), Vector3.new(0, 0.32, 61) },
+			{ "LaneWest", Vector3.new(11, 0.5, 205), Vector3.new(-42, 0.31, -2) },
+			{ "LaneEast", Vector3.new(11, 0.5, 205), Vector3.new(42, 0.31, -2) },
 			{ "LaneNorth", Vector3.new(170, 0.5, 11), Vector3.new(0, 0.31, -94) },
 			{ "RampartLane", Vector3.new(110, 0.5, 9), Vector3.new(-88, 0.31, 130) },
 		}
 		for _, path in paving do
 			local lane = WorldStyle.part(path[1] :: string, path[2] :: Vector3,
-				origin * CFrame.new(path[3] :: Vector3), model, PALETTE.pathEdge, MATERIAL.road)
+				origin * CFrame.new(path[3] :: Vector3), model, PALETTE.cobbleDark, MATERIAL.road)
 			lane.CastShadow = false
 		end
+		renderStreetscape(model, origin)
 
 		-- A spawn is entitlement-bearing state. It exists only in a detailed,
 		-- owned settlement; a foreign silhouette can never become a respawn target.
@@ -613,10 +739,18 @@ local function windowRow(model: Model, root: CFrame, w: number, d: number, heigh
 				local recess = WorldStyle.part("WindowRecess", Vector3.new(5.2, windowHeight + 1, 0.55),
 					root * CFrame.new(x, height, face * (d / 2 + 0.83)), model, PALETTE.timberDark, MATERIAL.timber)
 				decorative(recess)
+				-- A few warm panes imply occupied rooms without multiplying
+				-- dynamic lights. The lead-dark mullion keeps both colours reading
+				-- as late-medieval glazing rather than flat glowing rectangles.
+				local warmPane = if face > 0 then index % 2 == 0 else index % 3 == 0
+				local paneColour = if warmPane then PALETTE.windowGlow else PALETTE.window
 				local pane = WorldStyle.part("Window", Vector3.new(3.8, windowHeight - 0.8, 0.22),
-					root * CFrame.new(x, height, face * (d / 2 + 1.22)), model, PALETTE.window, MATERIAL.glass)
+					root * CFrame.new(x, height, face * (d / 2 + 1.22)), model, paneColour, MATERIAL.glass)
 				pane.Reflectance = 0.12
 				decorative(pane)
+				decorative(WorldStyle.part("WindowMullion", Vector3.new(0.38, windowHeight - 0.45, 0.32),
+					root * CFrame.new(x, height, face * (d / 2 + 1.38)),
+					model, PALETTE.timberDark, MATERIAL.timber))
 				for _, sy in { -1, 1 } do
 					local trim = WorldStyle.part(if sy > 0 then "WindowLintel" else "WindowSill",
 						Vector3.new(5.8, 0.65, 0.65),
@@ -635,17 +769,22 @@ local function windowRow(model: Model, root: CFrame, w: number, d: number, heigh
 			local recess = WorldStyle.part("SideWindowRecess", Vector3.new(0.55, windowHeight + 1, 5.2),
 				root * CFrame.new(side * (w / 2 + 0.83), height, z), model, PALETTE.timberDark, MATERIAL.timber)
 			decorative(recess)
+			local paneColour = if sideIndex % 2 == 0 then PALETTE.windowGlow else PALETTE.window
 			local pane = WorldStyle.part("SideWindow", Vector3.new(0.22, windowHeight - 0.8, 3.8),
-				root * CFrame.new(side * (w / 2 + 1.22), height, z), model, PALETTE.window, MATERIAL.glass)
+				root * CFrame.new(side * (w / 2 + 1.22), height, z), model, paneColour, MATERIAL.glass)
 			pane.Reflectance = 0.12
 			decorative(pane)
+			decorative(WorldStyle.part("SideWindowMullion", Vector3.new(0.32, windowHeight - 0.45, 0.38),
+				root * CFrame.new(side * (w / 2 + 1.38), height, z),
+				model, PALETTE.timberDark, MATERIAL.timber))
 		end
 	end
 end
 
---- Exposed timber framing: corner posts and a mid rail. Cheap, and it is the
---- detail that reads as medieval from any distance.
-local function timberFrame(model: Model, root: CFrame, w: number, d: number, h: number)
+--- Exposed timber framing with filled panels below and construction following
+--- the closed gable above. The rake timbers lie against the triangular infill;
+--- none of them is a freestanding vertical roof fin.
+local function timberFrame(model: Model, root: CFrame, w: number, d: number, h: number, roofRise: number)
 	local beam = 2.25
 	for _, sx in { -1, 1 } do
 		for _, sz in { -1, 1 } do
@@ -660,6 +799,14 @@ local function timberFrame(model: Model, root: CFrame, w: number, d: number, h: 
 			root * CFrame.new(0, h * 0.62, face * (d / 2 + 0.92)),
 			model, PALETTE.timber, MATERIAL.timber)
 		decorative(rail)
+		decorative(WorldStyle.part("SillRail", Vector3.new(w, 1.35, 0.72),
+			root * CFrame.new(0, 2.2, face * (d / 2 + 1.08)),
+			model, PALETTE.timberDark, MATERIAL.timber))
+		for _, bay in { -1, 1 } do
+			decorative(WorldStyle.part("BayPost", Vector3.new(1.2, h - 2.8, 0.72),
+				root * CFrame.new(bay * w / 4, h / 2 + 0.7, face * (d / 2 + 1.12)),
+				model, PALETTE.timber, MATERIAL.timber))
+		end
 
 		-- Two real diagonal braces per face. They project farther than the rail,
 		-- so neither the plaster nor the rail shares the same depth plane.
@@ -675,6 +822,25 @@ local function timberFrame(model: Model, root: CFrame, w: number, d: number, h: 
 				model, PALETTE.timberDark, MATERIAL.timber)
 			brace:SetAttribute("DiagonalTimber", true)
 			decorative(brace)
+		end
+
+		local kingPost = WorldStyle.part("GableKingPost", Vector3.new(1.25, roofRise, 0.78),
+			root * CFrame.new(0, h + roofRise / 2, face * (d / 2 + 1.06)),
+			model, PALETTE.timberDark, MATERIAL.timber)
+		kingPost:SetAttribute("GableTimber", true)
+		decorative(kingPost)
+		for _, side in { -1, 1 } do
+			local x1, y1 = side * (w / 2 - 1.2), h + 0.25
+			local x2, y2 = side * 0.7, h + roofRise - 0.35
+			local dx, dy = x2 - x1, y2 - y1
+			local length = math.sqrt(dx * dx + dy * dy)
+			local rake = WorldStyle.part("GableRafter", Vector3.new(length, 1.15, 0.78),
+				root
+					* CFrame.new((x1 + x2) / 2, (y1 + y2) / 2, face * (d / 2 + 1.08))
+					* CFrame.Angles(0, 0, math.atan2(dy, dx)),
+				model, PALETTE.timberDark, MATERIAL.timber)
+			rake:SetAttribute("GableTimber", true)
+			decorative(rake)
 		end
 	end
 end
@@ -868,17 +1034,80 @@ local function buildHQLandmark(model: Model, root: CFrame, w: number, d: number,
 			root * opening, model, PALETTE.window, MATERIAL.glass))
 	end
 
-	-- Interior pieces stay against the walls. The war table is at local z=-4
-	-- and occupies x +/-9; the central 28-by-20-stud command aisle remains open.
+	-- The hall needs its own ceiling below the exterior roof. Besides giving the
+	-- room the heavy oak-beam silhouette of a keep, this prevents the sloped roof
+	-- panels and the sky beyond their eaves from being visible inside. It remains
+	-- non-colliding so the proven walkable volume is unchanged, but unlike small
+	-- decoration it casts a shadow and makes the candlelight readable.
+	local ceiling = WorldStyle.part("HQInteriorCeiling", Vector3.new(w - 1.5, 1.2, d - 1.5),
+		root * CFrame.new(0, h - 0.6, 0), model, PALETTE.timberDark, MATERIAL.timber)
+	ceiling:SetAttribute("InteriorCeiling", true)
+	ceiling.CanCollide = false
+	ceiling.CanTouch = false
+	ceiling.CanQuery = false
+	ceiling.CastShadow = true
+	for _, zFactor in { -0.35, -0.12, 0.12, 0.35 } do
+		local beam = WorldStyle.part("HQCeilingBeam", Vector3.new(w - 1.8, 1.15, 1.15),
+			root * CFrame.new(0, h - 1.65, zFactor * (d - 3)),
+			model, PALETTE.timber, MATERIAL.timber)
+		decorative(beam)
+	end
+
+	-- Shallow engaged piers break up the long wall planes without changing the
+	-- shell collision. The rear pair frames the wool hangings; the side pair
+	-- gives the benches and sconces an architectural bay of their own.
+	local pilasterHeight = h - 4
 	for _, side in { -1, 1 } do
-		local bench = WorldStyle.part("HQInteriorBench", Vector3.new(2.4, 2.2, 11),
-			root * CFrame.new(side * (w / 2 - 2.2), 1.1, -4), model, PALETTE.timberDark, MATERIAL.timber)
+		decorative(WorldStyle.part("HQRearPilaster", Vector3.new(1.7, pilasterHeight, 1),
+			root * CFrame.new(side * (w * 0.34), 2 + pilasterHeight / 2, -(d / 2 - 1.1)),
+			model, PALETTE.stoneDark, MATERIAL.stone))
+		decorative(WorldStyle.part("HQSidePilaster", Vector3.new(1, pilasterHeight, 2.2),
+			root * CFrame.new(side * (w / 2 - 1.1), 2 + pilasterHeight / 2, -10),
+			model, PALETTE.stoneDark, MATERIAL.stone))
+	end
+
+	-- Interior pieces stay against the walls. The war table is at local z=-4
+	-- and occupies x +/-10; the central command aisle remains open.
+	for _, side in { -1, 1 } do
+		local bench = WorldStyle.part("HQInteriorBench", Vector3.new(2.8, 0.65, 11),
+			root * CFrame.new(side * (w / 2 - 2.25), 2.25, -4), model, PALETTE.timberDark, MATERIAL.timber)
 		bench.CanTouch = false
 		bench.CanQuery = false
-		bench.CastShadow = false
-		local tapestry = WorldStyle.part("HQInteriorTapestry", Vector3.new(6, 10, 0.35),
-			root * CFrame.new(side * 8, 12, -(d / 2 - 0.7)), model, PALETTE.banner, MATERIAL.cloth)
+		for _, legZ in { -7.8, -0.2 } do
+			decorative(WorldStyle.part("HQBenchTrestle", Vector3.new(2.35, 1.95, 0.7),
+				root * CFrame.new(side * (w / 2 - 2.25), 0.975, legZ),
+				model, PALETTE.timber, MATERIAL.timber))
+		end
+
+		local tapestryX = side * (w * 0.2)
+		local wallFaceZ = -(d / 2 - 0.95)
+		local tapestry = WorldStyle.part("HQInteriorTapestry", Vector3.new(4.8, 7.2, 0.3),
+			root * CFrame.new(tapestryX, 11.2, wallFaceZ), model, PALETTE.banner, MATERIAL.cloth)
 		decorative(tapestry)
+		decorative(WorldStyle.part("HQTapestryRail", Vector3.new(6, 0.45, 0.65),
+			root * CFrame.new(tapestryX, 15.05, wallFaceZ + 0.05),
+			model, PALETTE.timberLight, MATERIAL.timber))
+		decorative(WorldStyle.part("HQTapestryHem", Vector3.new(5, 0.32, 0.38),
+			root * CFrame.new(tapestryX, 7.55, wallFaceZ + 0.08),
+			model, PALETTE.bannerGold, MATERIAL.cloth))
+
+		-- One small iron candle sconce per side is enough to model the warm
+		-- pools in the reference without multiplying shadow-casting lights.
+		local sconceX = side * (w / 2 - 1.45)
+		local bracket = WorldStyle.part("HQWallSconce", Vector3.new(1.8, 0.35, 0.35),
+			root * CFrame.new(sconceX, 8.5, -4), model, PALETTE.iron, MATERIAL.iron)
+		decorative(bracket)
+		local candle = WorldStyle.part("HQSconceCandle", Vector3.new(1.25, 0.42, 0.42),
+			root * CFrame.new(side * (w / 2 - 2.25), 9.35, -4) * CFrame.Angles(0, 0, math.rad(90)),
+			model, PALETTE.candleWax, Enum.Material.SmoothPlastic)
+		decorative(candle)
+		local glow = Instance.new("PointLight")
+		glow.Name = "WarRoomGlow"
+		glow.Color = PALETTE.warmLight
+		glow.Brightness = 1.15
+		glow.Range = 19
+		glow.Shadows = false
+		glow.Parent = candle
 	end
 end
 
@@ -947,6 +1176,20 @@ local function walledShell(model: Model, root: CFrame, w: number, d: number, h: 
 			root * (course[2] :: CFrame), model, PALETTE.stoneDark, MATERIAL.stone))
 	end
 
+	-- A shallow stone socle takes splash and cart wear at street level. It is
+	-- applied as collisionless facing so the shell's proven doorway and interior
+	-- collision remain unchanged.
+	for _, facing in {
+		{ Vector3.new(w + 0.5, 3.2, 0.65), CFrame.new(0, 1.6, -(d / 2 + 0.92)) },
+		{ Vector3.new(0.65, 3.2, d - 1), CFrame.new(w / 2 + 0.92, 1.6, 0) },
+		{ Vector3.new(0.65, 3.2, d - 1), CFrame.new(-(w / 2 + 0.92), 1.6, 0) },
+		{ Vector3.new(pier, 3.2, 0.65), CFrame.new(doorW / 2 + pier / 2, 1.6, d / 2 + 0.92) },
+		{ Vector3.new(pier, 3.2, 0.65), CFrame.new(-(doorW / 2 + pier / 2), 1.6, d / 2 + 0.92) },
+	} do
+		decorative(WorldStyle.part("StoneSocle", facing[1] :: Vector3,
+			root * (facing[2] :: CFrame), model, PALETTE.stoneDark, MATERIAL.stone))
+	end
+
 	-- Collisionless arch stones describe the opening while the absent wall
 	-- remains the actual walk-through doorway.
 	for index = 0, 4 do
@@ -959,6 +1202,16 @@ local function walledShell(model: Model, root: CFrame, w: number, d: number, h: 
 			model, PALETTE.stoneWarm, MATERIAL.stone)
 		decorative(archStone)
 	end
+	-- Timber jambs make the walk-through opening legible in shadow while
+	-- preserving Adam's requirement that there is no door to operate.
+	for _, side in { -1, 1 } do
+		decorative(WorldStyle.part("EntryJamb", Vector3.new(1.15, doorH, 1),
+			root * CFrame.new(side * (doorW / 2 + 0.45), doorH / 2, d / 2 + 1.38),
+			model, PALETTE.timberDark, MATERIAL.timber))
+	end
+	decorative(WorldStyle.part("EntryHeader", Vector3.new(doorW + 2, 1.2, 1),
+		root * CFrame.new(0, doorH + 0.35, d / 2 + 1.38),
+		model, PALETTE.timberDark, MATERIAL.timber))
 	-- doorstep, so the opening reads as an entrance from a distance
 	WorldStyle.part("Step", Vector3.new(doorW + 4, 0.6, 4),
 		root * CFrame.new(0, 0.3, d / 2 + 2), model, PALETTE.road, MATERIAL.road).CastShadow = false
@@ -1010,7 +1263,7 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 	local semanticCount = 0
 	if level <= 0 then
 		local plot = WorldStyle.part("BuildPlot", Vector3.new(sp.w, 1, sp.d),
-			root * CFrame.new(0, 0.5, 0), model, PALETTE.dirt, MATERIAL.road)
+			root * CFrame.new(0, 0.5, 0), model, PALETTE.dirt, MATERIAL.dirt)
 		plot.CastShadow = false
 		for _, sx in { -1, 1 } do
 			for _, sz in { -1, 1 } do
@@ -1030,7 +1283,7 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 		pitchedRoof(model, root, width, depth, sp.h, sp.roof, sp.roofColour, sp.roofMat, sp.wall, sp.wallMat)
 		windowRow(model, root, width, depth, sp.h * 0.6)
 		if sp.timbered then
-			timberFrame(model, root, width, depth, sp.h)
+			timberFrame(model, root, width, depth, sp.h, sp.roof)
 		end
 		if sp.chimney then
 			local stack = WorldStyle.part("Chimney", Vector3.new(4, sp.roof + 8, 4),
