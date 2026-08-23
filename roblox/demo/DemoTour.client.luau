@@ -159,6 +159,15 @@ local function walkToStructure(model: Model, buildingName: string, timeout: numb
 	walkTo(model, anchor.X - centerX, anchor.Z - centerZ, timeout)
 end
 
+-- The sealed v3 keep has ONE doorway: south face, on the centreline. walkTo
+-- is a straight-line MoveTo with no pathfinding, so approaching the table from
+-- anywhere but the door presses the avatar into the keep wall until the
+-- timeout. Stage the approach: doorway first, then up the clear central aisle.
+local function walkToWarTable(model: Model)
+	walkTo(model, 0, 44, 12) -- outside the doorless south entry
+	walkTo(model, 0, 24, 8) -- through the door, up the aisle, inside prompt range
+end
+
 local function findPrompt(model: Model, buildingName: string, promptName: string): ProximityPrompt?
 	if buildingName == "WarTable" then
 		local slab = model:FindFirstChild("WarTable")
@@ -448,6 +457,12 @@ task.spawn(function()
 		-- x=0 avoids facades, fences, planters and the gatehouse collision volume.
 		showcaseCamera(model, Vector3.new(0, 7.2, 132), Vector3.new(0, 10.5, 24), 68)
 		task.wait(8)
+		-- The third beat stands outside the walls at head height, facing the
+		-- gatehouse straight on: towers, arch, banner and crenellations fill the
+		-- frame the way an arriving traveller sees them. It exists so every
+		-- capture run gets the audit's matching-angle gate shot for free.
+		showcaseCamera(model, Vector3.new(0, 6, 265), Vector3.new(0, 14, 200), 55)
+		task.wait(8)
 		restoreFollowCamera()
 		task.wait(1)
 		-- up the main street from the gate
@@ -463,7 +478,7 @@ task.spawn(function()
 		holdPrompt(model, "B_barracks", "RecruitPrompt")
 		task.wait(3)
 		-- to the war table: the camera lifts into the command view
-		walkTo(model, 4, 20, 10)
+		walkToWarTable(model)
 		holdPrompt(model, "WarTable", "TablePrompt")
 		task.wait(4) -- overhead view + Village panel on camera
 
@@ -484,7 +499,7 @@ task.spawn(function()
 				waited += task.wait(1)
 			end
 			-- back to the table for the payoff shot: the report card.
-			walkTo(model, 4, 20, 10)
+			walkToWarTable(model)
 			holdPrompt(model, "WarTable", "TablePrompt")
 			task.wait(1)
 			setTab("war")
@@ -520,7 +535,7 @@ task.spawn(function()
 					print("[Demo] a village changed hands — filming the celebration")
 					task.wait(9)
 				end
-				walkTo(model, 4, 20, 10)
+				walkToWarTable(model)
 				holdPrompt(model, "WarTable", "TablePrompt")
 				task.wait(1)
 				setTab("war")
