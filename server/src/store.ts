@@ -11,7 +11,12 @@ import {
   armyCasualties,
   armyPopulation,
   armyPower,
+  BREEDING_PAIR,
+  accrueHorses,
   applyRealmOfPower,
+  cavalryConversion,
+  horseCapacity,
+  planConversion,
   countSurvivesEscort,
   ramWallAfterBattle,
   realmOfPowerRegen,
@@ -362,6 +367,7 @@ export class SharedWorldStore {
     this.migrateFreeholdSeatKind();
     this.migrateRealmOfPower();
     this.migrateBuildQueue();
+    this.migrateHorses();
   }
 
   /**
@@ -437,6 +443,60 @@ export class SharedWorldStore {
     this.db.exec(readFileSync(migrationPath, "utf8"));
     this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)")
       .run(9, this.now().toISOString());
+  }
+
+  /** Migration 0010, CONDITIONAL — see migrateRealmOfPower for why. */
+  private migrateHorses(): void {
+    const columns = this.db.prepare("PRAGMA table_info(local_villages)").all() as DbRow[];
+    if (columns.some((column) => String(column.name) === "horses")) return;
+    const migrationPath = fileURLToPath(new URL("../db/migrations/0010_horses.sql", import.meta.url));
+    this.db.exec(readFileSync(migrationPath, "utf8"));
+    this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)")
+      .run(10, this.now().toISOString());
+  }
+
+  /**
+   * Bring a village's herd up to date.
+   *
+   * A Stable stocks itself the first time it stands: [Adam] horses are BRED,
+   * and a stable with no horses is not a stable. After that the herd grows on
+   * its own, capped by Stable level — the cap being the pressure that makes a
+   * breeder want to sell rather than a rule telling them to.
+   */
+  private accrueHorses(villageId: string, at: Date): void {
+    const row = this.db.prepare("SELECT buildings_json, horses, horses_at FROM local_villages WHERE id = ?")
+      .get(villageId) as DbRow | undefined;
+    if (!row) return;
+    const stable = parseJson<BuildingLevels>(row.buildings_json).stable ?? 0;
+    const held = Number(row.horses ?? 0);
+
+    // No Stable: nothing breeds. `horses_at` is deliberately left NULL, because
+    // a NULL is what marks "this village has never had a Stable" - stamping it
+    // here would mean a Stable built later never received its breeding pair.
+    if (stable < 1) return;
+
+    // First time a Stable stands here: it arrives with its pair. [Adam] horses
+    // are BRED, and a stable with no horses is not a stable.
+    if (!row.horses_at) {
+      this.db.prepare("UPDATE local_villages SET horses = ?, horses_at = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(Math.max(held, BREEDING_PAIR), at.toISOString(), villageId);
+      return;
+    }
+
+    const since = Date.parse(String(row.horses_at));
+    if (!Number.isFinite(since)) {
+      this.db.prepare("UPDATE local_villages SET horses_at = ? WHERE id = ?").run(at.toISOString(), villageId);
+      return;
+    }
+    const hours = Math.max(0, (at.getTime() - since) / 3_600_000);
+    if (hours <= 0) return;
+    const grown = accrueHorses({ horses: held, stableLevel: stable, hours });
+    if (grown !== held) {
+      this.db.prepare("UPDATE local_villages SET horses = ?, horses_at = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(grown, at.toISOString(), villageId);
+    } else {
+      this.db.prepare("UPDATE local_villages SET horses_at = ? WHERE id = ?").run(at.toISOString(), villageId);
+    }
   }
 
   private seedWorld(): void {
@@ -1194,7 +1254,39 @@ export class SharedWorldStore {
     const army = parseJson<Army>(villageRow.army_json);
     const prerequisiteProblem = troopRequirementProblem(payload.troop, buildings);
     if (prerequisiteProblem) return this.reject(envelope.commandId, "PREREQUISITE_MISSING", prerequisiteProblem, currentVersion);
-    const cost = troopCost(payload.troop, payload.quantity);
+    // CAVALRY IS CONVERTED, NOT TRAINED. [Adam] "the stables is to add horses to
+    // the troops to create cavalry." A Crusader is a Berserker you already hold
+    // plus a horse, so it costs the time spent on the soldier AND the time the
+    // Stable spent on the horse - which is what makes cavalry rate-limited
+    // rather than cash-limited. No resource cost: you already paid for the man.
+    const conversion = cavalryConversion(payload.troop);
+    if (conversion) {
+      this.accrueHorses(payload.villageId, this.now());
+      const horsesRow = this.db.prepare("SELECT horses FROM local_villages WHERE id = ?").get(payload.villageId) as DbRow;
+      const horses = Number(horsesRow?.horses ?? 0);
+      const plan = planConversion({
+        unit: payload.troop,
+        quantity: payload.quantity,
+        soldiers: army[conversion.from],
+        horses,
+      });
+      if (plan.converted < payload.quantity) {
+        // Name WHICH one ran out. The first time a player reads "you have the
+        // men, you are short of horses" is the moment a breeder becomes someone
+        // worth knowing; a generic refusal would hide the whole profession.
+        const message = plan.shortfall === "horses"
+          ? `Not enough horses. ${payload.quantity} ${TROOPS[payload.troop].plural} need ${payload.quantity}, and the Stable holds ${horses}.`
+          : `Not enough ${TROOPS[conversion.from].plural}. ${payload.quantity} ${TROOPS[payload.troop].plural} need ${payload.quantity}, and the village holds ${army[conversion.from]}.`;
+        return this.reject(envelope.commandId, "INSUFFICIENT_TROOPS", message, currentVersion);
+      }
+      // The soldiers and horses are committed the moment the order is placed -
+      // they are off the board, exactly like resources spent on training.
+      army[conversion.from] -= plan.soldiersUsed;
+      this.db.prepare("UPDATE local_villages SET army_json = ?, horses = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(JSON.stringify(army), horses - plan.horsesUsed, payload.villageId);
+    }
+
+    const cost = conversion ? { wood: 0, stone: 0, iron: 0 } : troopCost(payload.troop, payload.quantity);
     if (!canAfford(resources, cost)) return this.reject(envelope.commandId, "INSUFFICIENT_RESOURCES", "The village cannot afford that recruitment order.", currentVersion);
     const usedPopulation = armyPopulation(army) + this.queuedPopulation(payload.villageId);
     if (usedPopulation + TROOPS[payload.troop].population * payload.quantity > populationCapacity(buildings.farm)) {
@@ -1942,6 +2034,9 @@ export class SharedWorldStore {
   }
 
   private accrueVillage(villageId: string, target: Date): void {
+    // The herd rides along with the economy tick: same lazy shape, so a village
+    // nobody looked at for a week owes no timer work.
+    this.accrueHorses(villageId, target);
     const row = this.db.prepare(`
       SELECT v.resources_json, v.buildings_json, e.last_materialized_at, e.resource_carry_json
       FROM local_villages v JOIN local_village_economy e ON e.village_id = v.id WHERE v.id = ?
@@ -2198,6 +2293,8 @@ export class SharedWorldStore {
       y: Number(row.y),
       isCapital: Boolean(row.is_capital),
       realmOfPower: Number(row.realm_of_power ?? 0),
+      horses: Number(row.horses ?? 0),
+      horsesMax: horseCapacity(parseJson<BuildingLevels>(row.buildings_json).stable ?? 0),
       realmOfPowerMax: Math.max(1, settlementPoints(parseJson<BuildingLevels>(row.buildings_json))),
       resources: parseJson(row.resources_json),
       buildings: parseJson(row.buildings_json),

@@ -472,6 +472,21 @@ end
 local buildTablePanel: () -> ()
 
 local function buildVillageTab(scroll: ScrollingFrame, village: any, villageId: string)
+	-- The herd, shown whenever there is a Stable.
+	--
+	-- [Adam] "the stables is to add horses to the troops to create cavalry."
+	-- Horses are the only thing in the settlement that money cannot hurry, so
+	-- the count is worth a line of its own rather than being buried in a
+	-- recruitment refusal.
+	local horses = math.floor(tonumber(village.horses) or 0)
+	local horsesMax = math.floor(tonumber(village.horsesMax) or 0)
+	if horsesMax > 0 then
+		sectionHeader(scroll, 0, string.format("HORSES  ·  %d / %d", horses, horsesMax))
+		noteRow(scroll, 0, if horses >= horsesMax
+			then "The stable is full. Every hour from here is breeding wasted — spend them on cavalry, or sell them."
+			else "Bred at the Stable, never bought. A Crusader is a Berserker plus a horse; a Black Knight is a Templar plus a horse.", 44)
+	end
+
 	for index, building in Buildings.ORDER do
 		local level = tonumber(village.buildings and village.buildings[building]) or 0
 		actionRow(scroll, index, string.format("%s  Lv %d", Buildings.displayName(building), level), "Upgrade",

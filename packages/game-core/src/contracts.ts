@@ -124,6 +124,10 @@ export type VillageState = {
    */
   realmOfPower: number;
   realmOfPowerMax: number;
+  /** The herd. A resource, not a unit: horses do not fight and cannot march. */
+  horses: number;
+  /** What the Stable can hold. Sitting at the cap wastes production. */
+  horsesMax: number;
   resources: ResourceStock;
   buildings: BuildingLevels;
   army: Army;
