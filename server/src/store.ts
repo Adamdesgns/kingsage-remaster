@@ -233,6 +233,20 @@ const DEFAULT_AUTO_RESOLVE_MS = 120_000;
 
 const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[];
 const TROOP_TYPES = TROOP_ORDER as readonly TroopType[];
+
+/**
+ * How many construction jobs one village may hold at once.
+ *
+ * [OURS — Adam, 2026-08-22] *"I want to be able to que as many jobs as possible
+ * then they auto complete as the resources are available if you don't have
+ * them."* One-at-a-time was the whole complaint: the village refused a second
+ * order before he had built anything.
+ *
+ * A limit still exists, because an unbounded queue is a way to pin work in a
+ * village forever and it makes the panel unreadable. Ten is enough to line up a
+ * whole evening of building.
+ */
+export const BUILD_QUEUE_LIMIT = 10;
 const RESOURCE_KINDS = ["wood", "stone", "iron"] as const;
 
 function parseJson<T>(value: unknown): T {
@@ -347,6 +361,7 @@ export class SharedWorldStore {
     }
     this.migrateFreeholdSeatKind();
     this.migrateRealmOfPower();
+    this.migrateBuildQueue();
   }
 
   /**
@@ -400,6 +415,28 @@ export class SharedWorldStore {
     }
     this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)")
       .run(8, now);
+  }
+
+  /**
+   * Migration 0009, run CONDITIONALLY - SQLite cannot alter a CHECK constraint,
+   * so widening `status` to accept 'waiting' means rebuilding the table, and
+   * migrate() replays everything in its unconditional loop.
+   *
+   * Decided by reading the LIVE SCHEMA rather than the migrations table, for
+   * the same reason as 0007: a row saying "applied" is a claim, the constraint
+   * text is the fact.
+   */
+  private migrateBuildQueue(): void {
+    const row = this.db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'local_construction_jobs'",
+    ).get() as DbRow | undefined;
+    if (!row) return;
+    if (String(row.sql).includes("'waiting'")) return;
+
+    const migrationPath = fileURLToPath(new URL("../db/migrations/0009_build_queue.sql", import.meta.url));
+    this.db.exec(readFileSync(migrationPath, "utf8"));
+    this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)")
+      .run(9, this.now().toISOString());
   }
 
   private seedWorld(): void {
@@ -890,48 +927,84 @@ export class SharedWorldStore {
         this.insertCommand(player, envelope, result);
         return;
       }
-      const queued = this.db.prepare("SELECT 1 FROM local_construction_jobs WHERE village_id = ? AND status = 'queued'")
-        .get(payload.villageId);
-      if (queued) {
-        result = this.reject(envelope.commandId, "QUEUE_FULL", "That village already has an active construction job.", currentVersion);
+      // 'queued' is the job actually building; 'waiting' is one holding its
+      // place until the village can pay for it. `completes_at` is NOT NULL in
+      // the schema, so the status carries the distinction rather than a null.
+      const pending = this.db.prepare(
+        "SELECT building, target_level, status FROM local_construction_jobs WHERE village_id = ? AND status IN ('queued', 'waiting') ORDER BY rowid",
+      ).all(payload.villageId) as DbRow[];
+      if (pending.length >= BUILD_QUEUE_LIMIT) {
+        result = this.reject(envelope.commandId, "QUEUE_FULL",
+          `That village is already holding ${BUILD_QUEUE_LIMIT} construction orders.`, currentVersion);
         this.insertCommand(player, envelope, result);
         return;
       }
 
       const resources = parseJson<ResourceStock>(villageRow.resources_json);
       const buildings = parseJson<BuildingLevels>(villageRow.buildings_json);
-      const currentLevel = buildings[payload.building];
+
+      // Stack on top of what is already queued. Two Timber Camp orders mean
+      // level 2 THEN level 3 - reading the standing level twice would silently
+      // throw the second upgrade away.
+      const alreadyQueued = pending.filter((job) => String(job.building) === payload.building).length;
+      const currentLevel = buildings[payload.building] + alreadyQueued;
+      if (currentLevel >= BUILDINGS[payload.building].maxLevel) {
+        result = this.reject(envelope.commandId, "INVALID_COMMAND",
+          `${BUILDINGS[payload.building].name} is already at its maximum level.`, currentVersion);
+        this.insertCommand(player, envelope, result);
+        return;
+      }
       const prerequisiteProblem = buildingRequirementProblem(payload.building, buildings);
       if (prerequisiteProblem) {
         result = this.reject(envelope.commandId, "PREREQUISITE_MISSING", prerequisiteProblem, currentVersion);
         this.insertCommand(player, envelope, result);
         return;
       }
-      const cost = buildingCost(payload.building, currentLevel);
-      if (!canAfford(resources, cost)) {
-        result = this.reject(envelope.commandId, "INSUFFICIENT_RESOURCES", "The village cannot afford that upgrade.", currentVersion);
-        this.insertCommand(player, envelope, result);
-        return;
-      }
-      resources.wood -= cost.wood;
-      resources.stone -= cost.stone;
-      resources.iron -= cost.iron;
+
+      // Resources are charged when a job STARTS, never when it is queued.
+      // Adam's rule: line up what you want, and it goes ahead as production
+      // covers it. Queueing is free; building is not.
+      const runningJob = pending.some((job) => String(job.status) === "queued");
+      const canStartNow = !runningJob && canAfford(resources, buildingCost(payload.building, currentLevel));
       const startedAt = this.now();
-      const durationMs = this.buildDurationMs || buildingDurationSeconds(payload.building, currentLevel, buildings.hq) * 1000;
-      const job: ConstructionJob = {
-        id: `construction-${randomUUID()}`,
-        villageId: payload.villageId,
-        building: payload.building,
-        targetLevel: currentLevel + 1,
-        startedAt: startedAt.toISOString(),
-        completesAt: new Date(startedAt.getTime() + durationMs).toISOString(),
-      };
-      this.db.prepare("UPDATE local_villages SET resources_json = ?, state_version = state_version + 1 WHERE id = ?")
-        .run(JSON.stringify(resources), payload.villageId);
+      let job: ConstructionJob;
+      if (canStartNow) {
+        const cost = buildingCost(payload.building, currentLevel);
+        resources.wood -= cost.wood;
+        resources.stone -= cost.stone;
+        resources.iron -= cost.iron;
+        const durationMs = this.buildDurationMs || buildingDurationSeconds(payload.building, currentLevel, buildings.hq) * 1000;
+        job = {
+          id: `construction-${randomUUID()}`,
+          villageId: payload.villageId,
+          building: payload.building,
+          targetLevel: currentLevel + 1,
+          startedAt: startedAt.toISOString(),
+          completesAt: new Date(startedAt.getTime() + durationMs).toISOString(),
+        };
+        this.db.prepare("UPDATE local_villages SET resources_json = ?, state_version = state_version + 1 WHERE id = ?")
+          .run(JSON.stringify(resources), payload.villageId);
+      } else {
+        // Waiting: no completion time yet. `startNextConstruction` picks it up
+        // the moment the village can pay, which is what makes the queue drain
+        // by itself.
+        // Waiting: `completesAt` is only a placeholder and means nothing until
+        // startNextConstruction sets a real one. The 'waiting' status is what
+        // keeps materializeDueJobs from ever completing an unpaid job.
+        job = {
+          id: `construction-${randomUUID()}`,
+          villageId: payload.villageId,
+          building: payload.building,
+          targetLevel: currentLevel + 1,
+          startedAt: startedAt.toISOString(),
+          completesAt: startedAt.toISOString(),
+        };
+      }
       this.db.prepare(`
         INSERT INTO local_construction_jobs(id, world_id, village_id, building, target_level, started_at, completes_at, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'queued')
-      `).run(job.id, envelope.worldId, job.villageId, job.building, job.targetLevel, job.startedAt, job.completesAt);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(job.id, envelope.worldId, job.villageId, job.building, job.targetLevel, job.startedAt, job.completesAt,
+        canStartNow ? "queued" : "waiting");
       const worldVersion = this.incrementWorldVersion(envelope.worldId);
       const village = this.readVillage(payload.villageId);
       published.push(this.insertEvent(envelope.worldId, worldVersion, "village.changed", { village, constructionJob: job }));
@@ -1623,7 +1696,85 @@ export class SharedWorldStore {
     return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, battle, march } };
   }
 
+  /**
+   * Start the next waiting construction job in a village, if it can be paid for.
+   *
+   * This is what makes the queue drain by itself. A job sits with no completion
+   * time until the village can afford it; every time the world is read or a job
+   * finishes, this runs and moves the queue along. Adam's rule, exactly: queue
+   * as many as you like, and they go ahead as the resources arrive.
+   *
+   * Costed at START, against the level the job will actually reach - so a
+   * stacked upgrade pays the price of the level it builds, not the one that was
+   * standing when it was queued.
+   */
+  private startNextConstruction(villageId: string, at: Date = this.now()): boolean {
+    const running = this.db.prepare(
+      "SELECT 1 FROM local_construction_jobs WHERE village_id = ? AND status = 'queued'",
+    ).get(villageId);
+    if (running) return false;
+
+    const next = this.db.prepare(
+      "SELECT id, building, target_level FROM local_construction_jobs WHERE village_id = ? AND status = 'waiting' ORDER BY rowid LIMIT 1",
+    ).get(villageId) as DbRow | undefined;
+    if (!next) return false;
+
+    // Bring income up to the moment the job would start. A queue catching up
+    // after an offline day must be paid for with the resources the village had
+    // AT EACH POINT, not with today's balance.
+    this.accrueVillage(villageId, at);
+    const villageRow = this.db.prepare("SELECT resources_json, buildings_json FROM local_villages WHERE id = ?")
+      .get(villageId) as DbRow | undefined;
+    if (!villageRow) return false;
+
+    const resources = parseJson<ResourceStock>(villageRow.resources_json);
+    const buildings = parseJson<BuildingLevels>(villageRow.buildings_json);
+    const building = String(next.building) as BuildingType;
+    const fromLevel = Number(next.target_level) - 1;
+    const cost = buildingCost(building, fromLevel);
+    if (!canAfford(resources, cost)) return false;
+
+    resources.wood -= cost.wood;
+    resources.stone -= cost.stone;
+    resources.iron -= cost.iron;
+    const startedAt = at;
+    const durationMs = this.buildDurationMs || buildingDurationSeconds(building, fromLevel, buildings.hq) * 1000;
+    this.db.prepare("UPDATE local_villages SET resources_json = ?, state_version = state_version + 1 WHERE id = ?")
+      .run(JSON.stringify(resources), villageId);
+    this.db.prepare("UPDATE local_construction_jobs SET started_at = ?, completes_at = ?, status = 'queued' WHERE id = ?")
+      .run(startedAt.toISOString(), new Date(startedAt.getTime() + durationMs).toISOString(), String(next.id));
+    return true;
+  }
+
+  /** Move every village's construction queue along. Cheap: one row per village. */
+  private drainConstructionQueues(): void {
+    const villages = this.db.prepare(
+      "SELECT DISTINCT village_id FROM local_construction_jobs WHERE status = 'waiting'",
+    ).all() as DbRow[];
+    for (const row of villages) {
+      const villageId = String(row.village_id);
+      // Accrue first, or a village that earned the cost while nobody was
+      // looking would still read as too poor to start.
+      this.accrueVillage(villageId, this.now());
+      this.startNextConstruction(villageId);
+    }
+  }
+
   materializeDueJobs(): StoredWorldEvent[] {
+    // Repeats, because finishing a job starts the next one - and if the village
+    // was left alone long enough, that one is already due too. Without the
+    // outer pass a queue only ever advances one job per look.
+    const allPublished: StoredWorldEvent[] = [];
+    for (let pass = 0; pass < BUILD_QUEUE_LIMIT + 2; pass += 1) {
+      const batch = this.materializeDuePass();
+      if (batch.length === 0) break;
+      allPublished.push(...batch);
+    }
+    this.drainConstructionQueues();
+    return allPublished;
+  }
+
+  private materializeDuePass(): StoredWorldEvent[] {
     const now = this.now();
     const due = [
       ...(this.db.prepare(`
@@ -1656,6 +1807,10 @@ export class SharedWorldStore {
           this.db.prepare("UPDATE local_villages SET buildings_json = ?, state_version = state_version + 1 WHERE id = ?")
             .run(JSON.stringify(buildings), villageId);
           this.db.prepare("UPDATE local_construction_jobs SET status = 'complete' WHERE id = ?").run(String(job.id));
+          // Start the next order the instant this one finished, not "now".
+          // Otherwise a player away for a day comes back to ONE completed job
+          // and a queue that only began ticking when they looked at it.
+          this.startNextConstruction(villageId, new Date(String(job.completes_at)));
           message = `${BUILDINGS[building].name} reached level ${job.amount}.`;
         } else if (String(job.kind) === "recruitment") {
           const army = parseJson<Army>(row.army_json);
