@@ -7,7 +7,16 @@ param(
     # section reads 0, the demo tour sends a plain raid, and conquest never
     # fires. This switch leaves the existing dev world untouched on disk and
     # simply points the server somewhere new.
-    [switch]$Fresh
+    [switch]$Fresh,
+
+    # -Play opens the NORMAL place instead of the self-driving demo.
+    #
+    # The demo place runs DemoTour, which calls Humanoid:MoveTo on your
+    # character in a loop so a recording can walk itself. That means it fights
+    # you for the controls - you cannot look around or walk, because the script
+    # keeps steering you back. Fine for a hands-free capture, useless for
+    # actually playing. Use -Play to drive it yourself.
+    [switch]$Play
 )
 
 # One-double-click dev loop: world server + demo place in Studio.
@@ -90,16 +99,25 @@ if (-not $listening) {
     Write-Host "  re-run with -Fresh: a running server is old code with an old world."
 }
 
-# 2. Fresh place build (demo variant = self-driving tour; swap for default.project.json for normal play)
+# 2. Fresh place build.
 Set-Location $repo
-rojo build roblox/demo.project.json -o roblox\WorldGame-demo.rbxlx
+if ($Play) {
+    $project   = 'roblox/default.project.json'
+    $placeFile = 'roblox\WorldGame-dev.rbxlx'
+    Write-Host "-Play: building the NORMAL place (no self-driving tour - the controls are yours)"
+} else {
+    $project   = 'roblox/demo.project.json'
+    $placeFile = 'roblox\WorldGame-demo.rbxlx'
+    Write-Host "building the DEMO place (self-driving tour; it will steer your character - use -Play to drive it yourself)"
+}
+rojo build $project -o $placeFile
 if (-not $?) { Write-Host "rojo build failed"; exit 1 }
 
 # 3. Open in the CURRENT Studio (file association goes stale when Studio auto-updates)
 $studio = Get-ChildItem "$env:LOCALAPPDATA\Roblox\Versions" -Recurse -Filter RobloxStudioBeta.exe |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($studio) {
-    Start-Process -FilePath $studio.FullName -ArgumentList "`"$repo\roblox\WorldGame-demo.rbxlx`""
+    Start-Process -FilePath $studio.FullName -ArgumentList "`"$repo\$placeFile`""
     Write-Host "Studio launching - press F5 to play"
 } else {
     Write-Host "Roblox Studio not found under $env:LOCALAPPDATA\Roblox\Versions"
