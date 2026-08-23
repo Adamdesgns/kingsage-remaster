@@ -112,6 +112,19 @@ local function villageLabel(villageId: string?): string
 	return village and tostring(village.name) or "an unknown place"
 end
 
+local function kingdomFor(kingdomId: string?): any
+	local snapshot = latest.snapshot
+	local kingdoms = snapshot and snapshot.world and snapshot.world.kingdoms
+	if typeof(kingdoms) == "table" then
+		for _, kingdom in kingdoms do
+			if kingdom.id == kingdomId then
+				return kingdom
+			end
+		end
+	end
+	return nil
+end
+
 local function kingdomNameFor(kingdomId: string?): string
 	local snapshot = latest.snapshot
 	local kingdoms = snapshot and snapshot.world and snapshot.world.kingdoms
@@ -547,6 +560,115 @@ local function battleVerdict(battle: any, myKingdom: string?): string
 	return if iWon then "Victory" else "Defeat"
 end
 
+-- ===== world map =====
+--
+-- [Adam, 2026-08-23] "I would be fine seeing a map of the world."
+--
+-- The world is ~11,000 studs across and Roblox streams out anything past about
+-- a thousand, so a neighbour 2,300 studs away is not merely far - it is never
+-- drawn at all. Walking to look at the world was never going to work. A map is
+-- the honest answer: it shows what is out there without pretending you can see
+-- it from your gate.
+local MAP_CANVAS = 300
+
+local function hexColour(value: any, fallback: Color3): Color3
+	local text = tostring(value or "")
+	local ok, colour = pcall(function()
+		return Color3.fromHex(text)
+	end)
+	return if ok and text ~= "" then colour else fallback
+end
+
+local function buildMapTab(scroll: ScrollingFrame, village: any, villageId: string)
+	local snapshot = latest.snapshot
+	local kingdomId = myKingdomId()
+	local order = 0
+	local function nextOrder(): number
+		order += 1
+		return order
+	end
+
+	local villages = (snapshot and snapshot.world and snapshot.world.villages) or {}
+	local width = tonumber(snapshot and snapshot.world and snapshot.world.width) or 50
+	local height = tonumber(snapshot and snapshot.world and snapshot.world.height) or 50
+
+	sectionHeader(scroll, nextOrder(), string.format("THE WORLD  ·  %d x %d tiles", width, height))
+
+	local holder = Instance.new("Frame")
+	holder.Name = "MapCanvas"
+	holder.LayoutOrder = nextOrder()
+	holder.Size = UDim2.new(0, MAP_CANVAS, 0, MAP_CANVAS)
+	holder.BackgroundColor3 = Color3.fromRGB(24, 30, 24)
+	holder.BorderSizePixel = 0
+	holder.Parent = scroll
+
+	-- A faint grid, so distance on the map reads as distance rather than as
+	-- decoration. One line every ten tiles.
+	for step = 1, 4 do
+		local fraction = step / 5
+		for _, horizontal in { true, false } do
+			local line = Instance.new("Frame")
+			line.BackgroundColor3 = Color3.fromRGB(40, 50, 40)
+			line.BorderSizePixel = 0
+			line.ZIndex = 2
+			if horizontal then
+				line.Size = UDim2.new(1, 0, 0, 1)
+				line.Position = UDim2.new(0, 0, fraction, 0)
+			else
+				line.Size = UDim2.new(0, 1, 1, 0)
+				line.Position = UDim2.new(fraction, 0, 0, 0)
+			end
+			line.Parent = holder
+		end
+	end
+
+	local home = village
+	for _, other in villages do
+		local kingdom = kingdomFor(tostring(other.kingdomId))
+		local isMine = tostring(other.kingdomId) == kingdomId
+		local isFreehold = kingdom and tostring(kingdom.seatKind) == "freehold"
+
+		local dot = Instance.new("Frame")
+		dot.Name = tostring(other.id)
+		dot.AnchorPoint = Vector2.new(0.5, 0.5)
+		dot.Size = if isMine then UDim2.new(0, 14, 0, 14) else UDim2.new(0, 10, 0, 10)
+		dot.Position = UDim2.new((tonumber(other.x) or 0) / width, 0, (tonumber(other.y) or 0) / height, 0)
+		dot.BackgroundColor3 = if isMine then Color3.fromRGB(240, 200, 90)
+			elseif isFreehold then Color3.fromRGB(150, 150, 140)
+			else hexColour(kingdom and kingdom.color, Color3.fromRGB(190, 90, 80))
+		dot.BorderSizePixel = 0
+		dot.ZIndex = 3
+		dot.Parent = holder
+		local round = Instance.new("UICorner")
+		round.CornerRadius = UDim.new(1, 0)
+		round.Parent = dot
+	end
+
+	noteRow(scroll, nextOrder(),
+		"Gold is you. Grey is a Freehold - abandoned, and the one thing a young kingdom can take. Everything else is somebody's.", 44)
+
+	-- The same settlements as a list, because a dot cannot tell you how far or
+	-- who holds it.
+	sectionHeader(scroll, nextOrder(), "SETTLEMENTS")
+	local listed: { any } = {}
+	for _, other in villages do
+		if tostring(other.id) ~= tostring(villageId) then
+			table.insert(listed, other)
+		end
+	end
+	table.sort(listed, function(left, right)
+		return tileDistance(home, left) < tileDistance(home, right)
+	end)
+	for _, other in listed do
+		local kingdom = kingdomFor(tostring(other.kingdomId))
+		local isFreehold = kingdom and tostring(kingdom.seatKind) == "freehold"
+		noteRow(scroll, nextOrder(), string.format("%s  ·  %d tiles  ·  %s",
+			tostring(other.name),
+			math.floor(tileDistance(home, other) + 0.5),
+			if isFreehold then "FREEHOLD - takeable" else kingdomNameFor(tostring(other.kingdomId))))
+	end
+end
+
 local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: string)
 	local snapshot = latest.snapshot
 	local kingdomId = myKingdomId()
@@ -913,7 +1035,7 @@ function buildTablePanel()
 	local function makeTab(name: string, label: string, xScale: number)
 		local button = Instance.new("TextButton")
 		button.Name = name
-		button.Size = UDim2.new(0.5, -6, 1, -6)
+		button.Size = UDim2.new(1 / 3, -6, 1, -6)
 		button.Position = UDim2.new(xScale, 4, 0, 3)
 		button.BackgroundColor3 = if activeTab == name then Color3.fromRGB(55, 65, 90) else Color3.fromRGB(28, 28, 36)
 		button.TextColor3 = Color3.new(1, 1, 1)
@@ -929,7 +1051,8 @@ function buildTablePanel()
 		end)
 	end
 	makeTab("village", "Village", 0)
-	makeTab("war", "War", 0.5)
+	makeTab("war", "War", 1 / 3)
+	makeTab("map", "Map", 2 / 3)
 
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "Body"
@@ -947,6 +1070,8 @@ function buildTablePanel()
 
 	if activeTab == "war" then
 		buildWarTab(scroll, village, villageId)
+	elseif activeTab == "map" then
+		buildMapTab(scroll, village, villageId)
 	else
 		buildVillageTab(scroll, village, villageId)
 	end
@@ -992,7 +1117,7 @@ end)
 -- local rows are drawn from state the player already has.
 gui:GetAttributeChangedSignal("DemoTab"):Connect(function()
 	local wanted = gui:GetAttribute("DemoTab")
-	if inTableView and (wanted == "village" or wanted == "war") and activeTab ~= wanted then
+	if inTableView and (wanted == "village" or wanted == "war" or wanted == "map") and activeTab ~= wanted then
 		activeTab = tostring(wanted)
 		buildTablePanel()
 	end
