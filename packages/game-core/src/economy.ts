@@ -1,4 +1,6 @@
+import { TROOP_IDS } from "./contracts.ts";
 import type { Army, BuildingLevels, BuildingType, ResourceStock, TroopType } from "./contracts.ts";
+import { UNITS } from "./combat.ts";
 
 export type BuildingDefinition = {
   id: BuildingType;
@@ -23,11 +25,26 @@ export type TroopDefinition = {
   cost: ResourceStock;
   population: number;
   baseSeconds: number;
+  /** Mirrors combat.UNITS. Never hand-written - see makeTroop(). */
   attack: number;
+  /** Defence vs infantry. The full three-value spread lives in combat.UNITS. */
   defense: number;
   carry: number;
-  recruiter: "barracks" | "stable" | "workshop" | "academy";
-  recruiterLevel: number;
+  /**
+   * [OURS - Adam, 2026-08-22] "The barracks is always where troops are
+   * trained." Always "barracks"; kept as a field so the war table can keep
+   * asking rather than assuming.
+   */
+  recruiter: "barracks";
+  /**
+   * The buildings that must be STANDING before this troop appears in the
+   * Barracks list. Function is unified, fiction stays distributed: the Stable,
+   * Workshop and Academy are things you can see in the settlement, not menus
+   * you walk to.
+   */
+  requires?: Partial<Record<BuildingType, number>>;
+  /** Barracks level required. The one gate that is not another building. */
+  barracksLevel: number;
 };
 
 export const BUILDING_ORDER: readonly BuildingType[] = [
@@ -51,17 +68,111 @@ export const BUILDINGS: Record<BuildingType, BuildingDefinition> = {
   market: { id: "market", name: "Market", shortName: "Market", icon: "◎", description: "Prepares resource exchange and alliance coordination.", maxLevel: 20, baseCost: { wood: 250, stone: 220, iron: 150 }, costFactor: 1.48, baseSeconds: 1300, timeFactor: 1.2, prerequisite: { hq: 3, warehouse: 3 } },
 };
 
-export const TROOP_ORDER: readonly TroopType[] = ["spear", "sword", "axe", "archer", "scout", "lightCavalry", "ram", "noble"];
+/** The single roster list. Defined in contracts.ts so `emptyArmy()` shares it. */
+export const TROOP_ORDER: readonly TroopType[] = TROOP_IDS;
 
+/**
+ * Combat stats come from `combat.UNITS` and are never restated here. Before
+ * this, economy carried its own attack/defense numbers that nothing read after
+ * slice 1b - a maintainer could have tuned them all day and changed nothing.
+ */
+function makeTroop(
+  id: TroopType,
+  economy: {
+    plural: string;
+    icon: string;
+    role: string;
+    cost: ResourceStock;
+    baseSeconds: number;
+    barracksLevel: number;
+    requires?: Partial<Record<BuildingType, number>>;
+  },
+): TroopDefinition {
+  const unit = UNITS[id];
+  return {
+    id,
+    name: unit.name,
+    plural: economy.plural,
+    icon: economy.icon,
+    role: economy.role,
+    cost: economy.cost,
+    population: unit.population,
+    baseSeconds: economy.baseSeconds,
+    attack: unit.attack,
+    defense: unit.defInfantry,
+    carry: unit.carry,
+    recruiter: "barracks",
+    requires: economy.requires,
+    barracksLevel: economy.barracksLevel,
+  };
+}
+
+/**
+ * ⚠️ **Costs and training times are OURS, not KingsAge's** [OURS].
+ *
+ * KingsAge's own numbers are confirmed and written down in the combat spec, and
+ * we deliberately do NOT use them: a Count costs 100,000 wood there, in a world
+ * whose buildings reach level 50 and whose warehouses scale to match. Ours cap
+ * at 20-30. Pasting KingsAge's costs into our economy would make a Count
+ * literally unbuildable, so the existing eight keep the costs already balanced
+ * for this world and the three new units are priced onto the same curve.
+ *
+ * The COMBAT numbers are KingsAge's exactly. It is only the economy that is
+ * rescaled, and spec section 13 item 4 records that as an open decision.
+ */
 export const TROOPS: Record<TroopType, TroopDefinition> = {
-  spear: { id: "spear", name: "Spearman", plural: "Spearmen", icon: "♠", role: "Front-line defense", cost: { wood: 50, stone: 30, iron: 10 }, population: 1, baseSeconds: 120, attack: 10, defense: 25, carry: 25, recruiter: "barracks", recruiterLevel: 1 },
-  sword: { id: "sword", name: "Swordsman", plural: "Swordsmen", icon: "†", role: "Armored infantry", cost: { wood: 30, stone: 30, iron: 70 }, population: 1, baseSeconds: 180, attack: 25, defense: 30, carry: 15, recruiter: "barracks", recruiterLevel: 3 },
-  axe: { id: "axe", name: "Axeman", plural: "Axemen", icon: "⚒", role: "Heavy assault", cost: { wood: 60, stone: 30, iron: 40 }, population: 1, baseSeconds: 150, attack: 40, defense: 10, carry: 10, recruiter: "barracks", recruiterLevel: 3 },
-  archer: { id: "archer", name: "Archer", plural: "Archers", icon: "➹", role: "Ranged support", cost: { wood: 100, stone: 30, iron: 60 }, population: 1, baseSeconds: 220, attack: 15, defense: 40, carry: 10, recruiter: "barracks", recruiterLevel: 5 },
-  scout: { id: "scout", name: "Scout", plural: "Scouts", icon: "⌖", role: "Reconnaissance", cost: { wood: 50, stone: 50, iron: 20 }, population: 2, baseSeconds: 90, attack: 0, defense: 2, carry: 0, recruiter: "stable", recruiterLevel: 1 },
-  lightCavalry: { id: "lightCavalry", name: "Light Cavalry", plural: "Light Cavalry", icon: "♞", role: "Fast flanking", cost: { wood: 125, stone: 100, iron: 250 }, population: 4, baseSeconds: 360, attack: 130, defense: 30, carry: 80, recruiter: "stable", recruiterLevel: 3 },
-  ram: { id: "ram", name: "Battering Ram", plural: "Battering Rams", icon: "◫", role: "Wall breaking", cost: { wood: 300, stone: 200, iron: 200 }, population: 5, baseSeconds: 480, attack: 2, defense: 20, carry: 0, recruiter: "workshop", recruiterLevel: 1 },
-  noble: { id: "noble", name: "Nobleman", plural: "Noblemen", icon: "♛", role: "Village conquest", cost: { wood: 2800, stone: 3000, iron: 3500 }, population: 25, baseSeconds: 900, attack: 25, defense: 35, carry: 0, recruiter: "academy", recruiterLevel: 1 },
+  militia: makeTroop("militia", {
+    plural: "Farmer's Militia", icon: "⚑", role: "Levy - cheap bodies, quickly",
+    cost: { wood: 15, stone: 10, iron: 5 }, baseSeconds: 45, barracksLevel: 1,
+  }),
+  spear: makeTroop("spear", {
+    plural: "Squires", icon: "♠", role: "Holds a wall against horse",
+    cost: { wood: 50, stone: 30, iron: 10 }, baseSeconds: 120, barracksLevel: 1,
+  }),
+  sword: makeTroop("sword", {
+    plural: "Templars", icon: "†", role: "Holds a wall against foot",
+    cost: { wood: 30, stone: 30, iron: 70 }, baseSeconds: 180, barracksLevel: 3,
+  }),
+  axe: makeTroop("axe", {
+    plural: "Berserkers", icon: "⚒", role: "The attacking infantry",
+    cost: { wood: 60, stone: 30, iron: 40 }, baseSeconds: 150, barracksLevel: 3,
+    requires: { smithy: 1 },
+  }),
+  archer: makeTroop("archer", {
+    plural: "Long-bows", icon: "➹", role: "Holds a wall against foot, at range",
+    cost: { wood: 100, stone: 30, iron: 60 }, baseSeconds: 220, barracksLevel: 5,
+    requires: { smithy: 1 },
+  }),
+  scout: makeTroop("scout", {
+    plural: "Spies", icon: "⌖", role: "Reconnaissance",
+    cost: { wood: 50, stone: 50, iron: 20 }, baseSeconds: 90, barracksLevel: 1,
+    requires: { stable: 1 },
+  }),
+  lightCavalry: makeTroop("lightCavalry", {
+    plural: "Crusaders", icon: "♞", role: "The hardest hitter in the game",
+    cost: { wood: 125, stone: 100, iron: 250 }, baseSeconds: 360, barracksLevel: 3,
+    requires: { stable: 3 },
+  }),
+  heavyCavalry: makeTroop("heavyCavalry", {
+    plural: "Black Knights", icon: "♘", role: "Defends against everything, at a price",
+    cost: { wood: 200, stone: 300, iron: 450 }, baseSeconds: 600, barracksLevel: 8,
+    requires: { stable: 10, smithy: 3 },
+  }),
+  ram: makeTroop("ram", {
+    plural: "Battering Rams", icon: "◫", role: "Brings the wall down before the battle",
+    cost: { wood: 300, stone: 200, iron: 200 }, baseSeconds: 480, barracksLevel: 5,
+    requires: { workshop: 1 },
+  }),
+  trebuchet: makeTroop("trebuchet", {
+    plural: "Trebuchets", icon: "◭", role: "Breaks buildings, never the battle",
+    cost: { wood: 500, stone: 400, iron: 300 }, baseSeconds: 900, barracksLevel: 10,
+    requires: { workshop: 5 },
+  }),
+  noble: makeTroop("noble", {
+    plural: "Counts", icon: "♛", role: "Presses a claim on a settlement",
+    cost: { wood: 2800, stone: 3000, iron: 3500 }, baseSeconds: 900, barracksLevel: 10,
+    requires: { academy: 1 },
+  }),
 };
 
 export function scaleResources(base: ResourceStock, factor: number): ResourceStock {
@@ -99,9 +210,21 @@ export function buildingRequirementProblem(building: BuildingType, levels: Build
   return null;
 }
 
+/**
+ * Everything trains at the Barracks [OURS - Adam, 2026-08-22], so a troop is
+ * gated by the Barracks level PLUS whatever buildings must be standing. The
+ * Barracks is checked first: it is the place you are standing, so "your
+ * Barracks is too small" is the more useful sentence than "go build a Stable".
+ */
 export function troopRequirementProblem(troop: TroopType, levels: BuildingLevels): string | null {
   const definition = TROOPS[troop];
-  if (levels[definition.recruiter] < definition.recruiterLevel) return `Requires ${BUILDINGS[definition.recruiter].name} level ${definition.recruiterLevel}.`;
+  if (levels.barracks < definition.barracksLevel) {
+    return `Requires ${BUILDINGS.barracks.name} level ${definition.barracksLevel}.`;
+  }
+  for (const [building, required] of Object.entries(definition.requires ?? {})) {
+    const have = levels[building as BuildingType] ?? 0;
+    if (have < required) return `Requires ${BUILDINGS[building as BuildingType].name} level ${required}.`;
+  }
   return null;
 }
 
@@ -111,8 +234,9 @@ export function troopCost(troop: TroopType, quantity: number): ResourceStock {
 
 export function troopTrainingDurationSeconds(troop: TroopType, quantity: number, levels: BuildingLevels): number {
   const definition = TROOPS[troop];
-  const recruiterLevel = levels[definition.recruiter];
-  const speedFactor = Math.pow(0.95, Math.max(0, recruiterLevel - 1));
+  // Training speed comes from the Barracks, because that is where the training
+  // happens. A big Stable houses horses; it does not drill men faster.
+  const speedFactor = Math.pow(0.95, Math.max(0, levels.barracks - 1));
   return Math.max(1, Math.round(definition.baseSeconds * Math.max(1, Math.floor(quantity)) * speedFactor));
 }
 

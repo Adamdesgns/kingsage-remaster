@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createTwoPlayerWorldFixture } from "../src/fixture.ts";
 import { FREEHOLD_COUNT, FREEHOLD_GARRISON } from "../src/fixture.ts";
 import { armyPower, armyUnitCount } from "../src/warfare.ts";
-import { initialTroopLevels } from "../src/contracts.ts";
+import { emptyArmy, initialTroopLevels } from "../src/contracts.ts";
 
 test("a new world contains Freeholds", () => {
   // [CONFIRMED] KingsAge's own on-ramp: abandoned settlements are the designed
@@ -39,7 +39,7 @@ test("a Freehold garrison is beatable by an army a new player can field", () => 
 
   const levels = initialTroopLevels();
   // ~25 Axemen is a realistic first offensive army from a level-3 barracks.
-  const earlyArmy = { spear: 0, sword: 0, axe: 25, archer: 0, scout: 0, lightCavalry: 0, ram: 0, noble: 0 };
+  const earlyArmy = { ...emptyArmy(), axe: 25 };
   const attack = armyPower(earlyArmy, levels, "attack");
 
   for (const village of villages) {

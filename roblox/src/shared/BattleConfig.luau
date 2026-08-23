@@ -44,10 +44,16 @@ BattleConfig.ROUT_SPEED = 12
 -- world server's CommandSquadId values (contracts.ts) — a fourth name here
 -- would be an order the realm refuses. Each squad claims the troop types
 -- listed; anything unlisted marches with the vanguard.
+-- The three squads ARE the three combat classes (combat.ts `combatClass`).
+-- They were chosen in slice B to match the server's CommandSquadId vocabulary
+-- and turned out to map one-to-one onto infantry / archer / cavalry, so they
+-- stopped being cosmetic. The Count is INFANTRY and rides with the vanguard
+-- despite the name; the Spy is CAVALRY. Both are the official assignment, not
+-- an aesthetic call - see combat.ts.
 BattleConfig.SQUADS = {
-	{ id = "vanguard", label = "Vanguard", troops = { "spear", "sword", "axe", "ram" }, color = Color3.fromRGB(150, 60, 55) },
+	{ id = "vanguard", label = "Vanguard", troops = { "militia", "spear", "sword", "axe", "ram", "trebuchet", "noble" }, color = Color3.fromRGB(150, 60, 55) },
 	{ id = "archers", label = "Archers", troops = { "archer" }, color = Color3.fromRGB(150, 120, 55) },
-	{ id = "riders", label = "Riders", troops = { "lightCavalry", "noble" }, color = Color3.fromRGB(120, 70, 140) },
+	{ id = "riders", label = "Riders", troops = { "scout", "lightCavalry", "heavyCavalry" }, color = Color3.fromRGB(120, 70, 140) },
 }
 
 -- Spec §5 wants "~10–20 squads" making decisions. Three ORDERABLE squads keep

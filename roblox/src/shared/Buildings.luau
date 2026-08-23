@@ -30,18 +30,24 @@ Buildings.NAMES = {
 -- Mirrors game-core's TROOP_ORDER (economy.ts). Scout reports and any other
 -- army display walk this, so every list of troops reads the same way.
 Buildings.TROOP_ORDER = {
-	"spear", "sword", "axe", "archer", "scout", "lightCavalry", "ram", "noble",
+	"militia", "spear", "sword", "axe", "archer", "scout",
+	"lightCavalry", "heavyCavalry", "ram", "trebuchet", "noble",
 }
 
+-- KingsAge's own unit names. Only the name "KingsAge" is off limits; "Templar",
+-- "Berserker", "Crusader" and the rest are common medieval terms.
 Buildings.TROOP_NAMES = {
-	spear = "Spearmen",
-	sword = "Swordsmen",
-	axe = "Axemen",
-	archer = "Archers",
-	scout = "Scouts",
-	lightCavalry = "Light Cavalry",
-	ram = "Rams",
-	noble = "Nobles",
+	militia = "Farmer's Militia",
+	spear = "Squires",
+	sword = "Templars",
+	axe = "Berserkers",
+	archer = "Long-bows",
+	scout = "Spies",
+	lightCavalry = "Crusaders",
+	heavyCavalry = "Black Knights",
+	ram = "Battering Rams",
+	trebuchet = "Trebuchets",
+	noble = "Counts",
 } :: { [string]: string }
 
 -- The one recruit action slice one exposes. Display label and dispatched
@@ -50,16 +56,17 @@ Buildings.TROOP_NAMES = {
 Buildings.RECRUIT_PRESET = {
 	troop = "spear",
 	quantity = 5,
-	label = "Recruit 5 Spearmen",
+	label = "Recruit 5 Squires",
 }
 
 -- Same discipline for the scouting slice: one preset, label bound to payload.
--- Scouts need a Stable (game-core: TROOPS.scout.recruiter = "stable",
--- recruiterLevel 1); the world server refuses and says so if it is missing.
+-- Spies train at the Barracks like everything else (Adam's ruling) but need a
+-- Stable STANDING (game-core: TROOPS.scout.requires.stable = 1); the world
+-- server refuses and says so if it is missing.
 Buildings.SCOUT_PRESET = {
 	troop = "scout",
 	quantity = 2,
-	label = "Recruit 2 Scouts",
+	label = "Recruit 2 Spies",
 }
 
 -- How many scouts one dispatch sends. A scout march may contain scouts ONLY

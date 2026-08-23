@@ -31,14 +31,22 @@ export type BuildingType =
 
 export type BuildingLevels = Record<BuildingType, number>;
 
+/**
+ * The eleven KingsAge units. The original eight keep their ids so the ~86
+ * hardcoded references across the scouting and conquest slices survive
+ * untouched; `militia`, `heavyCavalry` and `trebuchet` are new.
+ */
 export type TroopType =
+  | "militia"
   | "spear"
   | "sword"
   | "axe"
   | "archer"
   | "scout"
   | "lightCavalry"
+  | "heavyCavalry"
   | "ram"
+  | "trebuchet"
   | "noble";
 
 export type Army = Record<TroopType, number>;
@@ -237,30 +245,33 @@ export type GameEvent =
   | { type: "chat.message"; payload: { channelId: string; playerId: PlayerId; kingdomId: KingdomId | null; body: string; sentAt: string } }
   | { type: "world.won"; payload: { winnerKingdomId: KingdomId; wonAt: string; territoryPercent: number } };
 
+/**
+ * Every troop id, in display order. Lives here rather than in economy.ts so
+ * that `emptyArmy()` can be built FROM it - the two used to be independent
+ * hand-written lists, and when the roster went from eight units to eleven
+ * `emptyArmy()` silently kept returning eight keys. Nothing caught it: this
+ * project runs TypeScript through `--experimental-strip-types`, which erases
+ * types without checking them, so a genuine type error ships quietly.
+ *
+ * economy.ts re-exports this as TROOP_ORDER. Do not write a second list.
+ */
+export const TROOP_IDS: readonly TroopType[] = [
+  "militia", "spear", "sword", "axe", "archer", "scout",
+  "lightCavalry", "heavyCavalry", "ram", "trebuchet", "noble",
+];
+
 export function emptyArmy(): Army {
-  return {
-    spear: 0,
-    sword: 0,
-    axe: 0,
-    archer: 0,
-    scout: 0,
-    lightCavalry: 0,
-    ram: 0,
-    noble: 0,
-  };
+  return TROOP_IDS.reduce((army, troop) => {
+    army[troop] = 0;
+    return army;
+  }, {} as Army);
 }
 
 export function initialTroopLevels(): TroopLevels {
-  return {
-    spear: 1,
-    sword: 1,
-    axe: 1,
-    archer: 1,
-    scout: 1,
-    lightCavalry: 1,
-    ram: 1,
-    noble: 1,
-  };
+  return TROOP_IDS.reduce((levels, troop) => {
+    levels[troop] = 1;
+    return levels;
+  }, {} as TroopLevels);
 }
 
 export function conquestWarVictoryPoints(input: {
