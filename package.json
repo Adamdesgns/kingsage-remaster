@@ -3,9 +3,10 @@
   "private": true,
   "version": "0.2.0",
   "scripts": {
+    "check:types": "node scripts/check-types.mjs",
     "check:gate-a": "node scripts/check-gate-a.mjs",
     "test:core": "npm --prefix packages/game-core test",
-    "test:gate-a": "npm run check:gate-a && npm run test:core && npm --prefix mobile-rebuild run build",
+    "test:gate-a": "npm run check:types && npm run check:gate-a && npm run test:core && npm --prefix mobile-rebuild run build",
     "start:world": "npm --prefix server start",
     "test:server": "npm --prefix server test",
     "check:gate-b": "node scripts/check-gate-b.mjs",
