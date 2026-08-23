@@ -274,3 +274,61 @@ test("a replayed attack commandId sends one wave, not two", async () => {
     assert.equal(after.marches.filter((m: any) => m.kind === "attack").length, 1);
   });
 });
+
+test("rams leave the wall down after they go home", async () => {
+  await withServer(async (context) => {
+    const { home, target } = await twoKingdomsWithIntel(context);
+
+    // A wall worth breaking, and an army that will win so the rams count twice.
+    context.store.db.prepare("UPDATE local_villages SET buildings_json = json_set(buildings_json, '$.wall', 20), army_json = ?, state_version = state_version + 1 WHERE id = ?")
+      .run(JSON.stringify({ ...emptyArmy(), spear: 20 }), target.id);
+    const siegeArmy = { ...emptyArmy(), axe: 400, ram: 200 };
+    context.store.db.prepare("UPDATE local_villages SET army_json = ? WHERE id = ?")
+      .run(JSON.stringify(siegeArmy), home.id);
+
+    const before = JSON.parse(String((context.store.db
+      .prepare("SELECT buildings_json FROM local_villages WHERE id = ?")
+      .get(target.id) as any).buildings_json)).wall;
+    assert.equal(before, 20, "test setup did not raise the wall");
+
+    const launched = await context.command(ATTACKER_ID, "b-siege", (await context.state(ATTACKER_ID)).world.version, {
+      type: "march.launch",
+      payload: { fromVillageId: home.id, targetVillageId: target.id, kind: "attack", army: siegeArmy, plan: GOOD_PLAN },
+    });
+    assert.equal(launched.body.type, "command.accepted");
+
+    context.advance(MARCH_MS + AUTO_RESOLVE_MS + 200);
+    const settled = await context.state(ATTACKER_ID);
+    assert.equal(settled.battleSessions[0].outcome.winner, "attacker");
+
+    const after = JSON.parse(String((context.store.db
+      .prepare("SELECT buildings_json FROM local_villages WHERE id = ?")
+      .get(target.id) as any).buildings_json)).wall;
+
+    assert.ok(after < before, `the wall stayed at ${after} after 200 rams won at it`);
+    assert.ok(after >= 0, "a wall cannot go negative");
+  });
+});
+
+test("an attack with no rams leaves the wall exactly where it stood", async () => {
+  // The regression that matters most: every ordinary battle runs this path.
+  await withServer(async (context) => {
+    const { home, target } = await twoKingdomsWithIntel(context);
+    context.store.db.prepare("UPDATE local_villages SET buildings_json = json_set(buildings_json, '$.wall', 12), army_json = ?, state_version = state_version + 1 WHERE id = ?")
+      .run(JSON.stringify({ ...emptyArmy(), spear: 20 }), target.id);
+    const army = { ...emptyArmy(), axe: 400 };
+    context.store.db.prepare("UPDATE local_villages SET army_json = ? WHERE id = ?").run(JSON.stringify(army), home.id);
+
+    const launched = await context.command(ATTACKER_ID, "b-no-siege", (await context.state(ATTACKER_ID)).world.version, {
+      type: "march.launch",
+      payload: { fromVillageId: home.id, targetVillageId: target.id, kind: "attack", army, plan: GOOD_PLAN },
+    });
+    assert.equal(launched.body.type, "command.accepted");
+    context.advance(MARCH_MS + AUTO_RESOLVE_MS + 200);
+
+    const after = JSON.parse(String((context.store.db
+      .prepare("SELECT buildings_json FROM local_villages WHERE id = ?")
+      .get(target.id) as any).buildings_json)).wall;
+    assert.equal(after, 12, "a battle with no siege moved the wall");
+  });
+});

@@ -371,3 +371,97 @@ export function armySpeed(force: Force): number {
     0,
   );
 }
+
+// ---------------------------------------------------------------------------
+// Siege
+// ---------------------------------------------------------------------------
+
+/**
+ * [CONFIRMED] Both siege units share ONE formula with a different constant,
+ * verified against 30/30 rows of the official chart and two live battle
+ * reports:
+ *
+ *   levelsDestroyed = round( units / (K x 1.09 ^ targetLevel) )
+ *
+ * `targetLevel` is fixed at the PRE-ATTACK level for the whole attack - it does
+ * not decay as levels fall. That is why waves are cheaper than one lump, and it
+ * is real strategic texture we get for free rather than having to invent.
+ */
+export const RAM_CONSTANT = 4;
+export const TREBUCHET_CONSTANT = 3;
+export const SIEGE_LEVEL_BASE = 1.09;
+
+export function siegeLevelsDestroyed(units: number, constant: number, targetLevel: number): number {
+  if (units <= 0) return 0;
+  const resistance = constant * Math.pow(SIEGE_LEVEL_BASE, Math.max(0, targetLevel));
+  return Math.round(units / resistance);
+}
+
+/**
+ * The wall the battle is actually scored against. [CONFIRMED] Rams hit twice,
+ * and this is the first hit: temporary, capped at half the wall, rounding UP.
+ *
+ * The cap is what stops rams alone from deciding a siege - no quantity of them
+ * opens a level-20 wall below 10 for the fight itself. Flattening it takes
+ * winning first, which is the second hit.
+ */
+export function battleWallLevel(wallLevel: number, rams: number): number {
+  const standing = Math.max(0, wallLevel);
+  if (rams <= 0) return standing;
+  const drop = siegeLevelsDestroyed(rams, RAM_CONSTANT, standing);
+  return Math.max(standing - drop, Math.ceil(standing / 2));
+}
+
+/**
+ * The second hit: permanent, uncapped, and it can take a wall to zero.
+ *
+ * [CONFIRMED] A winning attacker counts each ram twice - once for arriving and
+ * once for surviving - while a beaten one still does damage in proportion to
+ * how much of the garrison it took with it.
+ *
+ * Scored against the ORIGINAL wall level, never the temporarily-dropped one.
+ */
+export function ramWallAfterBattle(input: {
+  wallLevel: number;
+  ramsSent: number;
+  ramsSurviving: number;
+  attackerWon: boolean;
+  defenderLossFraction: number;
+}): number {
+  const standing = Math.max(0, input.wallLevel);
+  const effective = input.attackerWon
+    ? Math.max(0, input.ramsSent) + Math.max(0, input.ramsSurviving)
+    : Math.max(0, input.ramsSent) * Math.min(1, Math.max(0, input.defenderLossFraction));
+  const drop = siegeLevelsDestroyed(effective, RAM_CONSTANT, standing);
+  return Math.max(standing - drop, 0);
+}
+
+/**
+ * Buildings a settlement cannot live without. [CONFIRMED] these floor at level
+ * 1 - a settlement can be wrecked but never deleted.
+ */
+export const INDESTRUCTIBLE_BUILDINGS: readonly string[] = ["hq", "farm", "warehouse"];
+
+/**
+ * [CONFIRMED] Trebuchets resolve AFTER the troop battle and never change its
+ * outcome. One target is chosen at send time; only the target's LEVEL matters,
+ * not which building it is; and they do not retarget, so a wave aimed at an
+ * Academy nobody built is simply wasted. That is a real cost of bad scouting.
+ *
+ * Returns the building's NEW level.
+ *
+ * [SIM] Scaling against a DEFENDED village is undocumented in both games -
+ * every published chart assumes an empty one - so this treats the trebuchets
+ * that survived the battle as the ones that fire. Recorded as unmeasured.
+ */
+export function trebuchetDamage(input: {
+  building: string;
+  level: number;
+  trebuchets: number;
+}): number {
+  const standing = Math.max(0, input.level);
+  if (standing <= 0) return 0; // Nothing there. They do not retarget.
+  const drop = siegeLevelsDestroyed(input.trebuchets, TREBUCHET_CONSTANT, standing);
+  const floor = INDESTRUCTIBLE_BUILDINGS.includes(input.building) ? 1 : 0;
+  return Math.max(standing - drop, floor);
+}

@@ -8,6 +8,7 @@ import {
   initialTroopLevels,
   resolveBattle,
   UNPLANNED_ATTACK_PLAN,
+  battleWallLevel,
   retreatSurvivors,
   subtractArmy,
 } from "../src/index.ts";
@@ -106,4 +107,56 @@ test("armour raises defence without touching attack", () => {
 
   assert.equal(bare.winner, "attacker");
   assert.equal(armoured.winner, "defender", "ten levels of armour should hold a wall the bare garrison lost");
+});
+
+test("rams open the wall for the battle they arrive with", () => {
+  // Both armies carry the SAME total attack (~230,000), so the only difference
+  // is that one brought rams and knocked the wall from 20 down to 11 before a
+  // blow was struck. Same plan, same seed: the wall is the whole story.
+  const shared = {
+    defender: { ...emptyArmy(), spear: 1400 },
+    attackerLevels: initialTroopLevels(),
+    defenderLevels: initialTroopLevels(),
+    defenderWallLevel: 20,
+    defenderResources: { wood: 0, stone: 0, iron: 0 },
+    plan: UNPLANNED_ATTACK_PLAN,
+    acceptedOrders: 0,
+    seed: "rams-open-the-way",
+  };
+
+  const noRams = resolveBattle({ ...shared, attacker: { ...emptyArmy(), axe: 657 } });
+  const withRams = resolveBattle({ ...shared, attacker: { ...emptyArmy(), axe: 600, ram: 200 } });
+
+  assert.equal(noRams.winner, "defender", "a level-20 wall should hold against foot alone");
+  assert.equal(withRams.winner, "attacker", "the same attack behind rams should get in");
+});
+
+test("trebuchets do not open the wall, however many arrive", () => {
+  // [CONFIRMED] Trebuchets damage BUILDINGS, after the battle. They fight like
+  // any other unit while they are there - 500 attack each, which is a lot - but
+  // they must never do a ram's job.
+  //
+  // Tested by equivalence rather than by contriving a loss: 200 trebuchets and
+  // 286 Berserkers carry the same ~100,000 infantry attack, so if trebuchets
+  // left the wall alone the two armies must reach the same verdict. Rams with
+  // matched attack do NOT - that is the test above, and the contrast is the
+  // point.
+  const shared = {
+    defender: { ...emptyArmy(), spear: 1400 },
+    attackerLevels: initialTroopLevels(),
+    defenderLevels: initialTroopLevels(),
+    defenderWallLevel: 20,
+    defenderResources: { wood: 0, stone: 0, iron: 0 },
+    plan: UNPLANNED_ATTACK_PLAN,
+    acceptedOrders: 0,
+    seed: "siege-equivalence",
+  };
+
+  const withTrebuchets = resolveBattle({ ...shared, attacker: { ...emptyArmy(), axe: 600, trebuchet: 200 } });
+  const matchedFoot = resolveBattle({ ...shared, attacker: { ...emptyArmy(), axe: 886 } });
+
+  assert.equal(withTrebuchets.winner, matchedFoot.winner,
+    "trebuchets changed the verdict, which means they opened the wall");
+  // And the wall itself is untouched by anything that is not a ram.
+  assert.equal(battleWallLevel(20, 0), 20);
 });

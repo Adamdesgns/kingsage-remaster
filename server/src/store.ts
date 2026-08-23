@@ -11,6 +11,7 @@ import {
   armyCasualties,
   armyPopulation,
   armyPower,
+  ramWallAfterBattle,
   initialTroopLevels,
   armyUnitCount,
   battlePlanScore,
@@ -1282,6 +1283,36 @@ export class SharedWorldStore {
       for (const kind of RESOURCE_KINDS) defenderResources[kind] = Math.max(0, defenderResources[kind] - loot[kind]);
       this.db.prepare("UPDATE local_villages SET army_json = ?, resources_json = ?, state_version = state_version + 1 WHERE id = ?")
         .run(JSON.stringify(defenderArmy), JSON.stringify(defenderResources), String(row.defender_village_id));
+
+      // Phase 2 of the siege: the PERMANENT wall drop.
+      //
+      // Rams hit the wall twice [CONFIRMED]. The first hit happened inside
+      // resolveBattle and was temporary - it decided what the battle was fought
+      // against. This one sticks, has no half-cap, and can take a wall to zero.
+      // Both are scored against the wall as it stood when the attack ARRIVED,
+      // never against the temporarily-lowered one, which is why waves are
+      // cheaper than one lump.
+      const ramsSent = parseJson<Army>(String(row.attacker_army_json)).ram;
+      if (ramsSent > 0) {
+        const defenderStarted = armyUnitCount(parseJson<Army>(String(row.defender_army_json)));
+        const defenderLost = armyUnitCount(outcome.defenderCasualties);
+        const buildingsRow = this.db.prepare("SELECT buildings_json FROM local_villages WHERE id = ?")
+          .get(String(row.defender_village_id)) as DbRow;
+        const buildings = parseJson<BuildingLevels>(buildingsRow.buildings_json);
+        const razedWall = ramWallAfterBattle({
+          wallLevel: Number(row.defender_wall_level),
+          ramsSent,
+          ramsSurviving: outcome.attackerSurvivors.ram,
+          attackerWon: outcome.winner === "attacker",
+          defenderLossFraction: defenderStarted > 0 ? defenderLost / defenderStarted : 0,
+        });
+        if (razedWall !== buildings.wall) {
+          buildings.wall = razedWall;
+          this.db.prepare("UPDATE local_villages SET buildings_json = ?, state_version = state_version + 1 WHERE id = ?")
+            .run(JSON.stringify(buildings), String(row.defender_village_id));
+        }
+      }
+
       if (outcome.winner === "attacker") {
         const points = Math.max(10, armyUnitCount(outcome.defenderCasualties) * 3);
         this.db.prepare("UPDATE local_kingdoms SET war_victory_points = war_victory_points + ? WHERE id = ?")

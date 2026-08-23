@@ -1,6 +1,7 @@
 import { TROOPS, TROOP_ORDER } from "./economy.ts";
 import {
   attackByClass,
+  battleWallLevel,
   defenceByClass,
   resolveBattleKingsAge,
   type ByClass,
@@ -280,10 +281,16 @@ export function resolveBattle(input: {
   const attackerForce = toForce(input.attacker);
   const defenderForce = toForce(input.defender);
 
+  // Phase 1 of the battle: rams knock the wall down BEFORE anyone swings.
+  // [CONFIRMED] this drop is temporary and capped at half the wall, and it is
+  // the wall the fight is actually scored against - which is what makes rams
+  // worth their population rather than the strictly-dominated unit they were.
+  const fightingWall = battleWallLevel(input.defenderWallLevel, input.attacker.ram);
+
   const result = resolveBattleKingsAge({
     attacker: attackerForce,
     defender: defenderForce,
-    wallLevel: input.defenderWallLevel,
+    wallLevel: fightingWall,
     nightBonus: false,
     morale: attackMultiplier,
     luck: 0,
@@ -312,7 +319,7 @@ export function resolveBattle(input: {
   const facedRaw = defenceByClass({
     defender: defenderForce,
     shares,
-    wallLevel: input.defenderWallLevel,
+    wallLevel: fightingWall,
     nightBonus: false,
   });
   const facedDefence = (facedRaw.infantry + facedRaw.cavalry + facedRaw.archer) * armour;
