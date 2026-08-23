@@ -465,3 +465,89 @@ export function trebuchetDamage(input: {
   const floor = INDESTRUCTIBLE_BUILDINGS.includes(input.building) ? 1 : 0;
   return Math.max(standing - drop, floor);
 }
+
+// ---------------------------------------------------------------------------
+// Realm of Power — KingsAge's conquest track
+// ---------------------------------------------------------------------------
+
+/**
+ * [CONFIRMED] KingsAge replaced loyalty in version 0.1.18 (August 2009). What
+ * this game shipped with is **Tribal Wars'** loyalty: 0-100, 20-35 per
+ * surviving noble, no cap, no regeneration, reset to 25. Every one of those
+ * numbers belongs to a different game.
+ *
+ * Realm of Power scales to the settlement's own point score instead, which is
+ * why `settlementPoints()` had to exist first.
+ */
+export const REALM_OF_POWER_DROP_MIN = 2_250;
+export const REALM_OF_POWER_DROP_MAX = 2_750;
+
+/**
+ * **The best rule in the whole system.** One attack can never remove more than
+ * half the maximum, so a settlement ALWAYS takes at least two separate attacks
+ * however small it is - ours could be taken by one lucky roll.
+ *
+ * It also means only ONE Count per attack matters: stacking them into a single
+ * march is wasted. Conquest must be committed across TIME, which is what makes
+ * it a campaign instead of a purchase.
+ */
+export const REALM_OF_POWER_ATTACK_CAP = 0.5;
+
+/** [CONFIRMED] A taken settlement sits at 30% of maximum - fragile, not fresh. */
+export const REALM_OF_POWER_ON_CAPTURE = 0.3;
+
+/**
+ * [CONFIRMED] +1% of maximum per hour. This is what makes defence ACTIVE: a
+ * stalled campaign genuinely loses ground. Our loyalty never recovered, so an
+ * attacker could take a year over it at no cost.
+ */
+export const REALM_OF_POWER_REGEN_PER_HOUR = 0.01;
+
+function seedFraction(seed: string): number {
+  let hash = 2166136261;
+  for (const char of seed) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
+}
+
+/** Deterministic from the battle seed, so a replay always tells the same story. */
+export function realmOfPowerDrop(seed: string): number {
+  const span = REALM_OF_POWER_DROP_MAX - REALM_OF_POWER_DROP_MIN;
+  return REALM_OF_POWER_DROP_MIN + Math.floor(seedFraction(`${seed}:realm`) * (span + 1));
+}
+
+export function applyRealmOfPower(input: {
+  current: number;
+  maximum: number;
+  survivingCounts: number;
+  seed: string;
+}): { value: number; countConsumed: number } {
+  const current = Math.max(0, input.current);
+  const maximum = Math.max(0, input.maximum);
+  if (input.survivingCounts < 1 || maximum <= 0) return { value: current, countConsumed: 0 };
+
+  // One Count, however many rode. See REALM_OF_POWER_ATTACK_CAP.
+  const drop = Math.min(realmOfPowerDrop(input.seed), Math.floor(maximum * REALM_OF_POWER_ATTACK_CAP));
+  return { value: Math.max(0, current - drop), countConsumed: 1 };
+}
+
+export function realmOfPowerRegen(input: { current: number; maximum: number; hours: number }): number {
+  const maximum = Math.max(0, input.maximum);
+  const recovered = Math.max(0, input.current) + maximum * REALM_OF_POWER_REGEN_PER_HOUR * Math.max(0, input.hours);
+  return Math.min(maximum, Math.round(recovered));
+}
+
+/**
+ * [CONFIRMED] The Count dies when 50% of the attacking army dies, and a Count
+ * sent alone never arrives. Escort matters, which is the rule that stops
+ * conquest from being a lone expensive unit walking into an empty field.
+ *
+ * `sent` and `survived` count the ESCORT - every attacking unit that is not the
+ * Count himself.
+ */
+export function countSurvivesEscort(input: { sent: number; survived: number }): boolean {
+  if (input.sent <= 0) return false;
+  return input.survived > input.sent * 0.5;
+}

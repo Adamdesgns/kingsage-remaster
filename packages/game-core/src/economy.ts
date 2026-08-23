@@ -263,3 +263,50 @@ export function troopResearchDurationSeconds(targetLevel: number, academyLevel: 
 export function canAfford(resources: ResourceStock, cost: ResourceStock): boolean {
   return resources.wood >= cost.wood && resources.stone >= cost.stone && resources.iron >= cost.iron;
 }
+
+// ---------------------------------------------------------------------------
+// Settlement points
+// ---------------------------------------------------------------------------
+
+/**
+ * [CONFIRMED] A settlement's score can never exceed 10,000, and Realm of Power
+ * scales to it. The cap is load-bearing rather than cosmetic: it is what makes
+ * "one attack removes at most half" mean the same thing in every settlement.
+ */
+export const SETTLEMENT_POINTS_CAP = 10_000;
+
+/**
+ * [CONFIRMED] KingsAge awards 20 per building level, 10 for Hide / Farm /
+ * Stable, 100 for the Residence, 1000 flat for the Memorial.
+ *
+ * [OURS] Our buildings cap at 20-30 where KingsAge's reach 50, so copying the
+ * per-level values verbatim would leave a fully-built settlement far short of
+ * 10,000 and quietly break the conquest maths. The awards are therefore SCALED
+ * so a maxed settlement lands exactly on the cap. The Academy stands in for the
+ * Residence as the conquest building. We have no Memorial.
+ */
+const POINTS_PER_LEVEL: Partial<Record<BuildingType, number>> = {
+  farm: 10,
+  stable: 10,
+  academy: 100,
+};
+const DEFAULT_POINTS_PER_LEVEL = 20;
+
+function rawSettlementPoints(levels: BuildingLevels): number {
+  return BUILDING_ORDER.reduce(
+    (total, id) => total + Math.max(0, levels[id] ?? 0) * (POINTS_PER_LEVEL[id] ?? DEFAULT_POINTS_PER_LEVEL),
+    0,
+  );
+}
+
+/** Derived once, so nobody has to keep a magic constant in step with the caps. */
+const RAW_MAX_SETTLEMENT_POINTS = BUILDING_ORDER.reduce(
+  (total, id) => total + BUILDINGS[id].maxLevel * (POINTS_PER_LEVEL[id] ?? DEFAULT_POINTS_PER_LEVEL),
+  0,
+);
+
+export function settlementPoints(levels: BuildingLevels): number {
+  if (RAW_MAX_SETTLEMENT_POINTS <= 0) return 0;
+  const scaled = (rawSettlementPoints(levels) * SETTLEMENT_POINTS_CAP) / RAW_MAX_SETTLEMENT_POINTS;
+  return Math.min(SETTLEMENT_POINTS_CAP, Math.round(scaled));
+}
