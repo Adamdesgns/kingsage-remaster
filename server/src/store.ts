@@ -795,7 +795,26 @@ export class SharedWorldStore {
     const published: StoredWorldEvent[] = [];
     this.withTransaction(() => {
       const currentVersion = this.currentWorldVersion(envelope.worldId);
-      if (currentVersion !== envelope.expectedWorldVersion) {
+      // Live field orders are exempt from the optimistic world-version check.
+      //
+      // The check exists so a player cannot act on world state that has moved
+      // on. But the world version bumps every time ANY village earns a log of
+      // wood, so a running economy makes every client stale within seconds -
+      // and a squad order refused for that reason is refused for something that
+      // has nothing to do with the battle. Found live on 2026-08-22: the demo
+      // tour issued three orders and exactly ONE landed.
+      //
+      // These commands are safe to exempt because they validate themselves
+      // completely against the BATTLE rather than the world: the session must
+      // exist, be open, belong to the caller's kingdom, and carry the exact
+      // next sequence number. That sequence check is a stronger ordering
+      // guarantee than the world version ever gave them.
+      //
+      // Deliberately narrow. Launching troops or opening a battle DOES depend
+      // on the world the player was looking at, and still guards.
+      const isLiveFieldOrder = envelope.command.type === "battle.order"
+        || envelope.command.type === "battle.retreat";
+      if (!isLiveFieldOrder && currentVersion !== envelope.expectedWorldVersion) {
         result = this.reject(envelope.commandId, "WORLD_VERSION_CONFLICT", "The world changed before this command was applied.", currentVersion);
         this.insertCommand(player, envelope, result);
         return;

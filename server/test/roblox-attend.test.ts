@@ -249,3 +249,48 @@ test("a report you do not hold is not intel", async () => {
     assert.equal(refused.body.payload.code, "STALE_SCOUT_REPORT");
   });
 });
+
+test("a field order is not refused because the world ticked underneath it", async () => {
+  // Found live on 2026-08-22: the demo tour issued three orders and only ONE
+  // landed. The other two came back WORLD_VERSION_CONFLICT, because the world
+  // version bumps every time any village earns a log of wood - so an order sent
+  // a moment after the client read state is refused for a reason that has
+  // nothing to do with the battle.
+  //
+  // Same defect family as the slice-B `state_version` bug: an optimistic check
+  // guarding against staleness that a live economy makes stale by itself.
+  await withServer(async (context) => {
+    const { march, report } = await armyAtTheWalls(context, "a9");
+    await context.command(ATTACKER_ID, "a9-open", (await context.state(ATTACKER_ID)).world.version, {
+      type: "battle.open",
+      payload: { marchId: march.id, targetVillageVersion: report.targetVillageVersion, plan: PLAN },
+    });
+    const battle = (await context.state(ATTACKER_ID)).battleSessions[0];
+    const current = (await context.state(ATTACKER_ID)).world.version;
+
+    // Deliberately stale: pretend the client read the world several ticks ago.
+    const stale = current - 3;
+    const ordered = await context.command(ATTACKER_ID, "a9-stale-order", stale, {
+      type: "battle.order",
+      payload: { battleId: battle.id, sequence: 1, squad: "vanguard", x: 100, y: 100, atMs: 500 },
+    });
+
+    assert.equal(ordered.body.type, "command.accepted",
+      `a live battle order must not be refused for a world tick (${JSON.stringify(ordered.body)})`);
+  });
+});
+
+test("but a stale march is still refused, because that one really is stale", async () => {
+  // The exemption must be NARROW. Launching troops depends on the world state
+  // the player was looking at; ordering a squad inside a battle does not.
+  await withServer(async (context) => {
+    const { march } = await armyAtTheWalls(context, "a10");
+    const current = (await context.state(ATTACKER_ID)).world.version;
+    const refused = await context.command(ATTACKER_ID, "a10-stale-march", current - 3, {
+      type: "battle.open",
+      payload: { marchId: march.id, targetVillageVersion: 1, plan: PLAN },
+    });
+    assert.equal(refused.body.payload.code, "WORLD_VERSION_CONFLICT",
+      "only live field orders are exempt - everything else still guards on the world version");
+  });
+});
