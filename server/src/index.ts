@@ -38,12 +38,20 @@ function parseDevSeedArmy(raw: string | undefined): Record<string, number> | und
 }
 const devSeedArmy = parseDevSeedArmy(process.env.KINGSAGE_DEV_SEED_ARMY);
 
+// DEV ONLY. Raises every building to this level at world creation, clamped to
+// each building's own maximum. [Adam] "how the fuck are we gonna test to make
+// sure the game works if it starts from zero in a test" - starting from nothing
+// is right for a real game and useless for a ten-minute check. Set it high (99)
+// for a fully maxed settlement.
+const rawSeedLevel = Number(process.env.KINGSAGE_DEV_SEED_LEVEL);
+const devSeedBuildingLevel = Number.isFinite(rawSeedLevel) && rawSeedLevel > 0 ? rawSeedLevel : undefined;
+
 function joinDefaultDatabase(root: string): string {
   return `${root}/data/kingsage-local.sqlite`;
 }
 
 mkdirSync(dirname(databasePath), { recursive: true });
-const store = new SharedWorldStore(databasePath, { autoResolveMs, devSeedNobles, devSeedArmy });
+const store = new SharedWorldStore(databasePath, { autoResolveMs, devSeedNobles, devSeedArmy, devSeedBuildingLevel });
 const app = createWorldHttpServer({ store, staticRoot, robloxKey: process.env.KINGSAGE_ROBLOX_KEY });
 
 app.server.listen(port, "127.0.0.1", () => {

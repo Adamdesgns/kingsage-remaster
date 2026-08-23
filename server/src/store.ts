@@ -213,6 +213,25 @@ type StoreOptions = {
   devSeedNobles?: number;
 
   /**
+   * DEV ONLY. Raises every building in every NON-FREEHOLD village to this level
+   * at world creation, clamped to each building's own maximum.
+   *
+   * [Adam, 2026-08-23] *"how the fuck are we gonna test to make sure the game
+   * works if it starts from zero in a test"* — and he is right. Starting from
+   * nothing is correct for a REAL game and useless for a ten-minute check: with
+   * every building at level 1 there is no Stable, so no horses; no Barracks
+   * worth the name, so no army worth watching; and nothing on screen that looks
+   * any different from a brand-new world.
+   *
+   * A seeded Stable also stocks its herd to capacity, so horses are visible
+   * immediately rather than after hours of breeding.
+   *
+   * Unset in production, and it never touches a Freehold - the thing a drill is
+   * meant to capture has to stay capturable.
+   */
+  devSeedBuildingLevel?: number;
+
+  /**
    * DEV ONLY. Seeds an offensive army into every NON-FREEHOLD village at world
    * creation.
    *
@@ -323,6 +342,8 @@ export class SharedWorldStore {
   private readonly devSeedNobles: number;
   /** DEV ONLY. An offensive army so a drill can fight without training first. */
   private readonly devSeedArmy: Partial<Army> | undefined;
+  /** DEV ONLY. A developed village, so a test has something to look at. */
+  private readonly devSeedBuildingLevel: number;
   readonly now: () => Date;
   private readonly listeners = new Set<(event: StoredWorldEvent) => void>();
 
@@ -336,6 +357,7 @@ export class SharedWorldStore {
     this.autoResolveMs = options.autoResolveMs ?? DEFAULT_AUTO_RESOLVE_MS;
     this.devSeedNobles = Math.max(0, Math.floor(options.devSeedNobles ?? 0));
     this.devSeedArmy = options.devSeedArmy;
+    this.devSeedBuildingLevel = Math.max(0, Math.floor(options.devSeedBuildingLevel ?? 0));
     this.now = options.now ?? (() => new Date());
     this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
     this.migrate();
@@ -543,8 +565,8 @@ export class SharedWorldStore {
       const insertVillage = this.db.prepare(`
         INSERT INTO local_villages(
           id, world_id, kingdom_id, name, x, y, is_capital, loyalty, realm_of_power, realm_of_power_at,
-          resources_json, buildings_json, army_json, state_version
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          horses, horses_at, resources_json, buildings_json, army_json, state_version
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const [index, village] of fixture.villages.entries()) {
         // DEV SEEDING. Off in production, additive rather than replacing, so
@@ -557,6 +579,17 @@ export class SharedWorldStore {
         // That is exactly how the 2026-08-22 conquest run died, at 875 attack
         // against 1,828 defence.
         const isFreehold = fixture.kingdoms.find((k) => k.id === village.kingdomId)?.seatKind === "freehold";
+        let buildings = village.buildings;
+        let horses = 0;
+        if (!isFreehold && this.devSeedBuildingLevel > 0) {
+          buildings = { ...buildings };
+          for (const id of BUILDING_TYPES) {
+            buildings[id] = Math.min(this.devSeedBuildingLevel, BUILDINGS[id].maxLevel);
+          }
+          // A seeded Stable comes with a full herd, so horses are something you
+          // can SEE in a test rather than something you wait hours for.
+          horses = horseCapacity(buildings.stable);
+        }
         let army = village.army;
         if (!isFreehold) {
           if (this.devSeedArmy) {
@@ -578,10 +611,15 @@ export class SharedWorldStore {
           // another table rebuild. Realm of Power is the live track, and a new
           // settlement starts at its own maximum - untouched.
           0,
-          Math.max(1, settlementPoints(village.buildings)),
+          Math.max(1, settlementPoints(buildings)),
           fixture.createdAt,
+          horses,
+          // Stamped only when a Stable already stands, so a village that builds
+          // one LATER still receives its breeding pair (a NULL is what marks
+          // "never had a Stable").
+          buildings.stable > 0 ? fixture.createdAt : null,
           JSON.stringify(village.resources),
-          JSON.stringify(village.buildings),
+          JSON.stringify(buildings),
           JSON.stringify(army),
           village.stateVersion,
         );
