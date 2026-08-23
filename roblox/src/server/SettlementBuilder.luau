@@ -155,6 +155,47 @@ local function renderShell(villageId: string, origin: CFrame, villageName: strin
 	return model
 end
 
+-- The people who live here.
+--
+-- [Adam, 2026-08-23] buildings should be "occupied by people and horses". A
+-- settlement with an army of two hundred and nobody standing in it reads as a
+-- diorama, not a town.
+--
+-- Deliberately cheap and deliberately dumb: anchored parts, no Humanoids, no
+-- pathfinding, no per-frame work at all. They are scenery that happens to be
+-- proportional to something true - how many troops the settlement is actually
+-- holding. Same shape as the battle scene's bodies, which already proved this
+-- is the affordable way to put a crowd on a phone.
+local MAX_VILLAGERS = 24
+
+local function renderOccupants(container: Model, origin: CFrame, troopCount: number)
+	local existing = container:FindFirstChild("Occupants")
+	if existing then
+		existing:Destroy()
+	end
+	if troopCount < 1 then
+		return
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "Occupants"
+	folder.Parent = container
+
+	local count = math.clamp(math.floor(troopCount / 5), 1, MAX_VILLAGERS)
+	for index = 1, count do
+		-- Deterministic scatter inside the walls, from the index alone.
+		local angle = (index * 2.39996) -- golden angle: spreads without clumping
+		local radius = 10 + ((index * 7) % 26)
+		local x = math.cos(angle) * radius
+		local z = math.sin(angle) * radius - 6
+		local body = greyPart("Villager", Vector3.new(1.6, 3, 1),
+			origin * CFrame.new(x, 1.5, z), folder, Color3.fromRGB(96, 84, 72))
+		body.CastShadow = false
+		local head = greyPart("VillagerHead", Vector3.new(1.2, 1.2, 1.2),
+			origin * CFrame.new(x, 3.6, z), folder, Color3.fromRGB(198, 168, 140))
+		head.CastShadow = false
+	end
+end
+
 local function renderBuilding(container: Model, origin: CFrame, villageId: string, building: string, level: number)
 	local existing = container:FindFirstChild("B_" .. building)
 	if existing then
@@ -177,10 +218,40 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 			origin * CFrame.new(position.X, 0.5, position.Z), model, Color3.fromRGB(90, 90, 90))
 		labelFor(part, displayName .. " — not built")
 	else
+		-- A building GROWS OUTWARD as well as upward.
+		--
+		-- [Adam, 2026-08-23] "those buildings needs to be occupied by people and
+		-- horses. A village will grow much larger."
+		--
+		-- Before this a level 1 and a level 10 were the same 12-stud box, just
+		-- taller, so levelling up looked like nothing happening. Now the
+		-- footprint widens and outbuildings appear around it, and a developed
+		-- settlement reads as a place people live in rather than a row of
+		-- identical slabs.
 		local height = 6 + 2 * level
-		part = greyPart("Structure", Vector3.new(BUILDING_FOOTPRINT, height, BUILDING_FOOTPRINT),
+		local footprint = BUILDING_FOOTPRINT + math.min(level, 10) * 0.25
+		part = greyPart("Structure", Vector3.new(footprint, height, footprint),
 			origin * CFrame.new(position.X, height / 2, position.Z), model)
 		labelFor(part, string.format("%s  Lv %d", displayName, level))
+
+		-- Outbuildings: one per three levels, ringed around the main structure.
+		-- Deterministic placement - the same village always looks like itself,
+		-- and no runtime RNG means no drift between two players looking at it.
+		local annexes = math.min(math.floor(level / 3), 6)
+		for index = 1, annexes do
+			local angle = (index / 6) * math.pi * 2
+			-- Kept tight on purpose: the closest neighbours in LAYOUT are 15
+			-- studs apart, so a wider ring would clip an annex straight through
+			-- the building next door.
+			local radius = footprint * 0.35 + 0.5
+			local annexHeight = 3 + (index % 3)
+			greyPart(string.format("Annex%d", index), Vector3.new(3, annexHeight, 3),
+				origin * CFrame.new(
+					position.X + math.cos(angle) * radius,
+					annexHeight / 2,
+					position.Z + math.sin(angle) * radius),
+				model, Color3.fromRGB(104, 96, 84))
+		end
 	end
 
 	local prompt = Instance.new("ProximityPrompt")
@@ -360,6 +431,13 @@ function SettlementBuilder.onState(player: Player, snapshot: any, kingdomId: str
 						entry.levels[building] = level
 					end
 				end
+				-- Repopulate on the same version bump the buildings use, so the
+				-- crowd tracks the garrison without a second trigger to forget.
+				local troops = 0
+				for _, troop in Buildings.TROOP_ORDER do
+					troops += math.max(0, math.floor(tonumber(village.army and village.army[troop]) or 0))
+				end
+				renderOccupants(entry.model, origin, troops)
 				entry.stateVersion = village.stateVersion
 			end
 			if village.isCapital then
