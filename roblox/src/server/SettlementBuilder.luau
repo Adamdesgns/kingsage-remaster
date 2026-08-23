@@ -11,6 +11,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local worldShared = ReplicatedStorage:WaitForChild("WorldShared")
 local Buildings = require(worldShared:WaitForChild("Buildings"))
 local Config = require(worldShared:WaitForChild("Config"))
+local WorldStyle = require(script.Parent:WaitForChild("WorldStyle"))
+local PALETTE = WorldStyle.PALETTE
+local MATERIAL = WorldStyle.MATERIAL
 
 local SettlementBuilder = {}
 
@@ -21,21 +24,83 @@ local BUILDING_FOOTPRINT = 12
 
 -- Fixed layout inside a settlement: gate faces +Z (south); main street runs
 -- gate -> keep; economy row west, military row east, academy north.
+-- Where each building stands, in studs from the settlement centre.
+--
+-- Spread out ten-fold along with the walls. At the old spacing every building
+-- was 15 studs from its neighbour with a 12-stud footprint, so the town was a
+-- solid block of touching boxes. Now there are streets between them.
 local LAYOUT: { [string]: Vector3 } = {
-	hq = Vector3.new(0, 0, 5),
-	market = Vector3.new(-16, 0, 28),
-	warehouse = Vector3.new(16, 0, 28),
-	barracks = Vector3.new(35, 0, 15),
-	stable = Vector3.new(35, 0, 0),
-	workshop = Vector3.new(35, 0, -15),
-	smithy = Vector3.new(35, 0, -30),
-	timber = Vector3.new(-35, 0, 15),
-	quarry = Vector3.new(-35, 0, 0),
-	iron = Vector3.new(-35, 0, -15),
-	farm = Vector3.new(-35, 0, -30),
-	academy = Vector3.new(0, 0, -35),
-	wall = Vector3.new(-16, 0, 44),
+	hq = Vector3.new(0, 0, 60),
+	market = Vector3.new(-170, 0, 300),
+	warehouse = Vector3.new(170, 0, 300),
+	barracks = Vector3.new(360, 0, 150),
+	stable = Vector3.new(360, 0, -20),
+	workshop = Vector3.new(360, 0, -190),
+	smithy = Vector3.new(180, 0, -330),
+	timber = Vector3.new(-360, 0, 150),
+	quarry = Vector3.new(-360, 0, -20),
+	iron = Vector3.new(-360, 0, -190),
+	farm = Vector3.new(-180, 0, -330),
+	academy = Vector3.new(0, 0, -370),
+	wall = Vector3.new(-170, 0, 470),
 }
+
+-- What each building actually IS, rather than "a box whose height is its level".
+--
+-- [Adam, 2026-08-23] "that's retarded to build them tall. No I want you to turn
+-- those into actual building."
+--
+-- He is right. Height-as-level made a level 30 Farm a 66-stud tower, which is
+-- not a farm, and made every building identical apart from how far up it went.
+-- Now each type has its own footprint, its own wall height and its own roof,
+-- and LEVEL widens the compound instead of stretching it into the sky. Only a
+-- keep and an academy are supposed to be tall.
+type BuildingSpec = {
+	w: number,
+	d: number,
+	h: number,
+	roof: number,
+	wall: Color3,
+	wallMat: Enum.Material,
+	roofColour: Color3,
+	roofMat: Enum.Material,
+	timbered: boolean,
+	chimney: boolean,
+}
+
+local function spec(
+	w: number, d: number, h: number, roof: number,
+	wall: Color3, wallMat: Enum.Material,
+	roofColour: Color3, roofMat: Enum.Material,
+	timbered: boolean, chimney: boolean
+): BuildingSpec
+	return {
+		w = w, d = d, h = h, roof = roof,
+		wall = wall, wallMat = wallMat,
+		roofColour = roofColour, roofMat = roofMat,
+		timbered = timbered, chimney = chimney,
+	}
+end
+
+-- Each building is a different KIND of place, not the same box in a different
+-- size. A keep is cut stone under slate; a farm is plaster under thatch; a
+-- smithy has a chimney because a forge has to vent somewhere.
+local SPEC: { [string]: BuildingSpec } = {
+	hq        = spec(100, 100, 78, 30, PALETTE.stone,     MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
+	academy   = spec(86,  86,  62, 26, PALETTE.stoneWarm, MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
+	barracks  = spec(180, 84,  30, 18, PALETTE.stoneDark, MATERIAL.block,   PALETTE.roofTile,  MATERIAL.roof,   true,  true),
+	stable    = spec(170, 74,  24, 16, PALETTE.timberLight, MATERIAL.timber, PALETTE.thatch,   MATERIAL.thatch, true,  false),
+	workshop  = spec(126, 94,  28, 16, PALETTE.stoneDark, MATERIAL.block,   PALETTE.roofTile,  MATERIAL.roof,   true,  false),
+	smithy    = spec(94,  84,  28, 16, PALETTE.stoneDark, MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
+	warehouse = spec(140, 106, 34, 20, PALETTE.plaster,   MATERIAL.plaster, PALETTE.roofTile,  MATERIAL.roof,   true,  false),
+	market    = spec(128, 106, 26, 16, PALETTE.plaster,   MATERIAL.plaster, PALETTE.roofTile,  MATERIAL.roof,   true,  false),
+	farm      = spec(158, 116, 22, 14, PALETTE.plaster,   MATERIAL.plaster, PALETTE.thatch,    MATERIAL.thatch, true,  true),
+	timber    = spec(138, 86,  22, 14, PALETTE.timberLight, MATERIAL.timber, PALETTE.thatch,   MATERIAL.thatch, false, false),
+	quarry    = spec(126, 86,  20, 12, PALETTE.stone,     MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
+	iron      = spec(126, 86,  20, 12, PALETTE.stoneDark, MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
+	wall      = spec(96,  66,  26, 14, PALETTE.stone,     MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
+}
+
 
 local settlementsFolder = Instance.new("Folder")
 settlementsFolder.Name = "Settlements"
@@ -124,18 +189,109 @@ local function kingdomInfo(snapshot: any, kingdomId: string): (string, Color3)
 	return "Unknown realm", Color3.fromRGB(150, 150, 150)
 end
 
+local function gateHalf(): number
+	return 45
+end
+
+--- A curtain wall with battlements, corner towers and a gatehouse.
+---
+--- Four flat slabs are a fence. Crenellations, towers and an arched gate are
+--- what make a settlement read as fortified — and they are also the thing an
+--- attacker is looking at when the Rampart level matters.
 local function renderShellWalls(model: Model, origin: CFrame)
-	local ground = greyPart("Ground", Vector3.new(WALL_HALF * 2 + 20, 2, WALL_HALF * 2 + 20),
-		origin * CFrame.new(0, -1, 0), model, Color3.fromRGB(96, 108, 78))
-	ground.Material = Enum.Material.Grass
-	local wallHeight, wallThickness = 10, 3
-	greyPart("WallN", Vector3.new(WALL_HALF * 2, wallHeight, wallThickness), origin * CFrame.new(0, wallHeight / 2, -WALL_HALF), model)
-	greyPart("WallW", Vector3.new(wallThickness, wallHeight, WALL_HALF * 2), origin * CFrame.new(-WALL_HALF, wallHeight / 2, 0), model)
-	greyPart("WallE", Vector3.new(wallThickness, wallHeight, WALL_HALF * 2), origin * CFrame.new(WALL_HALF, wallHeight / 2, 0), model)
-	local gateGap = 12
+	local ground = WorldStyle.part("Ground", Vector3.new(WALL_HALF * 2 + 120, 4, WALL_HALF * 2 + 120),
+		origin * CFrame.new(0, -2, 0), model, PALETTE.grass, MATERIAL.grass)
+	ground.CastShadow = false
+
+	local wallHeight, wallThickness = 38, 16
+	local gateGap = gateHalf() * 2
+
+	local function crenellate(centreX: number, centreZ: number, spanX: number, spanZ: number)
+		-- Merlons along the top: the notched profile of a battlement.
+		local along = if spanX > spanZ then spanX else spanZ
+		local step = 26
+		local count = math.max(1, math.floor(along / step))
+		for index = 0, count - 1 do
+			local offset = -along / 2 + step / 2 + index * step
+			local x = if spanX > spanZ then centreX + offset else centreX
+			local z = if spanX > spanZ then centreZ else centreZ + offset
+			local merlon = WorldStyle.part("Merlon", Vector3.new(
+					if spanX > spanZ then 14 else wallThickness,
+					8,
+					if spanX > spanZ then wallThickness else 14),
+				origin * CFrame.new(x, wallHeight + 4, z), model, PALETTE.stone, MATERIAL.stone)
+			merlon.CastShadow = false
+		end
+	end
+
+	local function segment(name: string, size: Vector3, at: CFrame)
+		WorldStyle.part(name, size, at, model, PALETTE.stone, MATERIAL.stone)
+	end
+
+	segment("WallN", Vector3.new(WALL_HALF * 2, wallHeight, wallThickness), origin * CFrame.new(0, wallHeight / 2, -WALL_HALF))
+	segment("WallW", Vector3.new(wallThickness, wallHeight, WALL_HALF * 2), origin * CFrame.new(-WALL_HALF, wallHeight / 2, 0))
+	segment("WallE", Vector3.new(wallThickness, wallHeight, WALL_HALF * 2), origin * CFrame.new(WALL_HALF, wallHeight / 2, 0))
+	crenellate(0, -WALL_HALF, WALL_HALF * 2, wallThickness)
+	crenellate(-WALL_HALF, 0, wallThickness, WALL_HALF * 2)
+	crenellate(WALL_HALF, 0, wallThickness, WALL_HALF * 2)
+
 	local southSegment = (WALL_HALF * 2 - gateGap) / 2
-	greyPart("WallS1", Vector3.new(southSegment, wallHeight, wallThickness), origin * CFrame.new(-(gateGap / 2 + southSegment / 2), wallHeight / 2, WALL_HALF), model)
-	greyPart("WallS2", Vector3.new(southSegment, wallHeight, wallThickness), origin * CFrame.new(gateGap / 2 + southSegment / 2, wallHeight / 2, WALL_HALF), model)
+	segment("WallS1", Vector3.new(southSegment, wallHeight, wallThickness),
+		origin * CFrame.new(-(gateGap / 2 + southSegment / 2), wallHeight / 2, WALL_HALF))
+	segment("WallS2", Vector3.new(southSegment, wallHeight, wallThickness),
+		origin * CFrame.new(gateGap / 2 + southSegment / 2, wallHeight / 2, WALL_HALF))
+	crenellate(-(gateGap / 2 + southSegment / 2), WALL_HALF, southSegment, wallThickness)
+	crenellate(gateGap / 2 + southSegment / 2, WALL_HALF, southSegment, wallThickness)
+
+	-- Corner towers, taller than the wall and round-shouldered.
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			local tower = WorldStyle.part("Tower", Vector3.new(44, wallHeight + 26, 44),
+				origin * CFrame.new(sx * WALL_HALF, (wallHeight + 26) / 2, sz * WALL_HALF), model, PALETTE.stone, MATERIAL.stone)
+			tower.Shape = Enum.PartType.Cylinder
+			tower.Orientation = Vector3.new(0, 0, 90)
+			local cap = Instance.new("Part")
+			cap.Name = "TowerCap"
+			cap.Shape = Enum.PartType.Ball
+			cap.Size = Vector3.new(46, 46, 46)
+			cap.Anchored = true
+			cap.Color = PALETTE.roofSlate
+			cap.Material = MATERIAL.roof
+			cap.CFrame = origin * CFrame.new(sx * WALL_HALF, wallHeight + 26, sz * WALL_HALF)
+			cap.Parent = model
+		end
+	end
+
+	-- The gatehouse: two towers and a lintel you ride under.
+	for _, sx in { -1, 1 } do
+		WorldStyle.part("GateTower", Vector3.new(38, wallHeight + 34, 38),
+			origin * CFrame.new(sx * (gateGap / 2 + 19), (wallHeight + 34) / 2, WALL_HALF), model, PALETTE.stoneDark, MATERIAL.stone)
+	end
+	WorldStyle.part("GateArch", Vector3.new(gateGap + 40, 14, wallThickness + 6),
+		origin * CFrame.new(0, wallHeight + 7, WALL_HALF), model, PALETTE.stoneDark, MATERIAL.stone)
+	local banner = WorldStyle.part("GateBanner", Vector3.new(18, 26, 1),
+		origin * CFrame.new(0, wallHeight - 6, WALL_HALF + wallThickness / 2 + 1), model, PALETTE.banner, MATERIAL.cloth)
+	banner.CastShadow = false
+
+	-- Roads: a main street from the gate to the keep, and a cross street.
+	local street = WorldStyle.part("StreetMain", Vector3.new(56, 0.6, WALL_HALF * 2 - 40),
+		origin * CFrame.new(0, 0.3, 0), model, PALETTE.road, MATERIAL.road)
+	street.CastShadow = false
+	local cross = WorldStyle.part("StreetCross", Vector3.new(WALL_HALF * 2 - 40, 0.6, 56),
+		origin * CFrame.new(0, 0.3, 0), model, PALETTE.road, MATERIAL.road)
+	cross.CastShadow = false
+
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Name = "GateSpawn"
+	spawn.Size = Vector3.new(24, 1, 24)
+	spawn.CFrame = origin * CFrame.new(0, 0.8, WALL_HALF - 40)
+	spawn.Anchored = true
+	spawn.Neutral = false
+	spawn.Enabled = true
+	spawn.Duration = 0
+	spawn.Transparency = 1
+	spawn.CanCollide = false
+	spawn.Parent = model
 end
 
 -- Foreign silhouette: what a traveler may know from OUTSIDE the walls — the
@@ -147,52 +303,87 @@ local function renderShell(villageId: string, origin: CFrame, villageName: strin
 	model:SetAttribute("VillageId", villageId)
 	model:SetAttribute("Foreign", true)
 	renderShellWalls(model, origin)
-	local keep = greyPart("KeepMassing", Vector3.new(18, 14, 18), origin * CFrame.new(0, 7, 0), model, Color3.fromRGB(105, 105, 105))
+	-- A foreign settlement at the same SCALE as your own, so the horizon reads
+	-- honestly: a keep behind walls, no levels, no interiors. It was an 18-stud
+	-- lump inside a 1,100-stud wall ring - invisible in practice.
+	local keep = WorldStyle.part("KeepMassing", Vector3.new(180, 150, 180),
+		origin * CFrame.new(0, 75, 0), model, PALETTE.stoneDark, MATERIAL.stone)
 	labelFor(keep, villageName)
-	local banner = greyPart("BannerPost", Vector3.new(1, 10, 1), origin * CFrame.new(0, 5, WALL_HALF + 6), model, kingdomColor)
+	local banner = WorldStyle.part("BannerPost", Vector3.new(8, 120, 8),
+		origin * CFrame.new(0, 60, WALL_HALF + 40), model, kingdomColor, MATERIAL.cloth)
 	labelFor(banner, kingdomName)
 	model.Parent = settlementsFolder
 	return model
 end
 
--- The people who live here.
+-- ⚠️ There were villagers here. Removed 2026-08-23 at Adam's word: "what are
+-- all these sticks. surely those aren't the villagers. I never said anything
+-- about villagers."
 --
--- [Adam, 2026-08-23] buildings should be "occupied by people and horses". A
--- settlement with an army of two hundred and nobody standing in it reads as a
--- diorama, not a town.
---
--- Deliberately cheap and deliberately dumb: anchored parts, no Humanoids, no
--- pathfinding, no per-frame work at all. They are scenery that happens to be
--- proportional to something true - how many troops the settlement is actually
--- holding. Same shape as the battle scene's bodies, which already proved this
--- is the affordable way to put a crowd on a phone.
-local MAX_VILLAGERS = 24
+-- He is right, twice over. He asked for buildings to be OCCUPIED, and I turned
+-- that into decorative NPCs he never wanted - brown poles with tan cubes for
+-- heads, standing about in the street. And at this stage the only figures that
+-- should exist are the player and actual troops, both of which mean something.
+-- Scenery that means nothing is worse than empty ground.
 
-local function renderOccupants(container: Model, origin: CFrame, troopCount: number)
-	local existing = container:FindFirstChild("Occupants")
-	if existing then
-		existing:Destroy()
+--- A pitched roof of two slopes, overhanging the walls like a real one.
+local function pitchedRoof(model: Model, origin: CFrame, at: Vector3, w: number, d: number, wallTop: number, rise: number, colour: Color3, material: Enum.Material)
+	local overhang = 6
+	local half = (w + overhang) / 2
+	for _, side in { 1, -1 } do
+		local wedge = Instance.new("WedgePart")
+		wedge.Name = "Roof"
+		wedge.Size = Vector3.new(d + overhang, rise, half)
+		wedge.Anchored = true
+		wedge.Color = colour
+		wedge.Material = material
+		wedge.TopSurface = Enum.SurfaceType.Smooth
+		wedge.BottomSurface = Enum.SurfaceType.Smooth
+		wedge.CFrame = origin
+			* CFrame.new(at.X + side * half / 2, wallTop + rise / 2, at.Z)
+			* CFrame.Angles(0, math.rad(90 * side), 0)
+			* CFrame.Angles(0, 0, math.rad(90))
+		wedge.Parent = model
 	end
-	if troopCount < 1 then
-		return
-	end
-	local folder = Instance.new("Folder")
-	folder.Name = "Occupants"
-	folder.Parent = container
+	-- Ridge beam along the top, so the two slopes meet in a line rather than a
+	-- seam.
+	WorldStyle.part("Ridge", Vector3.new(3, 2, d + overhang),
+		origin * CFrame.new(at.X, wallTop + rise, at.Z), model, PALETTE.timber, MATERIAL.timber).CastShadow = false
+end
 
-	local count = math.clamp(math.floor(troopCount / 5), 1, MAX_VILLAGERS)
+--- Windows down a face: small, dark, evenly spaced. Nothing says "building"
+--- faster than openings at a human scale.
+local function windowRow(model: Model, origin: CFrame, at: Vector3, w: number, d: number, height: number)
+	local count = math.clamp(math.floor(w / 34), 1, 5)
+	local spacing = w / (count + 1)
 	for index = 1, count do
-		-- Deterministic scatter inside the walls, from the index alone.
-		local angle = (index * 2.39996) -- golden angle: spreads without clumping
-		local radius = 10 + ((index * 7) % 26)
-		local x = math.cos(angle) * radius
-		local z = math.sin(angle) * radius - 6
-		local body = greyPart("Villager", Vector3.new(1.6, 3, 1),
-			origin * CFrame.new(x, 1.5, z), folder, Color3.fromRGB(96, 84, 72))
-		body.CastShadow = false
-		local head = greyPart("VillagerHead", Vector3.new(1.2, 1.2, 1.2),
-			origin * CFrame.new(x, 3.6, z), folder, Color3.fromRGB(198, 168, 140))
-		head.CastShadow = false
+		local x = at.X - w / 2 + spacing * index
+		for _, face in { 1, -1 } do
+			local pane = WorldStyle.part("Window", Vector3.new(8, 12, 1.5),
+				origin * CFrame.new(x, height, at.Z + face * (d / 2 + 0.5)),
+				model, PALETTE.window, MATERIAL.glass)
+			pane.CastShadow = false
+			pane.Reflectance = 0.15
+		end
+	end
+end
+
+--- Exposed timber framing: corner posts and a mid rail. Cheap, and it is the
+--- detail that reads as medieval from any distance.
+local function timberFrame(model: Model, origin: CFrame, at: Vector3, w: number, d: number, h: number)
+	for _, sx in { -1, 1 } do
+		for _, sz in { -1, 1 } do
+			local post = WorldStyle.part("Post", Vector3.new(6, h, 6),
+				origin * CFrame.new(at.X + sx * (w / 2 - 3), h / 2, at.Z + sz * (d / 2 - 3)),
+				model, PALETTE.timber, MATERIAL.timber)
+			post.CastShadow = false
+		end
+	end
+	for _, face in { 1, -1 } do
+		local rail = WorldStyle.part("Rail", Vector3.new(w, 4, 2),
+			origin * CFrame.new(at.X, h * 0.62, at.Z + face * (d / 2 + 0.5)),
+			model, PALETTE.timber, MATERIAL.timber)
+		rail.CastShadow = false
 	end
 end
 
@@ -212,45 +403,64 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 	model:SetAttribute("Level", level)
 
 	local displayName = Buildings.displayName(building)
+	local sp = SPEC[building] or SPEC.market
 	local part: Part
 	if level <= 0 then
-		part = greyPart("Structure", Vector3.new(BUILDING_FOOTPRINT, 1, BUILDING_FOOTPRINT),
-			origin * CFrame.new(position.X, 0.5, position.Z), model, Color3.fromRGB(90, 90, 90))
-		labelFor(part, displayName .. " — not built")
+		-- An empty plot: staked out, so you can see there is room here and what
+		-- it is for.
+		part = WorldStyle.part("Structure", Vector3.new(sp.w, 1, sp.d),
+			origin * CFrame.new(position.X, 0.5, position.Z), model, PALETTE.dirt, MATERIAL.road)
+		for _, sx in { -1, 1 } do
+			for _, sz in { -1, 1 } do
+				WorldStyle.part("Stake", Vector3.new(3, 12, 3),
+					origin * CFrame.new(position.X + sx * (sp.w / 2 - 4), 6, position.Z + sz * (sp.d / 2 - 4)),
+					model, PALETTE.timber, MATERIAL.timber).CastShadow = false
+			end
+		end
 	else
-		-- A building GROWS OUTWARD as well as upward.
-		--
-		-- [Adam, 2026-08-23] "those buildings needs to be occupied by people and
-		-- horses. A village will grow much larger."
-		--
-		-- Before this a level 1 and a level 10 were the same 12-stud box, just
-		-- taller, so levelling up looked like nothing happening. Now the
-		-- footprint widens and outbuildings appear around it, and a developed
-		-- settlement reads as a place people live in rather than a row of
-		-- identical slabs.
-		local height = 6 + 2 * level
-		local footprint = BUILDING_FOOTPRINT + math.min(level, 10) * 0.25
-		part = greyPart("Structure", Vector3.new(footprint, height, footprint),
-			origin * CFrame.new(position.X, height / 2, position.Z), model)
-		labelFor(part, string.format("%s  Lv %d", displayName, level))
+		-- LEVEL widens the compound. It does not stretch the building into the
+		-- sky: a level 30 Farm is a big farm, not a 66-stud tower.
+		local grow = 1 + math.min(level, 20) * 0.014
+		local width, depth = sp.w * grow, sp.d * grow
 
-		-- Outbuildings: one per three levels, ringed around the main structure.
-		-- Deterministic placement - the same village always looks like itself,
-		-- and no runtime RNG means no drift between two players looking at it.
+		-- A stone footing under everything, so nothing sits flush on the grass.
+		WorldStyle.part("Footing", Vector3.new(width + 8, 4, depth + 8),
+			origin * CFrame.new(position.X, 2, position.Z), model, PALETTE.stoneDark, MATERIAL.stone)
+
+		part = WorldStyle.part("Structure", Vector3.new(width, sp.h, depth),
+			origin * CFrame.new(position.X, 4 + sp.h / 2, position.Z), model, sp.wall, sp.wallMat)
+
+		local wallTop = 4 + sp.h
+		pitchedRoof(model, origin, position, width, depth, wallTop, sp.roof, sp.roofColour, sp.roofMat)
+		windowRow(model, origin, position, width, depth, 4 + sp.h * 0.58)
+		if sp.timbered then
+			timberFrame(model, origin, position, width, depth, sp.h + 4)
+		end
+		if sp.chimney then
+			local stack = WorldStyle.part("Chimney", Vector3.new(12, sp.roof + 22, 12),
+				origin * CFrame.new(position.X + width * 0.3, wallTop + (sp.roof + 22) / 2 - 4, position.Z - depth * 0.28),
+				model, PALETTE.stoneDark, MATERIAL.stone)
+			stack.CastShadow = false
+		end
+
+		-- A doorway with a frame and a lintel, facing the gate.
+		local doorZ = position.Z + depth / 2 + 0.6
+		WorldStyle.part("Door", Vector3.new(14, 20, 1.5),
+			origin * CFrame.new(position.X, 14, doorZ), model, PALETTE.timber, MATERIAL.timber).CastShadow = false
+		WorldStyle.part("Lintel", Vector3.new(20, 4, 3),
+			origin * CFrame.new(position.X, 25, doorZ), model, PALETTE.stoneDark, MATERIAL.stone).CastShadow = false
+
+		-- Outbuildings: the compound filling out as it grows.
 		local annexes = math.min(math.floor(level / 3), 6)
 		for index = 1, annexes do
 			local angle = (index / 6) * math.pi * 2
-			-- Kept tight on purpose: the closest neighbours in LAYOUT are 15
-			-- studs apart, so a wider ring would clip an annex straight through
-			-- the building next door.
-			local radius = footprint * 0.35 + 0.5
-			local annexHeight = 3 + (index % 3)
-			greyPart(string.format("Annex%d", index), Vector3.new(3, annexHeight, 3),
-				origin * CFrame.new(
-					position.X + math.cos(angle) * radius,
-					annexHeight / 2,
-					position.Z + math.sin(angle) * radius),
-				model, Color3.fromRGB(104, 96, 84))
+			local radius = math.max(width, depth) * 0.62 + 20
+			local ah = 14 + (index % 3) * 4
+			local ax = position.X + math.cos(angle) * radius
+			local az = position.Z + math.sin(angle) * radius
+			WorldStyle.part("Annex", Vector3.new(26, ah, 22),
+				origin * CFrame.new(ax, 4 + ah / 2, az), model, PALETTE.plaster, MATERIAL.plaster).CastShadow = false
+			pitchedRoof(model, origin, Vector3.new(ax, 0, az), 26, 22, 4 + ah, 9, sp.roofColour, sp.roofMat)
 		end
 	end
 
@@ -259,7 +469,10 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 	prompt.ActionText = "Upgrade"
 	prompt.ObjectText = displayName
 	prompt.HoldDuration = 0.35
-	prompt.MaxActivationDistance = 12
+	-- Reach scaled with the buildings: 12 studs was right when a building WAS
+	-- 12 studs wide. These are 90-170 across, so you would have to stand inside
+	-- the wall to get a prompt.
+	prompt.MaxActivationDistance = 55
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = part
 
@@ -269,7 +482,7 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 		recruit.ActionText = Buildings.RECRUIT_PRESET.label
 		recruit.ObjectText = displayName
 		recruit.HoldDuration = 0.35
-		recruit.MaxActivationDistance = 12
+		recruit.MaxActivationDistance = 55
 		recruit.RequiresLineOfSight = false
 		recruit.UIOffset = Vector2.new(0, 60)
 		recruit.KeyboardKeyCode = Enum.KeyCode.R
@@ -280,26 +493,10 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 end
 
 local function renderFullShellParts(model: Model, origin: CFrame, villageName: string)
+	-- Everything a settlement is made of now lives in renderShellWalls: walls,
+	-- towers, gatehouse, streets and the gate spawn. This is kept as the single
+	-- entry point so callers do not need to know that.
 	renderShellWalls(model, origin)
-	labelFor(greyPart("NamePost", Vector3.new(1, 8, 1), origin * CFrame.new(0, 4, WALL_HALF + 6), model), villageName)
-
-	local street = greyPart("StreetMain", Vector3.new(6, 0.2, WALL_HALF + 40), origin * CFrame.new(0, 0.11, (WALL_HALF - 40) / 2 + 20), model, Color3.fromRGB(70, 70, 70))
-	street.Material = Enum.Material.Slate
-	local cross = greyPart("StreetCross", Vector3.new(WALL_HALF * 2 - 10, 0.2, 6), origin * CFrame.new(0, 0.11, 0), model, Color3.fromRGB(70, 70, 70))
-	cross.Material = Enum.Material.Slate
-
-	-- Own-gate spawn. Not Neutral (would scatter strangers here); Enabled must
-	-- stay true or Player.RespawnLocation ignores it.
-	local spawn = Instance.new("SpawnLocation")
-	spawn.Name = "GateSpawn"
-	spawn.Size = Vector3.new(6, 1, 6)
-	spawn.CFrame = origin * CFrame.new(0, 0.5, WALL_HALF - 6)
-	spawn.Anchored = true
-	spawn.Neutral = false
-	spawn.Enabled = true
-	spawn.Duration = 0
-	spawn.Color = Color3.fromRGB(80, 80, 80)
-	spawn.Parent = model
 end
 
 local function renderFull(player: Player, village: any, origin: CFrame): Entry
@@ -352,9 +549,8 @@ local function buildWilderness(villages: { any })
 	-- was a void with village plates and trees hanging in it.
 	local tiles = Config.groundTiles(minX, maxX, minZ, maxZ)
 	for index, tile in tiles do
-		local slab = greyPart(string.format("RegionGround%d", index), Vector3.new(tile.sx, 2, tile.sz),
-			CFrame.new(tile.cx, -2.05, tile.cz), wildernessFolder, Color3.fromRGB(88, 102, 70))
-		slab.Material = Enum.Material.Grass
+		local slab = WorldStyle.part(string.format("RegionGround%d", index), Vector3.new(tile.sx, 2, tile.sz),
+			CFrame.new(tile.cx, -2.05, tile.cz), wildernessFolder, PALETTE.grass, MATERIAL.grass)
 		slab.CastShadow = false
 	end
 	print(string.format("[World] region floor: %d tiles covering %d x %d studs",
@@ -379,13 +575,24 @@ local function buildWilderness(villages: { any })
 				end
 				if not nearVillage then
 					treeCount += 1
-					local trunk = greyPart("TreeTrunk", Vector3.new(2, 9, 2), CFrame.new(x, 3.5, z), wildernessFolder, Color3.fromRGB(92, 70, 48))
-					trunk.Material = Enum.Material.Wood
+					-- Trees sized for a world where a settlement is 1,100 studs
+					-- across. At 2x9 they were matchsticks you walked straight
+					-- past. Height varies deterministically from the same hash
+					-- that placed them, so a forest looks grown rather than
+					-- stamped, and still looks identical for every player.
+					local scale = 0.75 + (hash % 7) * 0.14
+					local trunkHeight = 34 * scale
+					local trunk = WorldStyle.part("TreeTrunk", Vector3.new(7, trunkHeight, 7),
+						CFrame.new(x, trunkHeight / 2, z), wildernessFolder, PALETTE.timber, MATERIAL.timber)
 					trunk.CastShadow = false
-					local canopy = greyPart("TreeCanopy", Vector3.new(9, 9, 9), CFrame.new(x, 11, z), wildernessFolder, Color3.fromRGB(64, 110, 58))
-					canopy.Material = Enum.Material.Grass
-					canopy.CanCollide = false
-					canopy.CastShadow = false
+					for tier = 0, 2 do
+						local spread = (34 - tier * 9) * scale
+						local canopy = WorldStyle.part("TreeCanopy", Vector3.new(spread, 14 * scale, spread),
+							CFrame.new(x, trunkHeight + tier * 11 * scale, z), wildernessFolder,
+							Color3.fromRGB(58 + tier * 8, 96 + tier * 10, 52), MATERIAL.thatch)
+						canopy.CanCollide = false
+						canopy.CastShadow = false
+					end
 				end
 			end
 		end
@@ -424,20 +631,20 @@ function SettlementBuilder.onState(player: Player, snapshot: any, kingdomId: str
 				rendered[villageId] = entry
 			end
 			if entry.stateVersion ~= village.stateVersion then
+				local rendered_count = 0
 				for _, building in Buildings.ORDER do
 					local level = tonumber(village.buildings and village.buildings[building]) or 0
 					if entry.levels[building] ~= level then
 						renderBuilding(entry.model, origin, villageId, building, level)
 						entry.levels[building] = level
+						rendered_count += 1
 					end
 				end
-				-- Repopulate on the same version bump the buildings use, so the
-				-- crowd tracks the garrison without a second trigger to forget.
-				local troops = 0
-				for _, troop in Buildings.TROOP_ORDER do
-					troops += math.max(0, math.floor(tonumber(village.army and village.army[troop]) or 0))
+				if rendered_count > 0 then
+					print(string.format("[World] %s: built %d structures at (%d, %d)",
+						tostring(village.name), rendered_count,
+						math.floor(origin.Position.X), math.floor(origin.Position.Z)))
 				end
-				renderOccupants(entry.model, origin, troops)
 				entry.stateVersion = village.stateVersion
 			end
 			if village.isCapital then
@@ -456,7 +663,8 @@ function SettlementBuilder.onState(player: Player, snapshot: any, kingdomId: str
 				--     that was not ready yet was stranded permanently);
 				--   * keep trying while the character is still loading;
 				--   * and rescue anyone who ends up under the world later.
-				local landing = origin * CFrame.new(0, 6, WALL_HALF - 10)
+				-- Just inside the gate, facing up the main street.
+				local landing = origin * CFrame.new(0, 6, WALL_HALF - 40)
 				gateLanding[player] = landing
 				if not teleported[player] then
 					teleported[player] = true
@@ -470,6 +678,11 @@ function SettlementBuilder.onState(player: Player, snapshot: any, kingdomId: str
 							if character and root and root:IsA("BasePart") then
 								character:PivotTo(landing)
 								root.AssemblyLinearVelocity = Vector3.zero
+								print(string.format("[World] %s placed at their gate (%d, %d, %d)",
+									player.Name,
+									math.floor(landing.Position.X),
+									math.floor(landing.Position.Y),
+									math.floor(landing.Position.Z)))
 								return
 							end
 							task.wait(0.25)

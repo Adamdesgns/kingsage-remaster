@@ -1,4 +1,7 @@
 --!strict
+local WorldStyle = require(script:WaitForChild("WorldStyle"))
+WorldStyle.applyLighting()
+
 local WorldSession = require(script:WaitForChild("WorldSession"))
 local SettlementBuilder = require(script:WaitForChild("SettlementBuilder"))
 require(script:WaitForChild("CommandService"))

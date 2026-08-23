@@ -10,7 +10,17 @@ local Config = {
 	TILE_STUDS = 220,
 	-- Half the width of a settlement's wall ring. The battlefield forms up
 	-- outside the gate, which is on the +Z face.
-	WALL_HALF = 55,
+	-- Half the width of a settlement's wall ring.
+	--
+	-- [Adam, 2026-08-23] "That settlement is also 1/10th the size it should be."
+	-- He was right: at 55 the whole town was 110 studs across - smaller than a
+	-- house, and every building was touching its neighbour, which is why they
+	-- read as a stack of boxes rather than a place.
+	--
+	-- Safe at this size because `selectCapitalSites` guarantees settlements are at
+	-- least 8 tiles apart, which is 1,760 studs - so a 1,100-stud town still has
+	-- open country between it and the next one.
+	WALL_HALF = 550,
 
 	-- The conquest celebration (spec §5: big, skippable, non-blocking). Every
 	-- number here is a HARD cap, not a target: the spectacle must never be the
