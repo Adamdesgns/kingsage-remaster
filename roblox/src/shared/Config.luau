@@ -20,7 +20,7 @@ local Config = {
 	-- Safe at this size because `selectCapitalSites` guarantees settlements are at
 	-- least 8 tiles apart, which is 1,760 studs - so a 1,100-stud town still has
 	-- open country between it and the next one.
-	WALL_HALF = 550,
+	WALL_HALF = 200,
 
 	-- The conquest celebration (spec §5: big, skippable, non-blocking). Every
 	-- number here is a HARD cap, not a target: the spectacle must never be the

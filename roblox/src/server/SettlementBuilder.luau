@@ -26,23 +26,26 @@ local BUILDING_FOOTPRINT = 12
 -- gate -> keep; economy row west, military row east, academy north.
 -- Where each building stands, in studs from the settlement centre.
 --
--- Spread out ten-fold along with the walls. At the old spacing every building
--- was 15 studs from its neighbour with a 12-stud footprint, so the town was a
--- solid block of touching boxes. Now there are streets between them.
+-- EVERYTHING HERE IS SIZED OFF THE CHARACTER. [Adam, 2026-08-23] "Can you base
+-- the size of this off the scale of the damn characters." A Roblox character is
+-- about 5 studs tall, so: a doorway is 8, a cottage wall is 12, a two-storey
+-- building is 20, and a keep is 34. Before this the barracks stood 48 studs to
+-- the ridge - nearly ten characters - which is why it read as a monument rather
+-- than a building.
 local LAYOUT: { [string]: Vector3 } = {
-	hq = Vector3.new(0, 0, 60),
-	market = Vector3.new(-170, 0, 300),
-	warehouse = Vector3.new(170, 0, 300),
-	barracks = Vector3.new(360, 0, 150),
-	stable = Vector3.new(360, 0, -20),
-	workshop = Vector3.new(360, 0, -190),
-	smithy = Vector3.new(180, 0, -330),
-	timber = Vector3.new(-360, 0, 150),
-	quarry = Vector3.new(-360, 0, -20),
-	iron = Vector3.new(-360, 0, -190),
-	farm = Vector3.new(-180, 0, -330),
-	academy = Vector3.new(0, 0, -370),
-	wall = Vector3.new(-170, 0, 470),
+	hq = Vector3.new(0, 0, 20),
+	market = Vector3.new(-64, 0, 106),
+	warehouse = Vector3.new(64, 0, 106),
+	barracks = Vector3.new(128, 0, 52),
+	stable = Vector3.new(132, 0, -8),
+	workshop = Vector3.new(128, 0, -68),
+	smithy = Vector3.new(64, 0, -118),
+	timber = Vector3.new(-128, 0, 52),
+	quarry = Vector3.new(-132, 0, -8),
+	iron = Vector3.new(-128, 0, -68),
+	farm = Vector3.new(-64, 0, -118),
+	academy = Vector3.new(0, 0, -134),
+	wall = Vector3.new(-64, 0, 166),
 }
 
 -- What each building actually IS, rather than "a box whose height is its level".
@@ -83,22 +86,23 @@ local function spec(
 end
 
 -- Each building is a different KIND of place, not the same box in a different
--- size. A keep is cut stone under slate; a farm is plaster under thatch; a
--- smithy has a chimney because a forge has to vent somewhere.
+-- size. Heights are in CHARACTERS: 12 studs is roughly a two-and-a-half-
+-- character cottage wall, 34 is a three-storey keep. Nothing here is taller
+-- than it would be if you stood next to it.
 local SPEC: { [string]: BuildingSpec } = {
-	hq        = spec(100, 100, 78, 30, PALETTE.stone,     MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
-	academy   = spec(86,  86,  62, 26, PALETTE.stoneWarm, MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
-	barracks  = spec(180, 84,  30, 18, PALETTE.stoneDark, MATERIAL.block,   PALETTE.roofTile,  MATERIAL.roof,   true,  true),
-	stable    = spec(170, 74,  24, 16, PALETTE.timberLight, MATERIAL.timber, PALETTE.thatch,   MATERIAL.thatch, true,  false),
-	workshop  = spec(126, 94,  28, 16, PALETTE.stoneDark, MATERIAL.block,   PALETTE.roofTile,  MATERIAL.roof,   true,  false),
-	smithy    = spec(94,  84,  28, 16, PALETTE.stoneDark, MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
-	warehouse = spec(140, 106, 34, 20, PALETTE.plaster,   MATERIAL.plaster, PALETTE.roofTile,  MATERIAL.roof,   true,  false),
-	market    = spec(128, 106, 26, 16, PALETTE.plaster,   MATERIAL.plaster, PALETTE.roofTile,  MATERIAL.roof,   true,  false),
-	farm      = spec(158, 116, 22, 14, PALETTE.plaster,   MATERIAL.plaster, PALETTE.thatch,    MATERIAL.thatch, true,  true),
-	timber    = spec(138, 86,  22, 14, PALETTE.timberLight, MATERIAL.timber, PALETTE.thatch,   MATERIAL.thatch, false, false),
-	quarry    = spec(126, 86,  20, 12, PALETTE.stone,     MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
-	iron      = spec(126, 86,  20, 12, PALETTE.stoneDark, MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
-	wall      = spec(96,  66,  26, 14, PALETTE.stone,     MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
+	hq        = spec(38, 38, 34, 14, PALETTE.stone,       MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
+	academy   = spec(34, 34, 26, 12, PALETTE.stoneWarm,   MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
+	barracks  = spec(64, 28, 15,  9, PALETTE.stoneDark,   MATERIAL.block,   PALETTE.roofTile,  MATERIAL.roof,   true,  true),
+	stable    = spec(58, 26, 13,  8, PALETTE.timberLight, MATERIAL.timber,  PALETTE.thatch,    MATERIAL.thatch, true,  false),
+	workshop  = spec(44, 32, 15,  9, PALETTE.stoneDark,   MATERIAL.block,   PALETTE.roofTile,  MATERIAL.roof,   true,  false),
+	smithy    = spec(32, 28, 14,  8, PALETTE.stoneDark,   MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
+	warehouse = spec(48, 36, 18, 10, PALETTE.plaster,     MATERIAL.plaster, PALETTE.roofTile,  MATERIAL.roof,   true,  false),
+	market    = spec(44, 36, 13,  8, PALETTE.plaster,     MATERIAL.plaster, PALETTE.roofTile,  MATERIAL.roof,   true,  false),
+	farm      = spec(54, 38, 12,  8, PALETTE.plaster,     MATERIAL.plaster, PALETTE.thatch,    MATERIAL.thatch, true,  true),
+	timber    = spec(48, 30, 12,  8, PALETTE.timberLight, MATERIAL.timber,  PALETTE.thatch,    MATERIAL.thatch, false, false),
+	quarry    = spec(44, 30, 11,  7, PALETTE.stone,       MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
+	iron      = spec(44, 30, 11,  7, PALETTE.stoneDark,   MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
+	wall      = spec(34, 24, 13,  8, PALETTE.stone,       MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
 }
 
 
@@ -190,7 +194,7 @@ local function kingdomInfo(snapshot: any, kingdomId: string): (string, Color3)
 end
 
 local function gateHalf(): number
-	return 45
+	return 11 -- a 22-stud gate: four characters abreast
 end
 
 --- A curtain wall with battlements, corner towers and a gatehouse.
@@ -199,27 +203,29 @@ end
 --- what make a settlement read as fortified — and they are also the thing an
 --- attacker is looking at when the Rampart level matters.
 local function renderShellWalls(model: Model, origin: CFrame)
-	local ground = WorldStyle.part("Ground", Vector3.new(WALL_HALF * 2 + 120, 4, WALL_HALF * 2 + 120),
+	local ground = WorldStyle.part("Ground", Vector3.new(WALL_HALF * 2 + 40, 4, WALL_HALF * 2 + 40),
 		origin * CFrame.new(0, -2, 0), model, PALETTE.grass, MATERIAL.grass)
 	ground.CastShadow = false
 
-	local wallHeight, wallThickness = 38, 16
+	-- A curtain wall about three characters high. It should read as something
+	-- you cannot climb, not as a cliff.
+	local wallHeight, wallThickness = 15, 5
 	local gateGap = gateHalf() * 2
 
 	local function crenellate(centreX: number, centreZ: number, spanX: number, spanZ: number)
 		-- Merlons along the top: the notched profile of a battlement.
 		local along = if spanX > spanZ then spanX else spanZ
-		local step = 26
+		local step = 9
 		local count = math.max(1, math.floor(along / step))
 		for index = 0, count - 1 do
 			local offset = -along / 2 + step / 2 + index * step
 			local x = if spanX > spanZ then centreX + offset else centreX
 			local z = if spanX > spanZ then centreZ else centreZ + offset
 			local merlon = WorldStyle.part("Merlon", Vector3.new(
-					if spanX > spanZ then 14 else wallThickness,
-					8,
-					if spanX > spanZ then wallThickness else 14),
-				origin * CFrame.new(x, wallHeight + 4, z), model, PALETTE.stone, MATERIAL.stone)
+					if spanX > spanZ then 5 else wallThickness,
+					3,
+					if spanX > spanZ then wallThickness else 5),
+				origin * CFrame.new(x, wallHeight + 1.5, z), model, PALETTE.stone, MATERIAL.stone)
 			merlon.CastShadow = false
 		end
 	end
@@ -246,45 +252,47 @@ local function renderShellWalls(model: Model, origin: CFrame)
 	-- Corner towers, taller than the wall and round-shouldered.
 	for _, sx in { -1, 1 } do
 		for _, sz in { -1, 1 } do
-			local tower = WorldStyle.part("Tower", Vector3.new(44, wallHeight + 26, 44),
-				origin * CFrame.new(sx * WALL_HALF, (wallHeight + 26) / 2, sz * WALL_HALF), model, PALETTE.stone, MATERIAL.stone)
+			local tower = WorldStyle.part("Tower", Vector3.new(16, wallHeight + 10, 16),
+				origin * CFrame.new(sx * WALL_HALF, (wallHeight + 10) / 2, sz * WALL_HALF), model, PALETTE.stone, MATERIAL.stone)
 			tower.Shape = Enum.PartType.Cylinder
 			tower.Orientation = Vector3.new(0, 0, 90)
 			local cap = Instance.new("Part")
 			cap.Name = "TowerCap"
 			cap.Shape = Enum.PartType.Ball
-			cap.Size = Vector3.new(46, 46, 46)
+			cap.Size = Vector3.new(17, 17, 17)
 			cap.Anchored = true
 			cap.Color = PALETTE.roofSlate
 			cap.Material = MATERIAL.roof
-			cap.CFrame = origin * CFrame.new(sx * WALL_HALF, wallHeight + 26, sz * WALL_HALF)
+			cap.CFrame = origin * CFrame.new(sx * WALL_HALF, wallHeight + 10, sz * WALL_HALF)
 			cap.Parent = model
 		end
 	end
 
 	-- The gatehouse: two towers and a lintel you ride under.
 	for _, sx in { -1, 1 } do
-		WorldStyle.part("GateTower", Vector3.new(38, wallHeight + 34, 38),
-			origin * CFrame.new(sx * (gateGap / 2 + 19), (wallHeight + 34) / 2, WALL_HALF), model, PALETTE.stoneDark, MATERIAL.stone)
+		WorldStyle.part("GateTower", Vector3.new(14, wallHeight + 14, 14),
+			origin * CFrame.new(sx * (gateGap / 2 + 7), (wallHeight + 14) / 2, WALL_HALF), model, PALETTE.stoneDark, MATERIAL.stone)
 	end
-	WorldStyle.part("GateArch", Vector3.new(gateGap + 40, 14, wallThickness + 6),
-		origin * CFrame.new(0, wallHeight + 7, WALL_HALF), model, PALETTE.stoneDark, MATERIAL.stone)
-	local banner = WorldStyle.part("GateBanner", Vector3.new(18, 26, 1),
-		origin * CFrame.new(0, wallHeight - 6, WALL_HALF + wallThickness / 2 + 1), model, PALETTE.banner, MATERIAL.cloth)
+	-- The arch sits ABOVE head height, so the gate is a doorless opening you
+	-- simply ride through.
+	WorldStyle.part("GateArch", Vector3.new(gateGap + 14, 5, wallThickness + 2),
+		origin * CFrame.new(0, wallHeight - 2.5, WALL_HALF), model, PALETTE.stoneDark, MATERIAL.stone)
+	local banner = WorldStyle.part("GateBanner", Vector3.new(6, 9, 0.4),
+		origin * CFrame.new(0, wallHeight - 9, WALL_HALF + wallThickness / 2 + 0.5), model, PALETTE.banner, MATERIAL.cloth)
 	banner.CastShadow = false
 
 	-- Roads: a main street from the gate to the keep, and a cross street.
-	local street = WorldStyle.part("StreetMain", Vector3.new(56, 0.6, WALL_HALF * 2 - 40),
+	local street = WorldStyle.part("StreetMain", Vector3.new(18, 0.6, WALL_HALF * 2 - 20),
 		origin * CFrame.new(0, 0.3, 0), model, PALETTE.road, MATERIAL.road)
 	street.CastShadow = false
-	local cross = WorldStyle.part("StreetCross", Vector3.new(WALL_HALF * 2 - 40, 0.6, 56),
+	local cross = WorldStyle.part("StreetCross", Vector3.new(WALL_HALF * 2 - 20, 0.6, 18),
 		origin * CFrame.new(0, 0.3, 0), model, PALETTE.road, MATERIAL.road)
 	cross.CastShadow = false
 
 	local spawn = Instance.new("SpawnLocation")
 	spawn.Name = "GateSpawn"
-	spawn.Size = Vector3.new(24, 1, 24)
-	spawn.CFrame = origin * CFrame.new(0, 0.8, WALL_HALF - 40)
+	spawn.Size = Vector3.new(10, 1, 10)
+	spawn.CFrame = origin * CFrame.new(0, 0.8, WALL_HALF - 16)
 	spawn.Anchored = true
 	spawn.Neutral = false
 	spawn.Enabled = true
@@ -306,11 +314,11 @@ local function renderShell(villageId: string, origin: CFrame, villageName: strin
 	-- A foreign settlement at the same SCALE as your own, so the horizon reads
 	-- honestly: a keep behind walls, no levels, no interiors. It was an 18-stud
 	-- lump inside a 1,100-stud wall ring - invisible in practice.
-	local keep = WorldStyle.part("KeepMassing", Vector3.new(180, 150, 180),
-		origin * CFrame.new(0, 75, 0), model, PALETTE.stoneDark, MATERIAL.stone)
+	local keep = WorldStyle.part("KeepMassing", Vector3.new(56, 44, 56),
+		origin * CFrame.new(0, 22, 0), model, PALETTE.stoneDark, MATERIAL.stone)
 	labelFor(keep, villageName)
-	local banner = WorldStyle.part("BannerPost", Vector3.new(8, 120, 8),
-		origin * CFrame.new(0, 60, WALL_HALF + 40), model, kingdomColor, MATERIAL.cloth)
+	local banner = WorldStyle.part("BannerPost", Vector3.new(2, 26, 2),
+		origin * CFrame.new(0, 13, WALL_HALF + 12), model, kingdomColor, MATERIAL.cloth)
 	labelFor(banner, kingdomName)
 	model.Parent = settlementsFolder
 	return model
@@ -387,6 +395,73 @@ local function timberFrame(model: Model, origin: CFrame, at: Vector3, w: number,
 	end
 end
 
+--- A small readable label above a building. Not the old billboard: that was 220
+--- pixels wide with no distance limit, so a dozen of them stacked into a wall of
+--- unreadable text over the whole settlement.
+---
+--- [Adam] "remove those annoying labels" and then "The buildings need labels."
+--- Both are right - the problem was never that buildings were named, it was that
+--- the naming was enormous and never faded.
+local function buildingLabel(part: BasePart, text: string, topY: number)
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "BuildingLabel"
+	billboard.Size = UDim2.fromOffset(120, 20)
+	billboard.StudsOffsetWorldSpace = Vector3.new(0, topY + 4, 0)
+	billboard.AlwaysOnTop = false
+	billboard.MaxDistance = 130 -- fades before it can pile up on its neighbours
+	billboard.LightInfluence = 0
+	billboard.Parent = part
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 0.35
+	label.BackgroundColor3 = Color3.fromRGB(18, 16, 14)
+	label.TextColor3 = Color3.fromRGB(236, 228, 210)
+	label.Font = Enum.Font.Merriweather
+	label.TextSize = 13
+	label.Text = text
+	label.Parent = billboard
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 4)
+	corner.Parent = label
+end
+
+--- Four walls with a DOORWAY-SHAPED GAP in the front, not a solid block with a
+--- door part stuck to it.
+---
+--- [Adam] "there are no doors to enter anywhere. do not give me doors to open.
+--- Leave it a doorless entry way." So the front wall is built as two piers and a
+--- lintel around an opening you simply walk through. Roblox parts cannot have
+--- holes, so the hole has to be made of the absence of parts.
+local function walledShell(model: Model, origin: CFrame, at: Vector3, w: number, d: number, h: number, colour: Color3, material: Enum.Material)
+	local t = 1.5 -- wall thickness
+	local doorW, doorH = 8, 9 -- a character is ~5 studs: this is a real doorway
+
+	-- floor, so an interior is a place rather than grass under a roof
+	WorldStyle.part("Floor", Vector3.new(w, 1, d),
+		origin * CFrame.new(at.X, 0.5, at.Z), model, PALETTE.stoneDark, MATERIAL.stone).CastShadow = false
+
+	-- back and sides
+	WorldStyle.part("WallBack", Vector3.new(w, h, t),
+		origin * CFrame.new(at.X, h / 2, at.Z - d / 2), model, colour, material)
+	WorldStyle.part("WallLeft", Vector3.new(t, h, d),
+		origin * CFrame.new(at.X - w / 2, h / 2, at.Z), model, colour, material)
+	WorldStyle.part("WallRight", Vector3.new(t, h, d),
+		origin * CFrame.new(at.X + w / 2, h / 2, at.Z), model, colour, material)
+
+	-- front: two piers and a lintel, leaving the doorway open
+	local pier = (w - doorW) / 2
+	for _, side in { -1, 1 } do
+		WorldStyle.part("WallFront", Vector3.new(pier, h, t),
+			origin * CFrame.new(at.X + side * (doorW / 2 + pier / 2), h / 2, at.Z + d / 2), model, colour, material)
+	end
+	WorldStyle.part("Lintel", Vector3.new(doorW + 3, h - doorH, t + 0.5),
+		origin * CFrame.new(at.X, doorH + (h - doorH) / 2, at.Z + d / 2), model, PALETTE.stoneDark, MATERIAL.stone)
+	-- doorstep, so the opening reads as an entrance from a distance
+	WorldStyle.part("Step", Vector3.new(doorW + 4, 0.6, 4),
+		origin * CFrame.new(at.X, 0.3, at.Z + d / 2 + 2), model, PALETTE.road, MATERIAL.road).CastShadow = false
+end
+
 local function renderBuilding(container: Model, origin: CFrame, villageId: string, building: string, level: number)
 	local existing = container:FindFirstChild("B_" .. building)
 	if existing then
@@ -406,62 +481,55 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 	local sp = SPEC[building] or SPEC.market
 	local part: Part
 	if level <= 0 then
-		-- An empty plot: staked out, so you can see there is room here and what
-		-- it is for.
 		part = WorldStyle.part("Structure", Vector3.new(sp.w, 1, sp.d),
 			origin * CFrame.new(position.X, 0.5, position.Z), model, PALETTE.dirt, MATERIAL.road)
 		for _, sx in { -1, 1 } do
 			for _, sz in { -1, 1 } do
-				WorldStyle.part("Stake", Vector3.new(3, 12, 3),
-					origin * CFrame.new(position.X + sx * (sp.w / 2 - 4), 6, position.Z + sz * (sp.d / 2 - 4)),
+				WorldStyle.part("Stake", Vector3.new(1, 5, 1),
+					origin * CFrame.new(position.X + sx * (sp.w / 2 - 2), 2.5, position.Z + sz * (sp.d / 2 - 2)),
 					model, PALETTE.timber, MATERIAL.timber).CastShadow = false
 			end
 		end
+		buildingLabel(part, displayName .. " — empty plot", 6)
 	else
-		-- LEVEL widens the compound. It does not stretch the building into the
-		-- sky: a level 30 Farm is a big farm, not a 66-stud tower.
-		local grow = 1 + math.min(level, 20) * 0.014
+		-- Level widens the compound. It never stretches the building upward.
+		local grow = 1 + math.min(level, 20) * 0.010
 		local width, depth = sp.w * grow, sp.d * grow
 
-		-- A stone footing under everything, so nothing sits flush on the grass.
-		WorldStyle.part("Footing", Vector3.new(width + 8, 4, depth + 8),
-			origin * CFrame.new(position.X, 2, position.Z), model, PALETTE.stoneDark, MATERIAL.stone)
+		walledShell(model, origin, position, width, depth, sp.h, sp.wall, sp.wallMat)
 
-		part = WorldStyle.part("Structure", Vector3.new(width, sp.h, depth),
-			origin * CFrame.new(position.X, 4 + sp.h / 2, position.Z), model, sp.wall, sp.wallMat)
+		-- The part the prompt and label hang off: a slim ridge marker, so we are
+		-- not re-adding the solid block the shell replaced.
+		part = WorldStyle.part("Structure", Vector3.new(width, 0.4, depth),
+			origin * CFrame.new(position.X, sp.h, position.Z), model, sp.wall, sp.wallMat)
+		part.Transparency = 1
+		part.CanCollide = false
 
-		local wallTop = 4 + sp.h
-		pitchedRoof(model, origin, position, width, depth, wallTop, sp.roof, sp.roofColour, sp.roofMat)
-		windowRow(model, origin, position, width, depth, 4 + sp.h * 0.58)
+		pitchedRoof(model, origin, position, width, depth, sp.h, sp.roof, sp.roofColour, sp.roofMat)
+		windowRow(model, origin, position, width, depth, sp.h * 0.6)
 		if sp.timbered then
-			timberFrame(model, origin, position, width, depth, sp.h + 4)
+			timberFrame(model, origin, position, width, depth, sp.h)
 		end
 		if sp.chimney then
-			local stack = WorldStyle.part("Chimney", Vector3.new(12, sp.roof + 22, 12),
-				origin * CFrame.new(position.X + width * 0.3, wallTop + (sp.roof + 22) / 2 - 4, position.Z - depth * 0.28),
+			local stack = WorldStyle.part("Chimney", Vector3.new(4, sp.roof + 8, 4),
+				origin * CFrame.new(position.X + width * 0.3, sp.h + (sp.roof + 8) / 2 - 1, position.Z - depth * 0.3),
 				model, PALETTE.stoneDark, MATERIAL.stone)
 			stack.CastShadow = false
 		end
 
-		-- A doorway with a frame and a lintel, facing the gate.
-		local doorZ = position.Z + depth / 2 + 0.6
-		WorldStyle.part("Door", Vector3.new(14, 20, 1.5),
-			origin * CFrame.new(position.X, 14, doorZ), model, PALETTE.timber, MATERIAL.timber).CastShadow = false
-		WorldStyle.part("Lintel", Vector3.new(20, 4, 3),
-			origin * CFrame.new(position.X, 25, doorZ), model, PALETTE.stoneDark, MATERIAL.stone).CastShadow = false
-
-		-- Outbuildings: the compound filling out as it grows.
-		local annexes = math.min(math.floor(level / 3), 6)
+		local annexes = math.min(math.floor(level / 4), 4)
 		for index = 1, annexes do
-			local angle = (index / 6) * math.pi * 2
-			local radius = math.max(width, depth) * 0.62 + 20
-			local ah = 14 + (index % 3) * 4
+			local angle = (index / 4) * math.pi * 2
+			local radius = math.max(width, depth) * 0.6 + 9
+			local ah = 7 + (index % 2) * 2
 			local ax = position.X + math.cos(angle) * radius
 			local az = position.Z + math.sin(angle) * radius
-			WorldStyle.part("Annex", Vector3.new(26, ah, 22),
-				origin * CFrame.new(ax, 4 + ah / 2, az), model, PALETTE.plaster, MATERIAL.plaster).CastShadow = false
-			pitchedRoof(model, origin, Vector3.new(ax, 0, az), 26, 22, 4 + ah, 9, sp.roofColour, sp.roofMat)
+			WorldStyle.part("Annex", Vector3.new(10, ah, 8),
+				origin * CFrame.new(ax, ah / 2, az), model, PALETTE.plaster, MATERIAL.plaster).CastShadow = false
+			pitchedRoof(model, origin, Vector3.new(ax, 0, az), 10, 8, ah, 4, sp.roofColour, sp.roofMat)
 		end
+
+		buildingLabel(part, string.format("%s  ·  Lv %d", displayName, level), sp.roof + 2)
 	end
 
 	local prompt = Instance.new("ProximityPrompt")
@@ -472,7 +540,7 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 	-- Reach scaled with the buildings: 12 studs was right when a building WAS
 	-- 12 studs wide. These are 90-170 across, so you would have to stand inside
 	-- the wall to get a prompt.
-	prompt.MaxActivationDistance = 55
+	prompt.MaxActivationDistance = 22
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = part
 
@@ -482,7 +550,7 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 		recruit.ActionText = Buildings.RECRUIT_PRESET.label
 		recruit.ObjectText = displayName
 		recruit.HoldDuration = 0.35
-		recruit.MaxActivationDistance = 55
+		recruit.MaxActivationDistance = 22
 		recruit.RequiresLineOfSight = false
 		recruit.UIOffset = Vector2.new(0, 60)
 		recruit.KeyboardKeyCode = Enum.KeyCode.R
@@ -581,14 +649,14 @@ local function buildWilderness(villages: { any })
 					-- that placed them, so a forest looks grown rather than
 					-- stamped, and still looks identical for every player.
 					local scale = 0.75 + (hash % 7) * 0.14
-					local trunkHeight = 34 * scale
-					local trunk = WorldStyle.part("TreeTrunk", Vector3.new(7, trunkHeight, 7),
+					local trunkHeight = 16 * scale
+					local trunk = WorldStyle.part("TreeTrunk", Vector3.new(3, trunkHeight, 3),
 						CFrame.new(x, trunkHeight / 2, z), wildernessFolder, PALETTE.timber, MATERIAL.timber)
 					trunk.CastShadow = false
 					for tier = 0, 2 do
-						local spread = (34 - tier * 9) * scale
-						local canopy = WorldStyle.part("TreeCanopy", Vector3.new(spread, 14 * scale, spread),
-							CFrame.new(x, trunkHeight + tier * 11 * scale, z), wildernessFolder,
+						local spread = (16 - tier * 4) * scale
+						local canopy = WorldStyle.part("TreeCanopy", Vector3.new(spread, 7 * scale, spread),
+							CFrame.new(x, trunkHeight + tier * 5 * scale, z), wildernessFolder,
 							Color3.fromRGB(58 + tier * 8, 96 + tier * 10, 52), MATERIAL.thatch)
 						canopy.CanCollide = false
 						canopy.CastShadow = false
