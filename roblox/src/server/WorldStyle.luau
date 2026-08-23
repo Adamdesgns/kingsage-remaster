@@ -65,7 +65,16 @@ WorldStyle.MATERIAL = {
 --- overhead with no shadows, which flattens every form into a silhouette —
 --- exactly what made the settlement look like a stack of grey slabs.
 function WorldStyle.applyLighting()
-	Lighting.Technology = Enum.Technology.Future
+	-- ⚠️ `Lighting.Technology` is NOT set here. A normal server script cannot
+	-- write it - it needs the RobloxScript capability - and the attempt THROWS.
+	-- On 2026-08-23 that single line took the entire game down: applyLighting()
+	-- was called on line 3 of init.server.luau, so when it threw, WorldSession,
+	-- SettlementBuilder, CommandService and WarTable never loaded. No remotes,
+	-- no settlement, and the player spawned at the world origin over open sky
+	-- and fell to their death on a loop.
+	--
+	-- Technology is a PLACE property now, set in default.project.json and
+	-- demo.project.json where it belongs.
 	Lighting.Ambient = Color3.fromRGB(88, 84, 96)
 	Lighting.OutdoorAmbient = Color3.fromRGB(112, 116, 132)
 	Lighting.Brightness = 2.6

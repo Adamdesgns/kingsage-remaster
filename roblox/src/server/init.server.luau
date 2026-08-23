@@ -1,6 +1,13 @@
 --!strict
-local WorldStyle = require(script:WaitForChild("WorldStyle"))
-WorldStyle.applyLighting()
+-- Styling is COSMETIC and must never be able to stop the game loading. It was
+-- unguarded on 2026-08-23 and one unwritable property killed the whole server.
+-- A world that looks wrong is a bug; a world that does not start is a dead game.
+local styleOk, styleErr = pcall(function()
+	require(script:WaitForChild("WorldStyle")).applyLighting()
+end)
+if not styleOk then
+	warn(string.format("[World] lighting failed to apply (the game still runs): %s", tostring(styleErr)))
+end
 
 local WorldSession = require(script:WaitForChild("WorldSession"))
 local SettlementBuilder = require(script:WaitForChild("SettlementBuilder"))

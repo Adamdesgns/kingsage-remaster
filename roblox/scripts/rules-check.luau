@@ -280,6 +280,34 @@ check("a region small enough for one part still gets one part", (function(): boo
 	return #tiles == 1 and math.abs(tiles[1].sx - 800) < 0.001 and math.abs(tiles[1].sz - 600) < 0.001
 end)())
 
+-- ---- cosmetics must never be able to kill the server ----
+
+check("nothing tries to write Lighting.Technology from a script", (function(): boolean
+	-- A normal script CANNOT write it - it needs the RobloxScript capability and
+	-- the attempt throws. On 2026-08-23 that one line killed the entire game:
+	-- applyLighting() ran on line 3 of init.server.luau, so when it threw,
+	-- WorldSession, SettlementBuilder, CommandService and WarTable never loaded.
+	-- The player spawned over open sky and fell to their death on a loop.
+	-- Technology is a PLACE property; it belongs in the .project.json.
+	for _, path in { "roblox/src/server/WorldStyle.luau", "roblox/src/server/init.server.luau" } do
+		if string.find(fs.readFile(path), "Lighting.Technology%s*=") then
+			return false
+		end
+	end
+	return true
+end)())
+
+check("the server entry point cannot be killed by styling", (function(): boolean
+	-- Styling is cosmetic. A world that looks wrong is a bug; a world that does
+	-- not start is a dead game. The require must be guarded.
+	local source = fs.readFile("roblox/src/server/init.server.luau")
+	local stylePos = string.find(source, "WorldStyle")
+	if not stylePos then
+		return true -- no styling to guard
+	end
+	return string.find(source, "pcall") ~= nil
+end)())
+
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then
 	process.exit(1)
