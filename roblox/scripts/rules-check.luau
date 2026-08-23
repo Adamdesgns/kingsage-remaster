@@ -19,6 +19,7 @@ local function loadModule(path: string): any
 end
 
 local Buildings = loadModule("roblox/src/shared/Buildings.luau")
+local Config = loadModule("roblox/src/shared/Config.luau")
 
 local failures = 0
 local checks = 0
@@ -234,6 +235,50 @@ check("every ReplicatedStorage:WaitForChild name is mapped by Rojo or created in
 
 check("every script:WaitForChild in an init script has a sibling module",
 	#badSibling == 0, table.concat(badSibling, "; "))
+
+-- ---- the region floor: Roblox will not build a part bigger than 2048 ----
+
+check("no ground tile exceeds Roblox's maximum part size", (function(): boolean
+	-- The whole reason this rule exists: RegionGround was ONE part spanning
+	-- every settlement — 9,540 x 7,780 studs with ten of them. Roblox refuses
+	-- any axis over 2,048, so the part was NEVER CREATED and the region had no
+	-- floor at all. Nothing errored. The build printed a tree count and the
+	-- world was a void with village plates hanging in it.
+	for _, tile in Config.groundTiles(0, 9540, 0, 7780) do
+		if tile.sx > Config.MAX_PART_STUDS or tile.sz > Config.MAX_PART_STUDS then
+			return false
+		end
+	end
+	return true
+end)())
+
+check("ground tiles cover the whole region with no gap and no overhang", (function(): boolean
+	-- A seam is a hole to fall through, and an overhang is ground where the map
+	-- says there is none. Area is the cheap way to catch both at once.
+	local minX, maxX, minZ, maxZ = -1200, 4300, 500, 6100
+	local tiles = Config.groundTiles(minX, maxX, minZ, maxZ)
+	if #tiles == 0 then
+		return false
+	end
+	local covered = 0
+	local loX, hiX, loZ, hiZ = math.huge, -math.huge, math.huge, -math.huge
+	for _, tile in tiles do
+		covered += tile.sx * tile.sz
+		loX = math.min(loX, tile.cx - tile.sx / 2)
+		hiX = math.max(hiX, tile.cx + tile.sx / 2)
+		loZ = math.min(loZ, tile.cz - tile.sz / 2)
+		hiZ = math.max(hiZ, tile.cz + tile.sz / 2)
+	end
+	local wanted = (maxX - minX) * (maxZ - minZ)
+	return math.abs(covered - wanted) < 1
+		and math.abs(loX - minX) < 0.001 and math.abs(hiX - maxX) < 0.001
+		and math.abs(loZ - minZ) < 0.001 and math.abs(hiZ - maxZ) < 0.001
+end)())
+
+check("a region small enough for one part still gets one part", (function(): boolean
+	local tiles = Config.groundTiles(0, 800, 0, 600)
+	return #tiles == 1 and math.abs(tiles[1].sx - 800) < 0.001 and math.abs(tiles[1].sz - 600) < 0.001
+end)())
 
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then

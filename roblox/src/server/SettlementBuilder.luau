@@ -272,10 +272,22 @@ local function buildWilderness(villages: { any })
 	local margin = 260
 	minX -= margin; maxX += margin; minZ -= margin; maxZ += margin
 
-	local plane = greyPart("RegionGround", Vector3.new(maxX - minX, 2, maxZ - minZ),
-		CFrame.new((minX + maxX) / 2, -2.05, (minZ + maxZ) / 2), wildernessFolder, Color3.fromRGB(88, 102, 70))
-	plane.Material = Enum.Material.Grass
-	plane.CastShadow = false
+	-- The region floor, TILED.
+	--
+	-- This used to be one part spanning every settlement, which with ten of
+	-- them is 9,540 x 7,780 studs - far past Roblox's 2,048-stud limit, so the
+	-- part was never created and the whole region had no floor. Nothing
+	-- errored; the build printed its tree count and carried on, and the world
+	-- was a void with village plates and trees hanging in it.
+	local tiles = Config.groundTiles(minX, maxX, minZ, maxZ)
+	for index, tile in tiles do
+		local slab = greyPart(string.format("RegionGround%d", index), Vector3.new(tile.sx, 2, tile.sz),
+			CFrame.new(tile.cx, -2.05, tile.cz), wildernessFolder, Color3.fromRGB(88, 102, 70))
+		slab.Material = Enum.Material.Grass
+		slab.CastShadow = false
+	end
+	print(string.format("[World] region floor: %d tiles covering %d x %d studs",
+		#tiles, math.floor(maxX - minX), math.floor(maxZ - minZ)))
 
 	-- Deterministic tree scatter: same forest every join, no runtime RNG.
 	local step = 60

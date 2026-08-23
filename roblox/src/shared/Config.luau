@@ -1,4 +1,4 @@
-return {
+local Config = {
 	API_BASE = "http://127.0.0.1:4178",
 	HEARTBEAT_SECONDS = 10,
 	CONTRACT_VERSION = 1,
@@ -25,4 +25,54 @@ return {
 		-- simply stops spawning rather than degrading the frame.
 		MAX_PARTS = 260,
 	},
+
+	-- ROBLOX'S HARD LIMIT ON A SINGLE PART. Ask for more on any axis and the
+	-- engine refuses: the part simply never appears.
+	--
+	-- This cost the project its entire ground plane and nobody noticed for two
+	-- days. `RegionGround` was built as ONE part spanning every settlement -
+	-- 9,540 x 7,780 studs with ten settlements - so it was never created at all.
+	-- The region has been a void with village plates and floating trees since
+	-- the day it shipped, and Adam's first sight of it was a settlement hanging
+	-- in blue sky.
+	--
+	-- Nothing errored. The build "succeeded" and printed a tree count.
+	MAX_PART_STUDS = 2048,
 }
+
+--- Split a rectangle into ground tiles no larger than Roblox will accept.
+---
+--- Returns { cx, cz, sx, sz } per tile: centre and size on X/Z. Tiles butt up
+--- against each other exactly, so a walker never finds a seam to fall through,
+--- and the union covers the requested rectangle precisely - no more, no less.
+---
+--- Pure, so `rules-check.luau` can execute it and assert both properties
+--- without a running game.
+function Config.groundTiles(minX: number, maxX: number, minZ: number, maxZ: number)
+	local tiles = {}
+	local spanX, spanZ = maxX - minX, maxZ - minZ
+	if spanX <= 0 or spanZ <= 0 then
+		return tiles
+	end
+
+	-- Stay comfortably inside the limit rather than exactly on it.
+	local step = Config.MAX_PART_STUDS - 48
+	local countX = math.max(1, math.ceil(spanX / step))
+	local countZ = math.max(1, math.ceil(spanZ / step))
+	-- Divide evenly instead of leaving a thin offcut on the far edge.
+	local sizeX, sizeZ = spanX / countX, spanZ / countZ
+
+	for ix = 0, countX - 1 do
+		for iz = 0, countZ - 1 do
+			table.insert(tiles, {
+				cx = minX + sizeX * (ix + 0.5),
+				cz = minZ + sizeZ * (iz + 0.5),
+				sx = sizeX,
+				sz = sizeZ,
+			})
+		end
+	end
+	return tiles
+end
+
+return Config
