@@ -11,6 +11,7 @@
 -- only ever read out of a scout report the player earned.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GuiService = game:GetService("GuiService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -41,6 +42,288 @@ local latest: { snapshot: any?, status: string, clockOffset: number, outdated: b
 	outdated = false,
 	sessionError = nil,
 }
+
+-- Secure owner-detail renderer ------------------------------------------------
+--
+-- Workspace contains only fixed, fog-safe village shells. The server places a
+-- detailed source model under this player's private PlayerGui only; this client
+-- clones that source locally into Workspace. Other clients never receive the
+-- model, its Level attributes, geometry, or prompts.
+type ShellPartState = {
+	localTransparency: number,
+	canCollide: boolean,
+	canTouch: boolean,
+	canQuery: boolean,
+	castShadow: boolean,
+}
+
+local shellPartState: { [BasePart]: ShellPartState } = {}
+local shellSurfaceState: { [SurfaceGui]: boolean } = {}
+local localDetails: { [string]: Model } = {}
+local watchedShells: { [Model]: boolean } = {}
+local settlementsFolder: Folder? = nil
+local localCommandFeedback: ((any) -> ())? = nil
+local requestOpenLocalTable: ((any) -> ())? = nil
+
+local function setShellVisible(shell: Model, visible: boolean)
+	for _, descendant in shell:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			local original = shellPartState[descendant]
+			if not original then
+				original = {
+					localTransparency = descendant.LocalTransparencyModifier,
+					canCollide = descendant.CanCollide,
+					canTouch = descendant.CanTouch,
+					canQuery = descendant.CanQuery,
+					castShadow = descendant.CastShadow,
+				}
+				shellPartState[descendant] = original
+			end
+			if visible then
+				descendant.LocalTransparencyModifier = original.localTransparency
+				descendant.CanCollide = original.canCollide
+				descendant.CanTouch = original.canTouch
+				descendant.CanQuery = original.canQuery
+				descendant.CastShadow = original.castShadow
+			else
+				descendant.LocalTransparencyModifier = 1
+				descendant.CanCollide = false
+				descendant.CanTouch = false
+				descendant.CanQuery = false
+				descendant.CastShadow = false
+			end
+		elseif descendant:IsA("SurfaceGui") then
+			if shellSurfaceState[descendant] == nil then
+				shellSurfaceState[descendant] = descendant.Enabled
+			end
+			descendant.Enabled = visible and shellSurfaceState[descendant] == true
+		end
+	end
+end
+
+local function refreshShell(villageId: string)
+	local folder = settlementsFolder
+	if not folder then
+		return
+	end
+	local visible = localDetails[villageId] == nil
+	for _, child in folder:GetChildren() do
+		if child:IsA("Model")
+			and child:GetAttribute("VisibilityLayer") == "Shell"
+			and tostring(child:GetAttribute("VillageId")) == villageId then
+			setShellVisible(child, visible)
+		end
+	end
+end
+
+local function ownerDetailRoot(instance: Instance): Model?
+	local cursor: Instance? = instance
+	while cursor do
+		if cursor:IsA("Model")
+			and cursor:GetAttribute("VisibilityLayer") == "OwnerDetail"
+			and tonumber(cursor:GetAttribute("OwnerUserId")) == player.UserId then
+			return cursor
+		end
+		cursor = cursor.Parent
+	end
+	return nil
+end
+
+local function hookLocalPrompt(prompt: ProximityPrompt)
+	prompt.Enabled = latest.status == "online"
+	prompt.Triggered:Connect(function()
+		local root = ownerDetailRoot(prompt)
+		if not root then
+			return
+		end
+		if prompt.Name == "TablePrompt" then
+			local open = requestOpenLocalTable
+			if open then
+				open({
+					centerX = tonumber(root:GetAttribute("CenterX")) or 0,
+					centerZ = tonumber(root:GetAttribute("CenterZ")) or 0,
+					boundsHalf = tonumber(root:GetAttribute("BoundsHalf")) or 75,
+					villageId = tostring(root:GetAttribute("VillageId")),
+				})
+			end
+			return
+		end
+
+		local structure = prompt.Parent
+		local buildingModel = structure and structure.Parent
+		if not buildingModel or not buildingModel:IsA("Model") then
+			return
+		end
+		local villageId = buildingModel:GetAttribute("VillageId")
+		local building = buildingModel:GetAttribute("Building")
+		if typeof(villageId) ~= "string" or typeof(building) ~= "string" then
+			return
+		end
+		local request: any
+		if prompt.Name == "InteractPrompt" then
+			request = { kind = "build", villageId = villageId, building = building }
+		elseif prompt.Name == "RecruitPrompt" then
+			request = {
+				kind = "recruit",
+				villageId = villageId,
+				troop = Buildings.RECRUIT_PRESET.troop,
+				quantity = Buildings.RECRUIT_PRESET.quantity,
+			}
+		else
+			return
+		end
+		task.spawn(function()
+			local ok, result = pcall(function()
+				return queueCommand:InvokeServer(request)
+			end)
+			local feedback = localCommandFeedback
+			if feedback then
+				feedback(if ok then result else { ok = false, message = "The realm didn't answer — nothing was spent." })
+			end
+		end)
+	end)
+end
+
+local function refreshLocalPromptAvailability()
+	local enabled = latest.status == "online"
+	for _, detail in localDetails do
+		for _, descendant in detail:GetDescendants() do
+			if descendant:IsA("ProximityPrompt") then
+				descendant.Enabled = enabled
+			end
+		end
+	end
+end
+
+local function installPrivateDetail(source: Model)
+	if tonumber(source:GetAttribute("OwnerUserId")) ~= player.UserId then
+		return
+	end
+	local villageIdValue = source:GetAttribute("VillageId")
+	if typeof(villageIdValue) ~= "string" then
+		return
+	end
+	local villageId = villageIdValue
+	local clone = source:Clone()
+	clone:SetAttribute("OwnerUserId", player.UserId)
+	clone:SetAttribute("VisibilityLayer", "OwnerDetail")
+	clone:SetAttribute("PrivatePlayerGuiSource", nil)
+	local nonAuthoritativeSpawn = clone:FindFirstChild("GateSpawn")
+	if nonAuthoritativeSpawn then
+		nonAuthoritativeSpawn:Destroy()
+	end
+	for _, descendant in clone:GetDescendants() do
+		if descendant:IsA("ProximityPrompt") then
+			hookLocalPrompt(descendant)
+		end
+	end
+	local old = localDetails[villageId]
+	if old then
+		old:Destroy()
+	end
+	localDetails[villageId] = clone
+	local folder = settlementsFolder
+	if folder then
+		clone.Parent = folder
+		refreshShell(villageId)
+	else
+		clone:Destroy()
+		localDetails[villageId] = nil
+	end
+end
+
+local function watchShell(shell: Model)
+	if watchedShells[shell] then
+		return
+	end
+	watchedShells[shell] = true
+	local villageId = tostring(shell:GetAttribute("VillageId"))
+	refreshShell(villageId)
+	shell.DescendantAdded:Connect(function()
+		-- Streaming can restore descendants into an existing hidden shell;
+		-- apply the current owner-view state before they can flash or collide.
+		setShellVisible(shell, localDetails[villageId] == nil)
+	end)
+	shell.DescendantRemoving:Connect(function(descendant: Instance)
+		if descendant:IsA("BasePart") then shellPartState[descendant] = nil end
+		if descendant:IsA("SurfaceGui") then shellSurfaceState[descendant] = nil end
+	end)
+	shell.AncestryChanged:Connect(function()
+		if not shell:IsDescendantOf(workspace) then
+			watchedShells[shell] = nil
+		end
+	end)
+end
+
+local boundPrivateFolders: { [Folder]: boolean } = {}
+local function bindPrivateFolder(privateFolder: Folder)
+	if boundPrivateFolders[privateFolder] then
+		return
+	end
+	boundPrivateFolders[privateFolder] = true
+	privateFolder.ChildAdded:Connect(function(child: Instance)
+		if child:IsA("Model") then
+			installPrivateDetail(child)
+		end
+	end)
+	privateFolder.ChildRemoved:Connect(function(child: Instance)
+		if not child:IsA("Model") then
+			return
+		end
+		local villageId = child:GetAttribute("VillageId")
+		if typeof(villageId) ~= "string" then
+			return
+		end
+		-- A replacement may already have arrived. Only remove the local clone if
+		-- no current private source for this village remains.
+		if privateFolder:FindFirstChild("SettlementDetail_" .. villageId) then
+			return
+		end
+		local existing = localDetails[villageId]
+		if existing then existing:Destroy() end
+		localDetails[villageId] = nil
+		refreshShell(villageId)
+	end)
+	privateFolder.AncestryChanged:Connect(function()
+		if not privateFolder:IsDescendantOf(playerGui) then
+			boundPrivateFolders[privateFolder] = nil
+		end
+	end)
+	for _, child in privateFolder:GetChildren() do
+		if child:IsA("Model") then
+			installPrivateDetail(child)
+		end
+	end
+end
+
+task.spawn(function()
+	local folder = workspace:WaitForChild("Settlements")
+	if not folder:IsA("Folder") then
+		return
+	end
+	settlementsFolder = folder
+	folder.ChildAdded:Connect(function(child: Instance)
+		if child:IsA("Model") and child:GetAttribute("VisibilityLayer") == "Shell" then
+			watchShell(child)
+		end
+	end)
+	for _, child in folder:GetChildren() do
+		if child:IsA("Model") and child:GetAttribute("VisibilityLayer") == "Shell" then
+			watchShell(child)
+		end
+	end
+
+	playerGui.ChildAdded:Connect(function(child: Instance)
+		if child:IsA("Folder") and child.Name == "SettlementDetailsPrivate" then
+			bindPrivateFolder(child)
+		end
+	end)
+	for _, child in playerGui:GetChildren() do
+		if child:IsA("Folder") and child.Name == "SettlementDetailsPrivate" then
+			bindPrivateFolder(child)
+		end
+	end
+end)
 
 -- Countdowns use Roblox's synced server clock plus the world-server offset,
 -- NEVER the device clock (a wrong phone clock must not bend timers).
@@ -189,33 +472,254 @@ local function makeLabel(parent: Instance, name: string): TextLabel
 	return label
 end
 
--- resources bar
+-- The world stays visually quiet until the player needs to act. These HUD
+-- colours are intentionally warmer than the war-table chrome: charcoal keeps
+-- the world visible while aged gold marks useful, live information.
+local HUD_CHARCOAL = Color3.fromRGB(22, 21, 19)
+local HUD_CHARCOAL_SOFT = Color3.fromRGB(34, 32, 28)
+local HUD_GOLD = Color3.fromRGB(184, 146, 76)
+local HUD_CREAM = Color3.fromRGB(236, 228, 210)
+local HUD_MUTED = Color3.fromRGB(170, 161, 143)
+
+local function addCorner(parent: GuiObject, radius: number)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, radius)
+	corner.Parent = parent
+end
+
+local function addStroke(parent: GuiObject, color: Color3, transparency: number?)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = color
+	stroke.Transparency = transparency or 0
+	stroke.Thickness = 1
+	stroke.Parent = parent
+end
+
+local function compactAmount(value: number): string
+	local amount = math.max(math.floor(value), 0)
+	if amount >= 1000000 then
+		return string.format("%.1fM", amount / 1000000)
+	end
+	if amount >= 10000 then
+		return string.format("%.1fK", amount / 1000)
+	end
+	return tostring(amount)
+end
+
+type ResourceChip = {
+	frame: Frame,
+	value: TextLabel,
+	rate: TextLabel,
+	fill: Frame,
+}
+
+local RESOURCE_ACCENTS: { [string]: Color3 } = {
+	wood = Color3.fromRGB(171, 117, 68),
+	stone = Color3.fromRGB(157, 158, 151),
+	iron = Color3.fromRGB(178, 142, 81),
+}
+
+-- Three compact chips keep amount, hourly production and storage together.
+-- Their text is fixed-size on purpose: TextScaled made the old one-line HUD
+-- unreadably small as the viewport narrowed.
 local resourceBar = Instance.new("Frame")
 resourceBar.Name = "Resources"
-resourceBar.Size = UDim2.new(0, 360, 0, 34)
-resourceBar.Position = UDim2.new(0.5, -180, 0, 8)
-resourceBar.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-resourceBar.BackgroundTransparency = 0.25
+resourceBar.Size = UDim2.new(0, 486, 0, 52)
+resourceBar.Position = UDim2.new(0.5, -243, 0, 8)
+resourceBar.BackgroundTransparency = 1
+resourceBar.ZIndex = 3
 resourceBar.Parent = gui
-local resourceLabel = makeLabel(resourceBar, "Text")
-resourceLabel.Size = UDim2.fromScale(1, 1)
-resourceLabel.Text = ""
+
+local resourceList = Instance.new("UIListLayout")
+resourceList.FillDirection = Enum.FillDirection.Horizontal
+resourceList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+resourceList.Padding = UDim.new(0, 6)
+resourceList.SortOrder = Enum.SortOrder.LayoutOrder
+resourceList.Parent = resourceBar
+
+local resourceChips: { [string]: ResourceChip } = {}
+local function createResourceChip(resourceName: string, titleText: string, order: number)
+	local accent = RESOURCE_ACCENTS[resourceName] or HUD_GOLD
+	local chip = Instance.new("Frame")
+	chip.Name = titleText
+	chip.Size = UDim2.new(1 / 3, -4, 1, 0)
+	chip.BackgroundColor3 = HUD_CHARCOAL
+	chip.BackgroundTransparency = 0.08
+	chip.BorderSizePixel = 0
+	chip.LayoutOrder = order
+	chip.ZIndex = 3
+	chip.Parent = resourceBar
+	addCorner(chip, 6)
+	addStroke(chip, accent, 0.42)
+
+	local title = makeLabel(chip, "Title")
+	title.Size = UDim2.new(0.54, 0, 0, 17)
+	title.Position = UDim2.new(0, 9, 0, 3)
+	title.Text = titleText
+	title.TextColor3 = HUD_MUTED
+	title.TextScaled = false
+	title.TextSize = 12
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.ZIndex = 4
+
+	local rate = makeLabel(chip, "Rate")
+	rate.Size = UDim2.new(0.42, -9, 0, 17)
+	rate.Position = UDim2.new(0.58, 0, 0, 3)
+	rate.Text = "+0/h"
+	rate.TextColor3 = accent
+	rate.TextScaled = false
+	rate.TextSize = 12
+	rate.TextXAlignment = Enum.TextXAlignment.Right
+	rate.ZIndex = 4
+
+	local value = makeLabel(chip, "Value")
+	value.Size = UDim2.new(1, -18, 0, 24)
+	value.Position = UDim2.new(0, 9, 0, 18)
+	value.Text = "0"
+	value.TextColor3 = HUD_CREAM
+	value.TextScaled = false
+	value.TextSize = 14
+	value.TextXAlignment = Enum.TextXAlignment.Left
+	value.ZIndex = 4
+
+	local track = Instance.new("Frame")
+	track.Name = "CapacityTrack"
+	track.Size = UDim2.new(1, -18, 0, 3)
+	track.Position = UDim2.new(0, 9, 1, -7)
+	track.BackgroundColor3 = Color3.fromRGB(67, 62, 53)
+	track.BorderSizePixel = 0
+	track.ZIndex = 4
+	track.Parent = chip
+	addCorner(track, 2)
+
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.Size = UDim2.new(0, 0, 1, 0)
+	fill.BackgroundColor3 = accent
+	fill.BorderSizePixel = 0
+	fill.ZIndex = 5
+	fill.Parent = track
+	addCorner(fill, 2)
+
+	resourceChips[resourceName] = { frame = chip, value = value, rate = rate, fill = fill }
+end
+
+createResourceChip("wood", "WOOD", 1)
+createResourceChip("stone", "STONE", 2)
+createResourceChip("iron", "IRON", 3)
+
+-- A restrained sense of place: it is useful while walking the world, but
+-- fades away when a table, battle or holding screen already owns attention.
+local locationLabel = Instance.new("TextLabel")
+locationLabel.Name = "Location"
+locationLabel.Size = UDim2.new(0, 300, 0, 30)
+locationLabel.Position = UDim2.new(0, 8, 0, 8)
+locationLabel.BackgroundColor3 = HUD_CHARCOAL
+locationLabel.BackgroundTransparency = 1
+locationLabel.BorderSizePixel = 0
+locationLabel.TextColor3 = HUD_CREAM
+locationLabel.TextTransparency = 1
+locationLabel.Font = Enum.Font.GothamBold
+locationLabel.TextScaled = false
+locationLabel.TextSize = 12
+locationLabel.TextTruncate = Enum.TextTruncate.AtEnd
+locationLabel.TextXAlignment = Enum.TextXAlignment.Left
+locationLabel.Text = ""
+locationLabel.Visible = false
+locationLabel.ZIndex = 3
+locationLabel.Parent = gui
+addCorner(locationLabel, 6)
+addStroke(locationLabel, HUD_GOLD, 0.5)
+
+local locationShown = false
+local locationTween: Tween? = nil
+local function setLocationVisible(visible: boolean)
+	if locationShown == visible and locationLabel.Visible == visible then
+		return
+	end
+	locationShown = visible
+	if locationTween then
+		locationTween:Cancel()
+	end
+	if visible then
+		locationLabel.Visible = true
+		locationTween = TweenService:Create(locationLabel, TweenInfo.new(0.22), {
+			BackgroundTransparency = 0.1,
+			TextTransparency = 0,
+		})
+		locationTween:Play()
+	else
+		local tween = TweenService:Create(locationLabel, TweenInfo.new(0.18), {
+			BackgroundTransparency = 1,
+			TextTransparency = 1,
+		})
+		locationTween = tween
+		tween:Play()
+		task.delay(0.2, function()
+			if locationTween == tween and not locationShown then
+				locationLabel.Visible = false
+			end
+		end)
+	end
+end
 
 -- queue panel
-local queuePanel = Instance.new("Frame")
+local queuePanel = Instance.new("ScrollingFrame")
 queuePanel.Name = "Queues"
-queuePanel.Size = UDim2.new(0, 300, 0, 160)
-queuePanel.Position = UDim2.new(1, -308, 0, 8)
-queuePanel.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-queuePanel.BackgroundTransparency = 0.35
+queuePanel.Size = UDim2.new(0, 76, 0, 28)
+queuePanel.Position = UDim2.new(1, -84, 0, 8)
+queuePanel.BackgroundColor3 = HUD_CHARCOAL
+queuePanel.BackgroundTransparency = 0.08
+queuePanel.BorderSizePixel = 0
+queuePanel.CanvasSize = UDim2.new()
+queuePanel.AutomaticCanvasSize = Enum.AutomaticSize.Y
+queuePanel.ScrollBarImageColor3 = HUD_GOLD
+queuePanel.ScrollBarThickness = 4
+queuePanel.ScrollingDirection = Enum.ScrollingDirection.Y
+queuePanel.ZIndex = 3
 queuePanel.Parent = gui
+addCorner(queuePanel, 6)
+addStroke(queuePanel, HUD_GOLD, 0.42)
+
+local queuePadding = Instance.new("UIPadding")
+queuePadding.PaddingLeft = UDim.new(0, 8)
+queuePadding.PaddingRight = UDim.new(0, 8)
+queuePadding.PaddingTop = UDim.new(0, 5)
+queuePadding.PaddingBottom = UDim.new(0, 5)
+queuePadding.Parent = queuePanel
+
 local queueList = Instance.new("UIListLayout")
 queueList.SortOrder = Enum.SortOrder.LayoutOrder
+queueList.Padding = UDim.new(0, 3)
 queueList.Parent = queuePanel
+
+local queueTitle = makeLabel(queuePanel, "Title")
+queueTitle.Size = UDim2.new(1, -16, 0, 18)
+queueTitle.LayoutOrder = 0
+queueTitle.Text = "ACTIVE ORDERS"
+	queueTitle.TextColor3 = HUD_GOLD
+	queueTitle.TextScaled = false
+	queueTitle.TextSize = 12
+queueTitle.TextXAlignment = Enum.TextXAlignment.Left
+queueTitle.ZIndex = 4
+
+local queueIsIdle = true
+local queueContentHeight = 28
+local applyHudLayout: () -> () = function() end
 
 -- live countdown rows for the 1 Hz ticker (plain tables; no per-frame
 -- instance walks). queueRows = the HUD panel, panelRows = the war table.
-type CountdownRow = { label: TextLabel, baseText: string, completesAt: number?, lastShown: number? }
+type CountdownRow = {
+	container: GuiObject?,
+	label: TextLabel,
+	timerLabel: TextLabel?,
+	baseText: string,
+	startedAt: number?,
+	completesAt: number?,
+	lastShown: number?,
+	progressFill: Frame?,
+}
+type HudEntry = { text: string, startedAt: number?, completesAt: number? }
 local queueRows: { CountdownRow } = {}
 local panelRows: { CountdownRow } = {}
 
@@ -247,6 +751,9 @@ local function toast(message: string, good: boolean?)
 		tween.Completed:Wait()
 		label:Destroy()
 	end)
+end
+localCommandFeedback = function(result: any)
+	toast(tostring(result and result.message or "The realm didn't answer — nothing was spent."), result and result.ok == true)
 end
 toastRemote.OnClientEvent:Connect(function(result: { ok: boolean, message: string })
 	toast(tostring(result.message), result.ok)
@@ -305,9 +812,121 @@ outdatedModal.Parent = gui
 -- ===== war table overhead view =====
 local camera = workspace.CurrentCamera
 local inTableView = false
+local inBattleView = false
 local tableInfo: { centerX: number, centerZ: number, boundsHalf: number, villageId: string? }? = nil
 local tablePanel: Frame? = nil
 local activeTab: string = "village"
+local buildTablePanel: () -> () = function() end
+local buildBattlePanel: () -> () = function() end
+
+local function refreshLocationVisibility()
+	setLocationVisible(
+		latest.snapshot ~= nil
+			and latest.status == "online"
+			and not latest.outdated
+			and not holding.Visible
+			and not inTableView
+			and not inBattleView
+	)
+end
+
+local function refreshHudModeVisibility()
+	local narrow = camera.ViewportSize.X < 700
+	resourceBar.Visible = not inBattleView and (not inTableView or not narrow)
+	queuePanel.Visible = not inTableView and not inBattleView
+	refreshLocationVisibility()
+	applyHudLayout()
+end
+
+-- ScreenGui ignores Roblox's inset so it can own the whole screen; the HUD
+-- therefore measures that inset itself. Wide screens keep the three regions
+-- on one line. Narrow screens stack active work below the resource chips, but
+-- preserve the tiny idle pill beside the location label.
+applyHudLayout = function()
+	local viewport = camera.ViewportSize
+	if viewport.X <= 1 or viewport.Y <= 1 then
+		return
+	end
+	local topLeftInset, bottomRightInset = GuiService:GetGuiInset()
+	local safeTop = math.max(math.floor(topLeftInset.Y) + 8, 8)
+	local safeLeft = math.max(math.floor(topLeftInset.X) + 8, 8)
+	local safeRight = math.max(math.floor(bottomRightInset.X) + 8, 8)
+	local safeBottom = math.max(math.floor(bottomRightInset.Y) + 8, 8)
+	local margin = 8
+	local gap = 6
+	local availableWidth = math.max(math.floor(viewport.X) - safeLeft - safeRight, 1)
+	local resourceWidth = math.min(486, availableWidth)
+	local resourceX = safeLeft + math.floor((availableWidth - resourceWidth) / 2)
+	resourceBar.Size = UDim2.fromOffset(resourceWidth, 52)
+	resourceBar.Position = UDim2.fromOffset(resourceX, safeTop)
+	local alertTop = safeTop + 52 + gap
+	banner.Position = UDim2.fromOffset(0, alertTop)
+	local battleCallNode = gui:FindFirstChild("BattleCall")
+	local alertVisible = banner.Visible
+	if battleCallNode and battleCallNode:IsA("GuiObject") then
+		local battleCallWidth = math.min(360, availableWidth)
+		battleCallNode.Size = UDim2.fromOffset(battleCallWidth, 34)
+		battleCallNode.Position = UDim2.fromOffset(
+			safeLeft + math.floor((availableWidth - battleCallWidth) / 2),
+			alertTop
+		)
+		alertVisible = alertVisible or battleCallNode.Visible
+	end
+
+	if viewport.X >= 1120 then
+		local queueWidth = if queueIsIdle then 76 else 300
+		local queueHeight = if queueIsIdle
+			then 28
+			else math.min(queueContentHeight, math.max(28, math.floor(viewport.Y) - safeTop - margin))
+		local leftRoom = math.max(resourceX - safeLeft - gap, 1)
+		locationLabel.Size = UDim2.fromOffset(math.min(300, leftRoom), 30)
+		locationLabel.Position = UDim2.fromOffset(safeLeft, safeTop)
+		queuePanel.Size = UDim2.fromOffset(queueWidth, queueHeight)
+		queuePanel.Position = UDim2.fromOffset(math.floor(viewport.X) - safeRight - queueWidth, safeTop)
+	else
+		local secondRowTop = alertTop + (if alertVisible then 40 else 0)
+		if queueIsIdle then
+			local locationWidth = math.max(1, availableWidth - 76 - gap)
+			locationLabel.Size = UDim2.fromOffset(locationWidth, 30)
+			locationLabel.Position = UDim2.fromOffset(safeLeft, secondRowTop)
+			queuePanel.Size = UDim2.fromOffset(76, 28)
+			queuePanel.Position = UDim2.fromOffset(safeLeft + locationWidth + gap, secondRowTop)
+		else
+			locationLabel.Size = UDim2.fromOffset(availableWidth, 30)
+			locationLabel.Position = UDim2.fromOffset(safeLeft, secondRowTop)
+			local queueTop = secondRowTop + 30 + gap
+			local queueWidth = math.min(320, availableWidth)
+			local queueHeight = math.min(queueContentHeight, math.max(28, math.floor(viewport.Y) - queueTop - safeBottom))
+			queuePanel.Size = UDim2.fromOffset(queueWidth, queueHeight)
+			queuePanel.Position = UDim2.fromOffset(
+				safeLeft + math.floor((availableWidth - queueWidth) / 2),
+				queueTop
+			)
+		end
+	end
+
+	local visibleHeight = queuePanel.Size.Y.Offset
+	queuePanel.ScrollingEnabled = not queueIsIdle and queueContentHeight > visibleHeight
+	queuePanel.ScrollBarThickness = if queuePanel.ScrollingEnabled then 4 else 0
+
+	local toastWidth = math.min(420, availableWidth)
+	toastFrame.Size = UDim2.fromOffset(toastWidth, 200)
+	toastFrame.Position = UDim2.fromOffset(
+		safeLeft + math.floor((availableWidth - toastWidth) / 2),
+		math.max(0, math.floor(viewport.Y) - safeBottom - 232)
+	)
+end
+
+camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+	refreshHudModeVisibility()
+	if inTableView then
+		buildTablePanel()
+	elseif inBattleView then
+		buildBattlePanel()
+	end
+end)
+banner:GetPropertyChangedSignal("Visible"):Connect(applyHudLayout)
+task.defer(applyHudLayout)
 
 -- The attack plan being composed at the table. Module-level so it survives the
 -- panel rebuild that happens on every heartbeat; it is display state only, and
@@ -353,6 +972,7 @@ local function exitTableView()
 		tablePanel = nil
 	end
 	table.clear(panelRows)
+	refreshHudModeVisibility()
 end
 
 local function invokeQueue(request: { [string]: any })
@@ -468,8 +1088,6 @@ local function countdownRow(parent: Instance, order: number, text: string, compl
 	table.insert(panelRows, { label = label, baseText = text, completesAt = completesAt, lastShown = nil })
 	return label
 end
-
-local buildTablePanel: () -> ()
 
 local function buildVillageTab(scroll: ScrollingFrame, village: any, villageId: string)
 	-- The herd, shown whenever there is a Stable.
@@ -1032,13 +1650,26 @@ function buildTablePanel()
 	end
 	local villageId = tostring(village.id)
 
+	local viewport = camera.ViewportSize
+	local topLeftInset, bottomRightInset = GuiService:GetGuiInset()
+	local safeLeft = math.max(math.floor(topLeftInset.X) + 8, 8)
+	local safeRight = math.max(math.floor(bottomRightInset.X) + 8, 8)
+	local safeBottom = math.max(math.floor(bottomRightInset.Y) + 8, 8)
+	local panelTop = if resourceBar.Visible
+		then resourceBar.Position.Y.Offset + resourceBar.Size.Y.Offset + 8
+		else math.max(math.floor(topLeftInset.Y) + 8, 8)
+	local panelWidth = math.max(1, math.min(340, math.floor(viewport.X) - safeLeft - safeRight))
+	local panelHeight = math.max(180, math.floor(viewport.Y) - panelTop - safeBottom)
 	local panel = Instance.new("Frame")
 	panel.Name = "TablePanel"
-	panel.Size = UDim2.new(0, 340, 1, -120)
-	panel.Position = UDim2.new(0, 8, 0, 84)
+	panel.Size = UDim2.fromOffset(panelWidth, panelHeight)
+	panel.Position = UDim2.fromOffset(safeLeft, panelTop)
 	panel.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
 	panel.BackgroundTransparency = 0.15
+	panel.ZIndex = 2
 	panel.Parent = gui
+	addCorner(panel, 6)
+	addStroke(panel, HUD_GOLD, 0.45)
 	tablePanel = panel
 
 	-- tab bar
@@ -1055,7 +1686,8 @@ function buildTablePanel()
 		button.BackgroundColor3 = if activeTab == name then Color3.fromRGB(55, 65, 90) else Color3.fromRGB(28, 28, 36)
 		button.TextColor3 = Color3.new(1, 1, 1)
 		button.Font = Enum.Font.GothamBold
-		button.TextScaled = true
+		button.TextScaled = false
+		button.TextSize = 14
 		button.Text = label
 		button.Parent = tabs
 		button.Activated:Connect(function()
@@ -1105,17 +1737,19 @@ function buildTablePanel()
 	leave.BackgroundColor3 = Color3.fromRGB(70, 40, 30)
 	leave.TextColor3 = Color3.new(1, 1, 1)
 	leave.Font = Enum.Font.GothamBold
-	leave.TextScaled = true
+	leave.TextScaled = false
+	leave.TextSize = 14
 	leave.Text = "Step away from the table"
 	leave.Parent = panel
 	leave.Activated:Connect(exitTableView)
 end
 
-enterTable.OnClientEvent:Connect(function(info: { centerX: number, centerZ: number, boundsHalf: number, villageId: string? })
+local function openTableView(info: { centerX: number, centerZ: number, boundsHalf: number, villageId: string? })
 	if inTableView then
 		return
 	end
 	inTableView = true
+	refreshHudModeVisibility()
 	tableInfo = info
 	activeTab = "village"
 	camera.CameraType = Enum.CameraType.Scriptable
@@ -1123,7 +1757,9 @@ enterTable.OnClientEvent:Connect(function(info: { centerX: number, centerZ: numb
 	local center = Vector3.new(info.centerX, 0, info.centerZ)
 	camera.CFrame = CFrame.lookAt(center + Vector3.new(0, 150, 70), center)
 	buildTablePanel()
-end)
+end
+requestOpenLocalTable = openTableView
+enterTable.OnClientEvent:Connect(openTableView)
 
 -- QA/demo hook, used only by demo.project.json's self-driving tour: setting a
 -- "DemoTab" attribute on this ScreenGui switches the war-table tab, because
@@ -1161,7 +1797,6 @@ end
 -- count once IT accepts them, and the bodies on the field are drawn from the
 -- battle row, never the other way round.
 
-local inBattleView = false
 local battleViewId: string? = nil
 local battlePanel: Frame? = nil
 local selectedSquad: string = BattleConfig.SQUADS[1].id
@@ -1195,8 +1830,6 @@ local function battleAtMs(battle: any): number
 	return math.clamp(math.floor((nowServerSeconds() - opened) * 1000), 0, 600000)
 end
 
-local buildBattlePanel: () -> ()
-
 local function exitBattle()
 	if not inBattleView then
 		return
@@ -1213,6 +1846,7 @@ local function exitBattle()
 	end
 	BattleScene.stop()
 	camera.CameraType = Enum.CameraType.Custom
+	refreshHudModeVisibility()
 end
 
 -- Where on the field did they tap? The ray is intersected with the ground
@@ -1257,6 +1891,7 @@ function enterBattle(battle: any): boolean
 		return false
 	end
 	inBattleView = true
+	refreshHudModeVisibility()
 	battleViewId = tostring(battle.id)
 	selectedSquad = BattleConfig.SQUADS[1].id
 
@@ -1296,11 +1931,19 @@ function buildBattlePanel()
 	local live = tostring(battle.status) == "open"
 	local kingdomId = myKingdomId()
 	local iAttack = tostring(battle.attackerKingdomId) == kingdomId
+	local viewport = camera.ViewportSize
+	local topLeftInset, bottomRightInset = GuiService:GetGuiInset()
+	local safeTop = math.max(math.floor(topLeftInset.Y) + 8, 8)
+	local safeLeft = math.max(math.floor(topLeftInset.X) + 8, 8)
+	local safeRight = math.max(math.floor(bottomRightInset.X) + 8, 8)
+	local safeBottom = math.max(math.floor(bottomRightInset.Y) + 8, 8)
+	local panelWidth = math.max(1, math.floor(viewport.X) - safeLeft - safeRight)
+	local panelTop = math.max(safeTop, math.floor(viewport.Y) - safeBottom - 132)
 
 	local panel = Instance.new("Frame")
 	panel.Name = "BattlePanel"
-	panel.Size = UDim2.new(1, 0, 0, 132)
-	panel.Position = UDim2.new(0, 0, 1, -132)
+	panel.Size = UDim2.fromOffset(panelWidth, 132)
+	panel.Position = UDim2.fromOffset(safeLeft, panelTop)
 	panel.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
 	panel.BackgroundTransparency = 0.2
 	panel.Parent = gui
@@ -1402,6 +2045,8 @@ battleCall.TextScaled = true
 battleCall.Text = ""
 battleCall.Visible = false
 battleCall.Parent = gui
+battleCall:GetPropertyChangedSignal("Visible"):Connect(applyHudLayout)
+applyHudLayout()
 
 local function refreshBattleCall()
 	if inBattleView or latest.status ~= "online" then
@@ -1526,24 +2171,73 @@ local function announceNewReports(snapshot: any)
 	end
 end
 
-local function refreshHud()
-	local capital = myCapital()
-	if capital and capital.resources then
-		resourceLabel.Text = string.format(
-			"Wood %d   Stone %d   Iron %d",
-			math.floor(tonumber(capital.resources.wood) or 0),
-			math.floor(tonumber(capital.resources.stone) or 0),
-			math.floor(tonumber(capital.resources.iron) or 0)
-		)
+local function economyForVillage(snapshot: any, villageId: string?): any
+	if not villageId then
+		return nil
 	end
+	for _, economy in (snapshot.villageEconomy or {}) do
+		if tostring(economy.villageId) == villageId then
+			return economy
+		end
+	end
+	return nil
+end
+
+local function updateResourceChip(resourceName: string, amountValue: any, productionValue: any, capacityValue: any)
+	local chip = resourceChips[resourceName]
+	if not chip then
+		return
+	end
+	local amount = math.max(tonumber(amountValue) or 0, 0)
+	local production = math.max(tonumber(productionValue) or 0, 0)
+	local capacity = math.max(tonumber(capacityValue) or 0, 0)
+	chip.rate.Text = string.format("+%s/h", compactAmount(production))
+	if capacity > 0 then
+		chip.value.Text = if camera.ViewportSize.X < 600
+			then compactAmount(amount)
+			else string.format("%s / %s", compactAmount(amount), compactAmount(capacity))
+		chip.fill.Size = UDim2.new(math.clamp(amount / capacity, 0, 1), 0, 1, 0)
+	else
+		chip.value.Text = compactAmount(amount)
+		chip.fill.Size = UDim2.new(0, 0, 1, 0)
+	end
+end
+
+local function refreshHud()
+	local snapshot = latest.snapshot
+	local capital = myCapital()
+	local resourceVillage = if inTableView then myVillage(tableInfo and tableInfo.villageId) else capital
+	if snapshot and resourceVillage then
+		local economy = economyForVillage(snapshot, tostring(resourceVillage.id))
+		local production = (economy and economy.productionPerHour) or resourceVillage.productionPerHour or {}
+		local capacity = (economy and economy.storageCapacity) or resourceVillage.storageCapacity
+		local resources = resourceVillage.resources or {}
+		updateResourceChip("wood", resources.wood, production.wood, capacity)
+		updateResourceChip("stone", resources.stone, production.stone, capacity)
+		updateResourceChip("iron", resources.iron, production.iron, capacity)
+	end
+	if snapshot and capital then
+		local worldName = tostring((snapshot.world and snapshot.world.name) or "The Realm")
+		local capitalName = tostring(capital.name or "Capital")
+		locationLabel.Text = string.format("  %s  ·  %s", worldName, capitalName)
+	end
+	refreshLocationVisibility()
 
 	-- rebuild queue rows (few of them; cheap at heartbeat cadence)
+	local keptQueueScroll = queuePanel.CanvasPosition
 	for _, row in queueRows do
-		row.label:Destroy()
+		if row.container then
+			row.container:Destroy()
+		else
+			row.label:Destroy()
+		end
 	end
 	table.clear(queueRows)
-	local snapshot = latest.snapshot
 	if not snapshot then
+		queueIsIdle = true
+		queueTitle.Visible = false
+		queueContentHeight = 28
+		applyHudLayout()
 		return
 	end
 
@@ -1561,21 +2255,44 @@ local function refreshHud()
 		end
 	end
 
-	local entries: { { text: string, completesAt: number? } } = {}
+	local entries: { HudEntry } = {}
+	local ownedVillageCount = 0
+	for _, ownedVillage in ((snapshot.world and snapshot.world.villages) or {}) do
+		if tostring(ownedVillage.kingdomId) == tostring(myKingdomId()) then
+			ownedVillageCount += 1
+		end
+	end
+	local function queueText(text: string, villageId: any): string
+		if ownedVillageCount > 1 and villageId ~= nil then
+			return string.format("%s · %s", text, villageLabel(tostring(villageId)))
+		end
+		return text
+	end
 	for _, job in (snapshot.constructionJobs or {}) do
+		local targetLevel = math.floor(tonumber(job.targetLevel) or 0)
 		table.insert(entries, {
-			text = string.format("%s → Lv %d", Buildings.displayName(job.building), tonumber(job.targetLevel) or 0),
+			text = queueText(
+				string.format("%s → Lv %d", tostring(Buildings.displayName(job.building)), targetLevel),
+				job.villageId
+			),
+			startedAt = TimeUtil.isoToEpoch(job.startedAt),
 			completesAt = TimeUtil.isoToEpoch(job.completesAt),
 		})
 	end
 	for _, job in (snapshot.recruitmentJobs or {}) do
+		local quantity = math.floor(tonumber(job.quantity) or 0)
 		table.insert(entries, {
-			text = string.format("%d %s", tonumber(job.quantity) or 0, Buildings.troopName(job.troop)),
+			text = queueText(
+				string.format("%d %s", quantity, tostring(Buildings.troopName(job.troop))),
+				job.villageId
+			),
+			startedAt = TimeUtil.isoToEpoch(job.startedAt),
 			completesAt = TimeUtil.isoToEpoch(job.completesAt),
 		})
 	end
-	-- Marches share the queue panel: anything of yours that is "not here yet"
-	-- belongs in one place, so the HUD never hides a wave in transit.
+	-- Marches share the queue panel. Every non-complete state appears here,
+	-- including an army waiting at the walls, so the compact card never makes
+	-- an active force disappear merely because its travel timer has elapsed.
 	for _, march in (snapshot.marches or {}) do
 		local status = tostring(march.status)
 		if status == "outbound" or status == "returning" then
@@ -1583,41 +2300,177 @@ local function refreshHud()
 			local text = if status == "returning"
 				then string.format("%s returning", what)
 				else string.format("%s → %s", what, villageLabel(tostring(march.targetVillageId)))
-			table.insert(entries, { text = text, completesAt = TimeUtil.isoToEpoch(march.arrivesAt) })
+			table.insert(entries, {
+				text = queueText(text, march.fromVillageId),
+				startedAt = if status == "outbound" then TimeUtil.isoToEpoch(march.departedAt) else nil,
+				completesAt = TimeUtil.isoToEpoch(march.arrivesAt),
+			})
+		elseif status == "awaiting_battle" then
+			table.insert(entries, {
+				text = queueText(
+					string.format("Army waiting at %s", villageLabel(tostring(march.targetVillageId))),
+					march.fromVillageId
+				),
+				startedAt = TimeUtil.isoToEpoch(march.departedAt),
+				completesAt = nil,
+			})
 		end
 	end
-	if #entries == 0 then
-		local empty = makeLabel(queuePanel, "Empty")
-		empty.Size = UDim2.new(1, 0, 0, 30)
-		empty.Text = "No work queued"
-		empty.TextTransparency = 0.4
-		table.insert(queueRows, { label = empty, baseText = "No work queued", completesAt = nil, lastShown = nil })
-		return
-	end
-	for index, entry in entries do
-		local label = makeLabel(queuePanel, "Job" .. index)
-		label.Size = UDim2.new(1, -8, 0, 28)
-		label.LayoutOrder = index
-		label.TextXAlignment = Enum.TextXAlignment.Left
-		label.Text = entry.text
-		table.insert(queueRows, { label = label, baseText = entry.text, completesAt = entry.completesAt, lastShown = nil })
-	end
 
-	-- while at the table, the panel must track the same fresh state
+	table.sort(entries, function(left: HudEntry, right: HudEntry)
+		local leftAt = left.completesAt or -math.huge
+		local rightAt = right.completesAt or -math.huge
+		if leftAt == rightAt then
+			return left.text < right.text
+		end
+		return leftAt < rightAt
+	end)
+
+	-- The war table must refresh even when no job or march exists. Previously
+	-- this lived below the idle return, leaving its contents stale in the most
+	-- common state.
 	if inTableView then
 		buildTablePanel()
 	end
 
+	if #entries == 0 then
+		local empty = makeLabel(queuePanel, "Empty")
+		empty.Size = UDim2.new(1, -16, 0, 18)
+		empty.LayoutOrder = 1
+		empty.Text = "IDLE"
+		empty.TextColor3 = HUD_GOLD
+		empty.TextScaled = false
+		empty.TextSize = 12
+		empty.ZIndex = 4
+		queueTitle.Visible = false
+		queueIsIdle = true
+		queueContentHeight = 28
+		queuePanel.CanvasPosition = Vector2.zero
+		table.insert(queueRows, {
+			container = nil,
+			label = empty,
+			timerLabel = nil,
+			baseText = "IDLE",
+			startedAt = nil,
+			completesAt = nil,
+			lastShown = nil,
+			progressFill = nil,
+		})
+		applyHudLayout()
+		return
+	end
+
+	queueTitle.Visible = true
+	queueIsIdle = false
+	local contentHeight = 28
+	for index, entry in entries do
+		local primary = index == 1
+		local rowHeight = if primary then 42 else 26
+		local startedAt = entry.startedAt
+		local completesAt = entry.completesAt
+		local hasProgress = startedAt ~= nil and completesAt ~= nil and completesAt > startedAt
+		local row = Instance.new("Frame")
+		row.Name = "Job" .. index
+		row.Size = UDim2.new(1, -16, 0, rowHeight)
+		row.BackgroundColor3 = if primary then Color3.fromRGB(56, 47, 33) else HUD_CHARCOAL_SOFT
+		row.BackgroundTransparency = if primary then 0.08 else 0.35
+		row.BorderSizePixel = 0
+		row.LayoutOrder = index
+		row.ZIndex = 4
+		row.Parent = queuePanel
+		addCorner(row, 4)
+		if primary then
+			addStroke(row, HUD_GOLD, 0.35)
+		end
+
+		local label = makeLabel(row, "Label")
+		label.Size = if entry.completesAt then UDim2.new(1, -78, 1, -4) else UDim2.new(1, -16, 1, -4)
+		label.Position = UDim2.new(0, 8, 0, 0)
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		label.TextTruncate = Enum.TextTruncate.AtEnd
+		label.TextScaled = false
+		label.TextSize = if primary then 14 else 12
+		label.TextColor3 = HUD_CREAM
+		label.Text = if primary then "NOW · " .. entry.text else entry.text
+		label.ZIndex = 5
+
+		local timerLabel = makeLabel(row, "Timer")
+		timerLabel.Size = UDim2.new(0, 64, 1, -4)
+		timerLabel.Position = UDim2.new(1, -70, 0, 0)
+		timerLabel.TextXAlignment = Enum.TextXAlignment.Right
+		timerLabel.TextScaled = false
+		timerLabel.TextSize = if primary then 13 else 11
+		timerLabel.TextColor3 = HUD_GOLD
+		timerLabel.Text = ""
+		timerLabel.Visible = entry.completesAt ~= nil
+		timerLabel.ZIndex = 5
+
+		local progressTrack = Instance.new("Frame")
+		progressTrack.Name = "ProgressTrack"
+		progressTrack.Size = UDim2.new(1, -16, 0, 2)
+		progressTrack.Position = UDim2.new(0, 8, 1, -4)
+		progressTrack.BackgroundColor3 = Color3.fromRGB(76, 69, 57)
+		progressTrack.BorderSizePixel = 0
+		progressTrack.Visible = hasProgress
+		progressTrack.ZIndex = 5
+		progressTrack.Parent = row
+
+		local progressFill = Instance.new("Frame")
+		progressFill.Name = "Progress"
+		progressFill.Size = UDim2.new(0, 0, 1, 0)
+		progressFill.BackgroundColor3 = HUD_GOLD
+		progressFill.BorderSizePixel = 0
+		progressFill.ZIndex = 6
+		progressFill.Parent = progressTrack
+
+		local baseText = if primary then "NOW · " .. entry.text else entry.text
+		table.insert(queueRows, {
+			container = row,
+			label = label,
+			timerLabel = timerLabel,
+			baseText = baseText,
+			startedAt = startedAt,
+			completesAt = completesAt,
+			lastShown = nil,
+			progressFill = if hasProgress then progressFill else nil,
+		})
+		contentHeight += rowHeight + 3
+	end
+	queueContentHeight = contentHeight
+	applyHudLayout()
+	task.defer(function()
+		if queuePanel.Parent and not queueIsIdle then
+			queuePanel.CanvasPosition = keptQueueScroll
+		end
+	end)
 end
 
 -- countdown ticker: display only; writes a label only when its second changes
 local function tick(rows: { CountdownRow }, now: number, indent: string)
 	for _, row in rows do
-		if row.completesAt then
-			local remaining = math.max(math.floor(row.completesAt - now), 0)
+		local completesAt = row.completesAt
+		if completesAt then
+			local delta = completesAt - now
+			local remaining = if delta > 0 then math.ceil(delta) else 0
 			if remaining ~= row.lastShown then
 				row.lastShown = remaining
-				row.label.Text = string.format("%s%s — %s", indent, row.baseText, clockText(remaining))
+				local timerLabel = row.timerLabel
+				if timerLabel then
+					timerLabel.Text = if remaining > 0 then clockText(remaining) else "Completing…"
+				else
+					row.label.Text = string.format(
+						"%s%s — %s",
+						indent,
+						row.baseText,
+						if remaining > 0 then clockText(remaining) else "Completing…"
+					)
+				end
+			end
+			local progressFill = row.progressFill
+			local startedAt = row.startedAt
+			if progressFill and startedAt and completesAt > startedAt then
+				local progress = math.clamp((now - startedAt) / (completesAt - startedAt), 0, 1)
+				progressFill.Size = UDim2.new(progress, 0, 1, 0)
 			end
 		end
 	end
@@ -1638,6 +2491,9 @@ stateSync.OnClientEvent:Connect(function(payload: { snapshot: any?, status: stri
 	latest.clockOffset = tonumber(payload.clockOffset) or latest.clockOffset
 	latest.outdated = payload.outdated == true
 	latest.sessionError = payload.sessionError
+	-- Client-local prompts are not reached by the server's Workspace scan, so
+	-- mirror the same online/offline gate on every private owner detail.
+	refreshLocalPromptAvailability()
 
 	outdatedModal.Visible = latest.outdated
 	holding.Visible = latest.snapshot == nil

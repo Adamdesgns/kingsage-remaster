@@ -379,13 +379,16 @@ task.spawn(function()
 		task.wait(3) -- let the founding view breathe on camera
 		-- up the main street from the gate
 		walkTo(model, 0, 35, 8)
-		-- west to the timber camp, order a REAL upgrade via its prompt
-		walkTo(model, -27, 15, 10)
+		-- west to the timber camp's street-facing doorway, order a REAL
+		-- upgrade via its prompt. The rebuilt district sits on the outer lane,
+		-- so the tour must walk to the actual entrance instead of the retired
+		-- grey-box coordinates near the keep.
+		walkTo(model, -98, 45, 16)
 		holdPrompt(model, "B_timber", "InteractPrompt")
 		task.wait(3) -- toast + queue row appear
 		-- east to the barracks, REAL recruit order
-		walkTo(model, 0, 15, 8)
-		walkTo(model, 27, 15, 10)
+		walkTo(model, 0, 45, 14)
+		walkTo(model, 98, 45, 16)
 		holdPrompt(model, "B_barracks", "RecruitPrompt")
 		task.wait(3)
 		-- to the war table: the camera lifts into the command view

@@ -1,12 +1,14 @@
 --!strict
 -- Region renderer: EVERY village in the snapshot becomes a real place at its
 -- map-derived position, with walkable wilderness between them (spec §4).
--- Own villages render full (buildings, prompts, spawn); foreign villages are
--- fog-of-war silhouettes (walls + generic keep + name — never levels, never
--- prompts). Positions come from village map coords, not sessions: the world
+-- Workspace receives only fog-of-war silhouettes (walls + generic keep + name
+-- — never levels, never prompts). Owner detail is built in ServerStorage and
+-- copied through the owner's private PlayerGui only. Positions come from map
+-- coords, not sessions: the world
 -- looks the same every join. Grey boxes only (spec §7).
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 local worldShared = ReplicatedStorage:WaitForChild("WorldShared")
 local Buildings = require(worldShared:WaitForChild("Buildings"))
@@ -20,7 +22,16 @@ local SettlementBuilder = {}
 -- Shared with the battle scene, which has to form up on the same ground.
 local TILE = Config.TILE_STUDS
 local WALL_HALF = Config.WALL_HALF
-local BUILDING_FOOTPRINT = 12
+local MAX_BUILDING_LEVEL = 20
+local MAX_LEVEL_GROWTH = 1 + MAX_BUILDING_LEVEL * 0.010
+local ANNEX_WIDTH = 10
+local ANNEX_DEPTH = 8
+-- Includes the annex roof's three-stud overhang. These constants are also used
+-- by the analytical lot check below, so the level-20 art cannot silently grow
+-- through its neighbour when somebody adjusts a footprint.
+local ANNEX_SIDE_REACH = ANNEX_WIDTH + 3
+local ANNEX_REAR_REACH = ANNEX_DEPTH + 3
+local LOT_CLEARANCE = 4
 
 -- Fixed layout inside a settlement: gate faces +Z (south); main street runs
 -- gate -> keep; economy row west, military row east, academy north.
@@ -32,20 +43,30 @@ local BUILDING_FOOTPRINT = 12
 -- building is 20, and a keep is 34. Before this the barracks stood 48 studs to
 -- the ridge - nearly ten characters - which is why it read as a monument rather
 -- than a building.
-local LAYOUT: { [string]: Vector3 } = {
-	hq = Vector3.new(0, 0, 20),
-	market = Vector3.new(-64, 0, 106),
-	warehouse = Vector3.new(64, 0, 106),
-	barracks = Vector3.new(128, 0, 52),
-	stable = Vector3.new(132, 0, -8),
-	workshop = Vector3.new(128, 0, -68),
-	smithy = Vector3.new(64, 0, -118),
-	timber = Vector3.new(-128, 0, 52),
-	quarry = Vector3.new(-132, 0, -8),
-	iron = Vector3.new(-128, 0, -68),
-	farm = Vector3.new(-64, 0, -118),
-	academy = Vector3.new(0, 0, -134),
-	wall = Vector3.new(-64, 0, 166),
+type Placement = {
+	at: Vector3,
+	yaw: number,
+}
+
+-- Front is local +Z. Every yaw below turns that front toward the lane or civic
+-- space that actually serves the building. The previous world placed every
+-- doorway south, including the workshops along east/west streets.
+local LAYOUT: { [string]: Placement } = {
+	-- WarTable owns settlement-local (0, 0, 16); keeping the hall at z=20
+	-- leaves the table four studs behind its centre with a clear aisle.
+	hq = { at = Vector3.new(0, 0, 20), yaw = 0 },
+	market = { at = Vector3.new(-100, 0, 144), yaw = 90 },
+	warehouse = { at = Vector3.new(100, 0, 144), yaw = -90 },
+	barracks = { at = Vector3.new(115, 0, 45), yaw = -90 },
+	stable = { at = Vector3.new(115, 0, -60), yaw = -90 },
+	workshop = { at = Vector3.new(115, 0, -154), yaw = -90 },
+	smithy = { at = Vector3.new(48, 0, -95), yaw = 0 },
+	timber = { at = Vector3.new(-115, 0, 45), yaw = 90 },
+	quarry = { at = Vector3.new(-115, 0, -42), yaw = 90 },
+	iron = { at = Vector3.new(-115, 0, -127), yaw = 90 },
+	farm = { at = Vector3.new(-35, 0, -90), yaw = 0 },
+	academy = { at = Vector3.new(0, 0, -160), yaw = 0 },
+	wall = { at = Vector3.new(-165, 0, 150), yaw = 90 },
 }
 
 -- What each building actually IS, rather than "a box whose height is its level".
@@ -90,7 +111,7 @@ end
 -- character cottage wall, 34 is a three-storey keep. Nothing here is taller
 -- than it would be if you stood next to it.
 local SPEC: { [string]: BuildingSpec } = {
-	hq        = spec(38, 38, 34, 14, PALETTE.stone,       MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
+	hq        = spec(38, 38, 24, 10, PALETTE.stone,       MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, true),
 	academy   = spec(34, 34, 26, 12, PALETTE.stoneWarm,   MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
 	barracks  = spec(64, 28, 15,  9, PALETTE.stoneDark,   MATERIAL.block,   PALETTE.roofTile,  MATERIAL.roof,   true,  true),
 	stable    = spec(58, 26, 13,  8, PALETTE.timberLight, MATERIAL.timber,  PALETTE.thatch,    MATERIAL.thatch, true,  false),
@@ -105,25 +126,86 @@ local SPEC: { [string]: BuildingSpec } = {
 	wall      = spec(34, 24, 13,  8, PALETTE.stone,       MATERIAL.stone,   PALETTE.roofSlate, MATERIAL.roof,   false, false),
 }
 
+type LotBounds = { x: number, z: number }
+
+local function lotBounds(building: string): LotBounds
+	local sp = SPEC[building]
+	local placement = LAYOUT[building]
+	assert(sp ~= nil and placement ~= nil, "Every building needs a spec and placement")
+	local localX = sp.w * MAX_LEVEL_GROWTH / 2 + ANNEX_SIDE_REACH
+	local localZ = sp.d * MAX_LEVEL_GROWTH / 2 + ANNEX_REAR_REACH
+	if math.abs(placement.yaw) % 180 == 90 then
+		return { x = localZ, z = localX }
+	end
+	return { x = localX, z = localZ }
+end
+
+-- A production guard, not a comment pretending the layout is safe. It proves
+-- the largest supported version of every building, all four annexes and their
+-- roof overhangs fit inside the wall and do not overlap another reserved lot.
+-- If a future footprint breaks that promise, the server fails at startup with
+-- the two names involved instead of shipping intersecting architecture.
+local function validateLayout()
+	for nameA, placementA in LAYOUT do
+		local boundsA = lotBounds(nameA)
+		assert(math.abs(placementA.at.X) + boundsA.x <= WALL_HALF - 6,
+			string.format("%s level-20 lot crosses the east/west wall", nameA))
+		assert(math.abs(placementA.at.Z) + boundsA.z <= WALL_HALF - 6,
+			string.format("%s level-20 lot crosses the north/south wall", nameA))
+		for nameB, placementB in LAYOUT do
+			if nameA < nameB then
+				local boundsB = lotBounds(nameB)
+				local clearX = math.abs(placementA.at.X - placementB.at.X)
+					>= boundsA.x + boundsB.x + LOT_CLEARANCE
+				local clearZ = math.abs(placementA.at.Z - placementB.at.Z)
+					>= boundsA.z + boundsB.z + LOT_CLEARANCE
+				assert(clearX or clearZ,
+					string.format("level-20 lots overlap: %s and %s", nameA, nameB))
+			end
+		end
+	end
+end
+
+validateLayout()
+
 
 local settlementsFolder = Instance.new("Folder")
 settlementsFolder.Name = "Settlements"
 settlementsFolder.Parent = workspace
 
+-- Detailed settlement geometry is never parented under a replicated service.
+-- It is a server-only render source serialized only to the entitled owner.
+local detailsFolder = Instance.new("Folder")
+detailsFolder.Name = "SettlementDetails"
+detailsFolder.Parent = ServerStorage
+
+-- RespawnLocation must reference Workspace. These transparent gate anchors
+-- disclose no building/level information and are the only owner-runtime parts
+-- retained outside the fog-safe shells.
+local spawnFolder = Instance.new("Folder")
+spawnFolder.Name = "SettlementSpawns"
+spawnFolder.Parent = workspace
+
 local wildernessFolder = Instance.new("Folder")
 wildernessFolder.Name = "Wilderness"
 wildernessFolder.Parent = workspace
 
-type Entry = {
+type DetailEntry = {
 	model: Model,
-	mode: string, -- "full" | "shell"
-	origin: CFrame,
 	stateVersion: number,
 	levels: { [string]: number },
+	ownerUserId: number,
+}
+
+type Entry = {
+	-- The fog-safe shell always exists. A separate detail model may exist while
+	-- its owner is present; the client selects exactly one visual layer.
+	shell: Model,
+	detail: DetailEntry?,
+	origin: CFrame,
 	villageName: string,
 	kingdomName: string,
 	kingdomColor: Color3,
-	ownerUserId: number?,
 }
 
 local rendered: { [string]: Entry } = {}
@@ -145,8 +227,19 @@ local function greyPart(name: string, size: Vector3, cframe: CFrame, parent: Ins
 	return part
 end
 
+local function decorative(part: BasePart): BasePart
+	part:SetAttribute("Decorative", true)
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part.CastShadow = false
+	return part
+end
+
+-- A surface-bound identity mark. SurfaceGui obeys depth and lives on masonry;
+-- unlike a BillboardGui it cannot announce a building through three walls.
 local function labelFor(part: BasePart, text: string)
-	local existing = part:FindFirstChild("NameBillboard")
+	local existing = part:FindFirstChild("NameSurface")
 	if existing then
 		local label = (existing :: Instance):FindFirstChildOfClass("TextLabel")
 		if label then
@@ -154,22 +247,24 @@ local function labelFor(part: BasePart, text: string)
 		end
 		return
 	end
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "NameBillboard"
-	billboard.Size = UDim2.fromOffset(220, 44)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, part.Size.Y / 2 + 3, 0)
-	billboard.AlwaysOnTop = false
-	billboard.MaxDistance = 260
+	local surface = Instance.new("SurfaceGui")
+	surface.Name = "NameSurface"
+	surface.Face = Enum.NormalId.Back -- local +Z, the street-facing facade
+	surface.AlwaysOnTop = false
+	surface.LightInfluence = 0.3
+	surface.CanvasSize = Vector2.new(720, 180)
 	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = 0.35
-	label.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-	label.TextColor3 = Color3.new(1, 1, 1)
+	label.Size = UDim2.fromScale(0.9, 0.72)
+	label.Position = UDim2.fromScale(0.05, 0.14)
+	label.BackgroundTransparency = 0.14
+	label.BackgroundColor3 = Color3.fromRGB(45, 31, 22)
+	label.TextColor3 = Color3.fromRGB(235, 220, 186)
 	label.TextScaled = true
-	label.Font = Enum.Font.GothamBold
+	label.TextWrapped = true
+	label.Font = Enum.Font.GothamMedium
 	label.Text = text
-	label.Parent = billboard
-	billboard.Parent = part
+	label.Parent = surface
+	surface.Parent = part
 end
 
 local function villageOrigin(village: any): CFrame
@@ -202,10 +297,11 @@ end
 --- Four flat slabs are a fence. Crenellations, towers and an arched gate are
 --- what make a settlement read as fortified — and they are also the thing an
 --- attacker is looking at when the Rampart level matters.
-local function renderShellWalls(model: Model, origin: CFrame)
+local function renderShellWalls(model: Model, origin: CFrame, detailed: boolean)
 	local ground = WorldStyle.part("Ground", Vector3.new(WALL_HALF * 2 + 40, 4, WALL_HALF * 2 + 40),
 		origin * CFrame.new(0, -2, 0), model, PALETTE.grass, MATERIAL.grass)
 	ground.CastShadow = false
+	model:SetAttribute("Detailed", detailed)
 
 	-- A curtain wall about three characters high. It should read as something
 	-- you cannot climb, not as a cliff.
@@ -215,18 +311,21 @@ local function renderShellWalls(model: Model, origin: CFrame)
 	local function crenellate(centreX: number, centreZ: number, spanX: number, spanZ: number)
 		-- Merlons along the top: the notched profile of a battlement.
 		local along = if spanX > spanZ then spanX else spanZ
-		local step = 9
+		-- A foreign silhouette is often one of several villages in memory. It
+		-- keeps the crenellated read at one third of the owned part cost.
+		local step = if detailed then 12 else 30
 		local count = math.max(1, math.floor(along / step))
+		local actualStep = along / count
 		for index = 0, count - 1 do
-			local offset = -along / 2 + step / 2 + index * step
+			local offset = -along / 2 + actualStep / 2 + index * actualStep
 			local x = if spanX > spanZ then centreX + offset else centreX
 			local z = if spanX > spanZ then centreZ else centreZ + offset
 			local merlon = WorldStyle.part("Merlon", Vector3.new(
-					if spanX > spanZ then 5 else wallThickness,
+					if spanX > spanZ then math.min(5, actualStep * 0.5) else wallThickness,
 					3,
-					if spanX > spanZ then wallThickness else 5),
+					if spanX > spanZ then wallThickness else math.min(5, actualStep * 0.5)),
 				origin * CFrame.new(x, wallHeight + 1.5, z), model, PALETTE.stone, MATERIAL.stone)
-			merlon.CastShadow = false
+			decorative(merlon)
 		end
 	end
 
@@ -249,57 +348,120 @@ local function renderShellWalls(model: Model, origin: CFrame)
 	crenellate(-(gateGap / 2 + southSegment / 2), WALL_HALF, southSegment, wallThickness)
 	crenellate(gateGap / 2 + southSegment / 2, WALL_HALF, southSegment, wallThickness)
 
-	-- Corner towers, taller than the wall and round-shouldered.
-	for _, sx in { -1, 1 } do
-		for _, sz in { -1, 1 } do
-			local tower = WorldStyle.part("Tower", Vector3.new(16, wallHeight + 10, 16),
-				origin * CFrame.new(sx * WALL_HALF, (wallHeight + 10) / 2, sz * WALL_HALF), model, PALETTE.stone, MATERIAL.stone)
-			tower.Shape = Enum.PartType.Cylinder
-			tower.Orientation = Vector3.new(0, 0, 90)
-			local cap = Instance.new("Part")
-			cap.Name = "TowerCap"
-			cap.Shape = Enum.PartType.Ball
-			cap.Size = Vector3.new(17, 17, 17)
-			cap.Anchored = true
-			cap.Color = PALETTE.roofSlate
-			cap.Material = MATERIAL.roof
-			cap.CFrame = origin * CFrame.new(sx * WALL_HALF, wallHeight + 10, sz * WALL_HALF)
-			cap.Parent = model
+	local function towerCrown(x: number, z: number, towerSize: number, towerHeight: number, prefix: string)
+		decorative(WorldStyle.part(prefix .. "Parapet", Vector3.new(towerSize + 2, 1.5, towerSize + 2),
+			origin * CFrame.new(x, towerHeight + 0.75, z), model, PALETTE.stoneWarm, MATERIAL.stone))
+		local edge = towerSize / 2 - 1.7
+		local positions = {
+			Vector2.new(-edge, -edge), Vector2.new(0, -edge), Vector2.new(edge, -edge), Vector2.new(edge, 0),
+			Vector2.new(edge, edge), Vector2.new(0, edge), Vector2.new(-edge, edge), Vector2.new(-edge, 0),
+		}
+		for index, merlonPosition in positions do
+			if detailed or index % 2 == 1 then
+				decorative(WorldStyle.part(prefix .. "Merlon", Vector3.new(3.5, 3.2, 3.5),
+					origin * CFrame.new(x + merlonPosition.X, towerHeight + 2.35, z + merlonPosition.Y),
+					model, PALETTE.stone, MATERIAL.stone))
+			end
 		end
 	end
 
-	-- The gatehouse: two towers and a lintel you ride under.
+	-- Late-medieval square corner towers. The old cylinders with ball caps read
+	-- as toy chess pieces and had no relationship to the curtain wall.
 	for _, sx in { -1, 1 } do
-		WorldStyle.part("GateTower", Vector3.new(14, wallHeight + 14, 14),
-			origin * CFrame.new(sx * (gateGap / 2 + 7), (wallHeight + 14) / 2, WALL_HALF), model, PALETTE.stoneDark, MATERIAL.stone)
+		for _, sz in { -1, 1 } do
+			local towerHeight, towerSize = wallHeight + 10, 18
+			WorldStyle.part("SquareTower", Vector3.new(towerSize, towerHeight, towerSize),
+				origin * CFrame.new(sx * WALL_HALF, towerHeight / 2, sz * WALL_HALF), model, PALETTE.stone, MATERIAL.stone)
+			towerCrown(sx * WALL_HALF, sz * WALL_HALF, towerSize, towerHeight, "Tower")
+		end
 	end
-	-- The arch sits ABOVE head height, so the gate is a doorless opening you
-	-- simply ride through.
-	WorldStyle.part("GateArch", Vector3.new(gateGap + 14, 5, wallThickness + 2),
-		origin * CFrame.new(0, wallHeight - 2.5, WALL_HALF), model, PALETTE.stoneDark, MATERIAL.stone)
-	local banner = WorldStyle.part("GateBanner", Vector3.new(6, 9, 0.4),
-		origin * CFrame.new(0, wallHeight - 9, WALL_HALF + wallThickness / 2 + 0.5), model, PALETTE.banner, MATERIAL.cloth)
-	banner.CastShadow = false
 
-	-- Roads: a main street from the gate to the keep, and a cross street.
-	local street = WorldStyle.part("StreetMain", Vector3.new(18, 0.6, WALL_HALF * 2 - 20),
-		origin * CFrame.new(0, 0.3, 0), model, PALETTE.road, MATERIAL.road)
-	street.CastShadow = false
-	local cross = WorldStyle.part("StreetCross", Vector3.new(WALL_HALF * 2 - 20, 0.6, 18),
-		origin * CFrame.new(0, 0.3, 0), model, PALETTE.road, MATERIAL.road)
-	cross.CastShadow = false
+	-- The gatehouse's square towers stop exactly at x = +/-11, preserving the
+	-- full 22-stud clear opening used by riders and the GateSpawn approach.
+	for _, sx in { -1, 1 } do
+		local towerSize, towerHeight = 16, wallHeight + 14
+		local towerX = sx * (gateGap / 2 + towerSize / 2)
+		WorldStyle.part("GateTower", Vector3.new(towerSize, towerHeight, towerSize),
+			origin * CFrame.new(towerX, towerHeight / 2, WALL_HALF), model, PALETTE.stoneDark, MATERIAL.stone)
+		towerCrown(towerX, WALL_HALF, towerSize, towerHeight, "GateTower")
+	end
 
-	local spawn = Instance.new("SpawnLocation")
-	spawn.Name = "GateSpawn"
-	spawn.Size = Vector3.new(10, 1, 10)
-	spawn.CFrame = origin * CFrame.new(0, 0.8, WALL_HALF - 16)
-	spawn.Anchored = true
-	spawn.Neutral = false
-	spawn.Enabled = true
-	spawn.Duration = 0
-	spawn.Transparency = 1
-	spawn.CanCollide = false
-	spawn.Parent = model
+	-- Seven collisionless voussoirs describe a real arch without putting a
+	-- rectangular lintel through the opening. The flanking towers remain the
+	-- only solid parts beside the passage.
+	local archRadius, archSpring, archSegments = gateGap / 2 + 2, 8.5, 7
+	for index = 0, archSegments - 1 do
+		local theta = math.pi * index / (archSegments - 1)
+		local arch = WorldStyle.part("GateArchSegment", Vector3.new(6.2, 3.4, wallThickness + 2),
+			origin
+				* CFrame.new(math.cos(theta) * archRadius, archSpring + math.sin(theta) * archRadius, WALL_HALF)
+				* CFrame.Angles(0, 0, theta - math.pi / 2),
+			model, PALETTE.stoneWarm, MATERIAL.stone)
+		arch:SetAttribute("ArchSegment", true)
+		decorative(arch)
+	end
+	local banner = WorldStyle.part("GateBanner", Vector3.new(6, 10, 0.4),
+		origin * CFrame.new(0, wallHeight + 11, WALL_HALF + wallThickness / 2 + 0.5), model, PALETTE.banner, MATERIAL.cloth)
+	decorative(banner)
+
+	-- Owned-settlement arrival detail. Foreign shells keep the same honest wall
+	-- massing without multiplying lights and decorative parts across the region.
+	if detailed then
+		for _, sx in { -1, 1 } do
+			local towerX = sx * (gateGap / 2 + 8)
+			local slit = WorldStyle.part("GateArrowSlit", Vector3.new(1.4, 6, 0.45),
+				origin * CFrame.new(towerX, wallHeight + 2, WALL_HALF + 8.25), model, PALETTE.window, MATERIAL.iron)
+			decorative(slit)
+			local towerBanner = WorldStyle.part("GateTowerBanner", Vector3.new(4, 9, 0.35),
+				origin * CFrame.new(towerX, wallHeight + 7, WALL_HALF + 8.35), model, PALETTE.banner, MATERIAL.cloth)
+			decorative(towerBanner)
+		end
+		local lantern = WorldStyle.part("GateLantern", Vector3.new(4, 4, 1),
+			origin * CFrame.new(0, wallHeight - 1, WALL_HALF + wallThickness / 2 + 0.8), model, PALETTE.bannerGold, MATERIAL.iron)
+		decorative(lantern)
+		WorldStyle.pointLight(lantern, PALETTE.warmLight, 1.6, 42)
+	end
+
+	-- Fixed lanes and civic spaces make the settlement read as one place rather
+	-- than buildings dropped on grass. Foreign villages omit all internal road
+	-- geometry because fog only promises their exterior silhouette.
+	if detailed then
+		local street = WorldStyle.part("StreetMain", Vector3.new(18, 0.6, WALL_HALF * 2 - 20),
+			origin * CFrame.new(0, 0.3, 0), model, PALETTE.road, MATERIAL.road)
+		street.CastShadow = false
+		local cross = WorldStyle.part("StreetCross", Vector3.new(WALL_HALF * 2 - 20, 0.6, 18),
+			origin * CFrame.new(0, 0.3, 0), model, PALETTE.road, MATERIAL.road)
+		cross.CastShadow = false
+		local paving = {
+			{ "GateCourt", Vector3.new(72, 0.55, 50), Vector3.new(0, 0.32, 147) },
+			{ "KeepPlaza", Vector3.new(96, 0.55, 50), Vector3.new(0, 0.32, 61) },
+			{ "LaneWest", Vector3.new(11, 0.5, 205), Vector3.new(-82, 0.31, -2) },
+			{ "LaneEast", Vector3.new(11, 0.5, 205), Vector3.new(82, 0.31, -2) },
+			{ "LaneNorth", Vector3.new(170, 0.5, 11), Vector3.new(0, 0.31, -94) },
+			{ "RampartLane", Vector3.new(110, 0.5, 9), Vector3.new(-88, 0.31, 130) },
+		}
+		for _, path in paving do
+			local lane = WorldStyle.part(path[1] :: string, path[2] :: Vector3,
+				origin * CFrame.new(path[3] :: Vector3), model, PALETTE.pathEdge, MATERIAL.road)
+			lane.CastShadow = false
+		end
+
+		-- A spawn is entitlement-bearing state. It exists only in a detailed,
+		-- owned settlement; a foreign silhouette can never become a respawn target.
+		local spawn = Instance.new("SpawnLocation")
+		spawn.Name = "GateSpawn"
+		spawn.Size = Vector3.new(10, 1, 10)
+		spawn.CFrame = origin * CFrame.new(0, 0.8, WALL_HALF - 16)
+		spawn.Anchored = true
+		spawn.Neutral = false
+		spawn.Enabled = true
+		spawn.Duration = 0
+		spawn.Transparency = 1
+		spawn.CanCollide = false
+		spawn.CanTouch = false
+		spawn.CanQuery = false
+		spawn.Parent = model
+	end
 end
 
 -- Foreign silhouette: what a traveler may know from OUTSIDE the walls — the
@@ -310,16 +472,49 @@ local function renderShell(villageId: string, origin: CFrame, villageName: strin
 	model.Name = "Settlement_" .. villageId
 	model:SetAttribute("VillageId", villageId)
 	model:SetAttribute("Foreign", true)
-	renderShellWalls(model, origin)
-	-- A foreign settlement at the same SCALE as your own, so the horizon reads
-	-- honestly: a keep behind walls, no levels, no interiors. It was an 18-stud
-	-- lump inside a 1,100-stud wall ring - invisible in practice.
-	local keep = WorldStyle.part("KeepMassing", Vector3.new(56, 44, 56),
-		origin * CFrame.new(0, 22, 0), model, PALETTE.stoneDark, MATERIAL.stone)
-	labelFor(keep, villageName)
-	local banner = WorldStyle.part("BannerPost", Vector3.new(2, 26, 2),
-		origin * CFrame.new(0, 13, WALL_HALF + 12), model, kingdomColor, MATERIAL.cloth)
-	labelFor(banner, kingdomName)
+	model:SetAttribute("VisibilityLayer", "Shell")
+	model:SetAttribute("FogSafe", true)
+	renderShellWalls(model, origin, false)
+	-- A fixed, layered silhouette: readable as a keep at distance but carrying
+	-- no level, building inventory or private state. Stepped massing replaces
+	-- the old single cube without turning every foreign village into a full draw.
+	WorldStyle.part("KeepPlinth", Vector3.new(62, 2, 62),
+		origin * CFrame.new(0, 1, 0), model, PALETTE.stoneWarm, MATERIAL.stone)
+	WorldStyle.part("KeepMassing", Vector3.new(48, 30, 48),
+		origin * CFrame.new(0, 16, 0), model, PALETTE.stoneDark, MATERIAL.stone)
+	WorldStyle.part("KeepUpper", Vector3.new(30, 14, 30),
+		origin * CFrame.new(0, 38, 0), model, PALETTE.stone, MATERIAL.stone)
+	decorative(WorldStyle.part("KeepCrown", Vector3.new(34, 2, 34),
+		origin * CFrame.new(0, 46, 0), model, PALETTE.stoneWarm, MATERIAL.stone))
+	for _, corner in {
+		Vector2.new(-13, -13), Vector2.new(13, -13), Vector2.new(13, 13), Vector2.new(-13, 13),
+	} do
+		decorative(WorldStyle.part("KeepMerlon", Vector3.new(4, 4, 4),
+			origin * CFrame.new(corner.X, 49, corner.Y), model, PALETTE.stone, MATERIAL.stone))
+	end
+	for _, x in { -8, 8 } do
+		decorative(WorldStyle.part("ForeignArrowSlit", Vector3.new(2, 6, 0.4),
+			origin * CFrame.new(x, 38, 15.25), model, PALETTE.window, MATERIAL.glass))
+	end
+	local identity = WorldStyle.part("IdentityPlaque", Vector3.new(30, 6, 0.8),
+		origin * CFrame.new(0, 18, 24.5), model, PALETTE.timberDark, MATERIAL.timber)
+	decorative(identity)
+	labelFor(identity, villageName .. "  ·  " .. kingdomName)
+	local bannerPost = WorldStyle.part("BannerPost", Vector3.new(1.2, 26, 1.2),
+		origin * CFrame.new(0, 13, WALL_HALF + 12), model, PALETTE.timberDark, MATERIAL.timber)
+	decorative(bannerPost)
+	local foreignBanner = WorldStyle.part("ForeignBanner", Vector3.new(7, 11, 0.35),
+		origin * CFrame.new(3.8, 19, WALL_HALF + 12), model, kingdomColor, MATERIAL.cloth)
+	decorative(foreignBanner)
+	local shellParts = 0
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			shellParts += 1
+		end
+	end
+	model:SetAttribute("VisualPartCount", shellParts)
+	model:SetAttribute("VisualPartBudget", 120)
+	assert(shellParts <= 120, string.format("foreign shell exceeded part budget: %d", shellParts))
 	model.Parent = settlementsFolder
 	return model
 end
@@ -334,96 +529,378 @@ end
 -- should exist are the player and actual troops, both of which mean something.
 -- Scenery that means nothing is worse than empty ground.
 
---- A pitched roof of two slopes, overhanging the walls like a real one.
-local function pitchedRoof(model: Model, origin: CFrame, at: Vector3, w: number, d: number, wallTop: number, rise: number, colour: Color3, material: Enum.Material)
+--- A closed pitched roof: two genuinely sloped panels, filled triangular gable
+--- ends, dark fascia and a ridge. No vertical fins and no open doll-house ends.
+local function pitchedRoof(
+	model: Model,
+	root: CFrame,
+	w: number,
+	d: number,
+	wallTop: number,
+	rise: number,
+	colour: Color3,
+	material: Enum.Material,
+	wallColour: Color3,
+	wallMaterial: Enum.Material
+)
 	local overhang = 6
-	local half = (w + overhang) / 2
+	local halfRun = (w + overhang) / 2
+	local roofDepth = d + overhang
+	local slopeLength = math.sqrt(halfRun * halfRun + rise * rise)
+	local slopeAngle = math.atan2(rise, halfRun)
 	for _, side in { 1, -1 } do
-		local wedge = Instance.new("WedgePart")
-		wedge.Name = "Roof"
-		wedge.Size = Vector3.new(d + overhang, rise, half)
-		wedge.Anchored = true
-		wedge.Color = colour
-		wedge.Material = material
-		wedge.TopSurface = Enum.SurfaceType.Smooth
-		wedge.BottomSurface = Enum.SurfaceType.Smooth
-		wedge.CFrame = origin
-			* CFrame.new(at.X + side * half / 2, wallTop + rise / 2, at.Z)
-			* CFrame.Angles(0, math.rad(90 * side), 0)
-			* CFrame.Angles(0, 0, math.rad(90))
-		wedge.Parent = model
+		local panel = WorldStyle.part("Roof", Vector3.new(slopeLength, 1.2, roofDepth),
+			root
+				* CFrame.new(side * halfRun / 2, wallTop + rise / 2, 0)
+				* CFrame.Angles(0, 0, -side * slopeAngle),
+			model, colour, material)
+		panel:SetAttribute("RoofPanel", true)
+		panel:SetAttribute("RoofSlopeDegrees", math.deg(slopeAngle))
+		decorative(panel)
+
+		-- Fascia follows each rake at both gable faces. It hides the thin panel
+		-- edge and gives the roof believable construction depth.
+		for _, face in { -1, 1 } do
+			local fascia = WorldStyle.part("Fascia", Vector3.new(slopeLength + 0.5, 1.7, 1.1),
+				root
+					* CFrame.new(side * halfRun / 2, wallTop + rise / 2, face * roofDepth / 2)
+					* CFrame.Angles(0, 0, -side * slopeAngle),
+				model, PALETTE.timberDark, MATERIAL.timber)
+			fascia:SetAttribute("RoofFascia", true)
+			decorative(fascia)
+		end
+	end
+
+	-- WedgePart's triangular profile is Y/Z. Turning it ninety degrees makes
+	-- that profile fill one half of an X/Y gable; two halves close each face.
+	for _, face in { -1, 1 } do
+		for _, side in { -1, 1 } do
+			local gable = Instance.new("WedgePart")
+			gable.Name = "GableFill"
+			gable.Size = Vector3.new(1.25, rise, w / 2)
+			gable.CFrame = root
+				* CFrame.new(side * w / 4, wallTop + rise / 2, face * (d / 2 + 0.04))
+				* CFrame.Angles(0, math.rad(side * 90), 0)
+			gable.Anchored = true
+			gable.Color = wallColour
+			gable.Material = wallMaterial
+			gable.TopSurface = Enum.SurfaceType.Smooth
+			gable.BottomSurface = Enum.SurfaceType.Smooth
+			gable:SetAttribute("ClosedGable", true)
+			decorative(gable)
+			gable.Parent = model
+		end
 	end
 	-- Ridge beam along the top, so the two slopes meet in a line rather than a
 	-- seam.
-	WorldStyle.part("Ridge", Vector3.new(3, 2, d + overhang),
-		origin * CFrame.new(at.X, wallTop + rise, at.Z), model, PALETTE.timber, MATERIAL.timber).CastShadow = false
+	local ridge = WorldStyle.part("Ridge", Vector3.new(2.4, 2, d + overhang + 0.4),
+		root * CFrame.new(0, wallTop + rise, 0), model, PALETTE.timberDark, MATERIAL.timber)
+	decorative(ridge)
 end
 
---- Windows down a face: small, dark, evenly spaced. Nothing says "building"
---- faster than openings at a human scale.
-local function windowRow(model: Model, origin: CFrame, at: Vector3, w: number, d: number, height: number)
-	local count = math.clamp(math.floor(w / 34), 1, 5)
+--- Recessed windows on all four facades. The dark opening, inset glass and
+--- stone sill/lintel are separated in depth, so they read as construction and
+--- never flicker from coplanar z-fighting.
+local function windowRow(model: Model, root: CFrame, w: number, d: number, height: number)
+	local count = math.clamp(math.floor(w / 16), 2, 5)
 	local spacing = w / (count + 1)
+	local windowHeight = math.clamp(height * 0.42, 4, 7)
 	for index = 1, count do
-		local x = at.X - w / 2 + spacing * index
+		local x = -w / 2 + spacing * index
 		for _, face in { 1, -1 } do
-			local pane = WorldStyle.part("Window", Vector3.new(8, 12, 1.5),
-				origin * CFrame.new(x, height, at.Z + face * (d / 2 + 0.5)),
-				model, PALETTE.window, MATERIAL.glass)
-			pane.CastShadow = false
-			pane.Reflectance = 0.15
+			-- Keep the actual entrance legible on the front face.
+			if face == -1 or math.abs(x) > 6.5 then
+				local recess = WorldStyle.part("WindowRecess", Vector3.new(5.2, windowHeight + 1, 0.55),
+					root * CFrame.new(x, height, face * (d / 2 + 0.83)), model, PALETTE.timberDark, MATERIAL.timber)
+				decorative(recess)
+				local pane = WorldStyle.part("Window", Vector3.new(3.8, windowHeight - 0.8, 0.22),
+					root * CFrame.new(x, height, face * (d / 2 + 1.22)), model, PALETTE.window, MATERIAL.glass)
+				pane.Reflectance = 0.12
+				decorative(pane)
+				for _, sy in { -1, 1 } do
+					local trim = WorldStyle.part(if sy > 0 then "WindowLintel" else "WindowSill",
+						Vector3.new(5.8, 0.65, 0.65),
+						root * CFrame.new(x, height + sy * (windowHeight / 2 + 0.45), face * (d / 2 + 1.28)),
+						model, PALETTE.stoneWarm, MATERIAL.stone)
+					decorative(trim)
+				end
+			end
+		end
+	end
+
+	local sideCount = if d >= 30 then 2 else 1
+	for sideIndex = 1, sideCount do
+		local z = -d / 2 + d * sideIndex / (sideCount + 1)
+		for _, side in { -1, 1 } do
+			local recess = WorldStyle.part("SideWindowRecess", Vector3.new(0.55, windowHeight + 1, 5.2),
+				root * CFrame.new(side * (w / 2 + 0.83), height, z), model, PALETTE.timberDark, MATERIAL.timber)
+			decorative(recess)
+			local pane = WorldStyle.part("SideWindow", Vector3.new(0.22, windowHeight - 0.8, 3.8),
+				root * CFrame.new(side * (w / 2 + 1.22), height, z), model, PALETTE.window, MATERIAL.glass)
+			pane.Reflectance = 0.12
+			decorative(pane)
 		end
 	end
 end
 
 --- Exposed timber framing: corner posts and a mid rail. Cheap, and it is the
 --- detail that reads as medieval from any distance.
-local function timberFrame(model: Model, origin: CFrame, at: Vector3, w: number, d: number, h: number)
+local function timberFrame(model: Model, root: CFrame, w: number, d: number, h: number)
+	local beam = 2.25
 	for _, sx in { -1, 1 } do
 		for _, sz in { -1, 1 } do
-			local post = WorldStyle.part("Post", Vector3.new(6, h, 6),
-				origin * CFrame.new(at.X + sx * (w / 2 - 3), h / 2, at.Z + sz * (d / 2 - 3)),
+			local post = WorldStyle.part("Post", Vector3.new(beam, h, beam),
+				root * CFrame.new(sx * (w / 2 - beam / 2), h / 2, sz * (d / 2 - beam / 2)),
 				model, PALETTE.timber, MATERIAL.timber)
-			post.CastShadow = false
+			decorative(post)
 		end
 	end
 	for _, face in { 1, -1 } do
-		local rail = WorldStyle.part("Rail", Vector3.new(w, 4, 2),
-			origin * CFrame.new(at.X, h * 0.62, at.Z + face * (d / 2 + 0.5)),
+		local rail = WorldStyle.part("Rail", Vector3.new(w, 2, 0.8),
+			root * CFrame.new(0, h * 0.62, face * (d / 2 + 0.92)),
 			model, PALETTE.timber, MATERIAL.timber)
-		rail.CastShadow = false
+		decorative(rail)
+
+		-- Two real diagonal braces per face. They project farther than the rail,
+		-- so neither the plaster nor the rail shares the same depth plane.
+		for _, side in { -1, 1 } do
+			local x1, y1 = side * (w / 2 - 3), 2.2
+			local x2, y2 = side * 2.5, h * 0.58
+			local dx, dy = x2 - x1, y2 - y1
+			local length = math.sqrt(dx * dx + dy * dy)
+			local brace = WorldStyle.part("DiagonalBrace", Vector3.new(length, 1.35, 0.75),
+				root
+					* CFrame.new((x1 + x2) / 2, (y1 + y2) / 2, face * (d / 2 + 1.36))
+					* CFrame.Angles(0, 0, math.atan2(dy, dx)),
+				model, PALETTE.timberDark, MATERIAL.timber)
+			brace:SetAttribute("DiagonalTimber", true)
+			decorative(brace)
+		end
 	end
 end
 
---- A small readable label above a building. Not the old billboard: that was 220
---- pixels wide with no distance limit, so a dozen of them stacked into a wall of
---- unreadable text over the whole settlement.
+-- Functional silhouettes, not scenery characters. Each building gets at most
+-- eight small, deterministic parts that explain what happens there. The hard
+-- cap protects the phone budget and the SemanticProp attribute makes it
+-- possible for the evidence run to enforce that budget in a live DataModel.
+local MAX_SEMANTIC_PARTS = 8
+local function decorateBuilding(
+	model: Model,
+	root: CFrame,
+	building: string,
+	w: number,
+	d: number,
+	h: number
+): number
+	local madeCount = 0
+	local front = d / 2 + 7
+
+	local function add(
+		name: string,
+		size: Vector3,
+		offset: CFrame,
+		colour: Color3,
+		material: Enum.Material
+	): Part?
+		if madeCount >= MAX_SEMANTIC_PARTS then
+			return nil
+		end
+		madeCount += 1
+		local made = WorldStyle.part(name, size, root * offset, model, colour, material)
+		made:SetAttribute("SemanticProp", true)
+		decorative(made)
+		return made
+	end
+
+	if building == "hq" then
+		for _, sx in { -1, 1 } do
+			for _, sz in { -1, 1 } do
+				add("HQButtress", Vector3.new(3.5, h * 0.55, 3.5),
+					CFrame.new(sx * (w / 2 + 1.1), h * 0.275, sz * (d / 2 + 1.1)), PALETTE.stoneDark, MATERIAL.stone)
+			end
+		end
+		add("HQCanopy", Vector3.new(16, 1.5, 7), CFrame.new(0, 11, d / 2 + 3.5), PALETTE.timber, MATERIAL.timber)
+		for _, sx in { -1, 1 } do
+			add("HQBanner", Vector3.new(3, 10, 0.35),
+				CFrame.new(sx * 8, h * 0.62, d / 2 + 0.9), PALETTE.banner, MATERIAL.cloth)
+		end
+		add("HQShield", Vector3.new(5, 6, 0.6), CFrame.new(0, h * 0.58, d / 2 + 1.3), PALETTE.bannerGold, MATERIAL.iron)
+	elseif building == "market" then
+		add("MarketAwning", Vector3.new(w * 0.72, 1, 10), CFrame.new(0, 7, front - 3), PALETTE.bannerGold, MATERIAL.cloth)
+		for _, sx in { -1, 1 } do
+			add("MarketStall", Vector3.new(12, 3, 5), CFrame.new(sx * 10, 1.5, front + 2), PALETTE.timber, MATERIAL.timber)
+		end
+		for index = -1, 1 do
+			add("MarketCrate", Vector3.new(3.5, 3.5, 3.5), CFrame.new(index * 5, 1.75, front + 7), PALETTE.timberLight, MATERIAL.timber)
+		end
+	elseif building == "warehouse" then
+		add("LoadingCanopy", Vector3.new(w * 0.65, 1, 8), CFrame.new(0, 8, front - 3), PALETTE.roofTile, MATERIAL.roof)
+		for index = -1, 1 do
+			add("CargoCrate", Vector3.new(4, 4 + math.abs(index), 4), CFrame.new(index * 6, 2, front + 3), PALETTE.timberLight, MATERIAL.timber)
+		end
+		add("HandCart", Vector3.new(9, 1.5, 5), CFrame.new(w * 0.28, 2.4, front + 7), PALETTE.timber, MATERIAL.timber)
+		for _, sx in { -1, 1 } do
+			local wheel = add("CartWheel", Vector3.new(1.2, 4, 4), CFrame.new(w * 0.28 + sx * 4.5, 2, front + 7), PALETTE.iron, MATERIAL.iron)
+			if wheel then
+				wheel.Shape = Enum.PartType.Cylinder
+			end
+		end
+	elseif building == "barracks" then
+		add("WeaponRack", Vector3.new(12, 6, 2), CFrame.new(0, 3, front + 3), PALETTE.timber, MATERIAL.timber)
+		for _, sx in { -1, 1 } do
+			add("TargetPost", Vector3.new(1.5, 7, 1.5), CFrame.new(sx * 13, 3.5, front + 7), PALETTE.timber, MATERIAL.timber)
+			local board = add("TargetBoard", Vector3.new(1, 5, 5),
+				CFrame.new(sx * 13, 6, front + 7) * CFrame.Angles(0, math.rad(90), 0), PALETTE.straw, MATERIAL.timber)
+			if board then
+				board.Shape = Enum.PartType.Cylinder
+			end
+			add("PracticeSpear", Vector3.new(0.7, 9, 0.7), CFrame.new(sx * 5, 4.5, front + 3) * CFrame.Angles(0, 0, math.rad(12 * sx)), PALETTE.iron, MATERIAL.iron)
+		end
+	elseif building == "stable" then
+		add("WaterTrough", Vector3.new(12, 2.5, 5), CFrame.new(0, 1.25, front + 3), PALETTE.timberDark, MATERIAL.timber)
+		for _, sx in { -1, 1 } do
+			add("PaddockPost", Vector3.new(1.5, 6, 1.5), CFrame.new(sx * 16, 3, front + 8), PALETTE.timber, MATERIAL.timber)
+			add("PaddockRail", Vector3.new(15, 1.2, 1.2), CFrame.new(sx * 8, 3.5, front + 8), PALETTE.timberLight, MATERIAL.timber)
+		end
+		add("HayBale", Vector3.new(6, 4, 4), CFrame.new(w * 0.3, 2, front + 2), PALETTE.straw, MATERIAL.thatch)
+	elseif building == "workshop" then
+		add("WorkBench", Vector3.new(14, 3, 5), CFrame.new(0, 1.5, front + 3), PALETTE.timber, MATERIAL.timber)
+		add("ToolRack", Vector3.new(10, 6, 1.5), CFrame.new(-w * 0.25, 3, front + 2), PALETTE.iron, MATERIAL.iron)
+		for index = -1, 1 do
+			add("WorkshopLumber", Vector3.new(10, 1.2, 1.2), CFrame.new(w * 0.25, 1 + (index + 1) * 1.1, front + index * 1.5), PALETTE.timberLight, MATERIAL.timber)
+		end
+		add("BenchVise", Vector3.new(2, 2, 2), CFrame.new(4, 4, front + 3), PALETTE.iron, MATERIAL.iron)
+	elseif building == "smithy" then
+		add("ForgeHearth", Vector3.new(10, 4, 7), CFrame.new(-5, 2, front + 3), PALETTE.stoneDark, MATERIAL.stone)
+		add("CoalBin", Vector3.new(6, 3, 6), CFrame.new(7, 1.5, front + 4), PALETTE.ore, MATERIAL.iron)
+		add("AnvilBase", Vector3.new(2.5, 3, 2.5), CFrame.new(0, 1.5, front + 10), PALETTE.timber, MATERIAL.timber)
+		add("AnvilTop", Vector3.new(7, 2, 2.5), CFrame.new(0, 4, front + 10), PALETTE.iron, MATERIAL.iron)
+		add("Bellows", Vector3.new(5, 2, 4), CFrame.new(-10, 2, front + 8) * CFrame.Angles(0, math.rad(20), 0), PALETTE.banner, MATERIAL.cloth)
+	elseif building == "timber" then
+		for index = 1, 6 do
+			local row = math.floor((index - 1) / 3)
+			local column = (index - 1) % 3
+			local log = add("LogStack", Vector3.new(11, 3, 3), CFrame.new((column - 1) * 4, 1.5 + row * 3, front + 3), PALETTE.timberLight, MATERIAL.timber)
+			if log then
+				log.Shape = Enum.PartType.Cylinder
+			end
+		end
+	elseif building == "quarry" then
+		for index = 1, 5 do
+			local sx = ((index - 1) % 3 - 1) * 5
+			local sz = math.floor((index - 1) / 3) * 5
+			local stoneHeight = 3 + index % 3
+			add("CutStone", Vector3.new(4 + index % 2, stoneHeight, 4),
+				CFrame.new(sx, stoneHeight / 2, front + sz + 2) * CFrame.Angles(0, math.rad(index * 11), 0), PALETTE.stoneWarm, MATERIAL.stone)
+		end
+		for _, sx in { -1, 1 } do
+			add("DerrickPost", Vector3.new(1.5, 11, 1.5), CFrame.new(sx * 7, 5.5, front + 10), PALETTE.timber, MATERIAL.timber)
+		end
+		add("DerrickBeam", Vector3.new(17, 1.5, 1.5), CFrame.new(0, 10.5, front + 10), PALETTE.timber, MATERIAL.timber)
+	elseif building == "iron" then
+		for index = 1, 4 do
+			add("OrePile", Vector3.new(4 + index, 2 + index % 2, 4),
+				CFrame.new((index - 2.5) * 4.5, 1.5, front + 3 + index % 2 * 4), PALETTE.ore, MATERIAL.iron)
+		end
+		add("OreCart", Vector3.new(9, 3, 6), CFrame.new(0, 2.5, front + 11), PALETTE.iron, MATERIAL.iron)
+		for _, sx in { -1, 1 } do
+			local wheel = add("OreCartWheel", Vector3.new(1, 3.5, 3.5), CFrame.new(sx * 4, 1.8, front + 11), PALETTE.timber, MATERIAL.timber)
+			if wheel then
+				wheel.Shape = Enum.PartType.Cylinder
+			end
+		end
+	elseif building == "farm" then
+		for index = -2, 1 do
+			add("CropRow", Vector3.new(6, 1.2, 18), CFrame.new(index * 8 + 4, 0.6, front + 10), PALETTE.crop, MATERIAL.grass)
+		end
+		for _, sx in { -1, 1 } do
+			add("FieldFence", Vector3.new(16, 1.2, 1.2), CFrame.new(sx * 12, 2.5, front + 20), PALETTE.timber, MATERIAL.timber)
+		end
+		add("FarmHay", Vector3.new(7, 5, 5), CFrame.new(w * 0.34, 2.5, front + 2), PALETTE.straw, MATERIAL.thatch)
+	elseif building == "academy" then
+		for _, sx in { -1, 1 } do
+			add("AcademyColumn", Vector3.new(2.5, 12, 2.5), CFrame.new(sx * 7, 6, front - 3), PALETTE.stoneWarm, MATERIAL.stone)
+			add("AcademyBanner", Vector3.new(2.5, 8, 0.35), CFrame.new(sx * 10, 15, d / 2 + 0.8), PALETTE.bannerGold, MATERIAL.cloth)
+		end
+		add("AcademyPediment", Vector3.new(19, 2, 5), CFrame.new(0, 12, front - 3), PALETTE.stoneWarm, MATERIAL.stone)
+	elseif building == "wall" then
+		for index = 1, 6 do
+			local row = math.floor((index - 1) / 3)
+			local column = (index - 1) % 3
+			add("MasonStone", Vector3.new(5, 2.5, 4), CFrame.new((column - 1) * 5.5, 1.25 + row * 2.5, front + 3), PALETTE.stoneWarm, MATERIAL.stone)
+		end
+		add("ScaffoldPost", Vector3.new(1.5, 10, 1.5), CFrame.new(w * 0.35, 5, front + 8), PALETTE.timber, MATERIAL.timber)
+		add("ScaffoldRail", Vector3.new(12, 1.5, 1.5), CFrame.new(w * 0.18, 8, front + 8), PALETTE.timber, MATERIAL.timber)
+	end
+
+	return madeCount
+end
+
+-- The seat of rule is a hall with a crossing tower, not a taller copy of a
+-- cottage. The upper keep rises through the main roof, a crenellated crown
+-- marks it from the gate, and restrained furnishings make the war room feel
+-- inhabited without narrowing the clear path around the authoritative table.
+local function buildHQLandmark(model: Model, root: CFrame, w: number, d: number, h: number)
+	local upperSize, upperHeight = 22, 14
+	WorldStyle.part("HQUpperKeep", Vector3.new(upperSize, upperHeight, upperSize),
+		root * CFrame.new(0, h + upperHeight / 2, 0), model, PALETTE.stoneDark, MATERIAL.stone)
+	local parapet = WorldStyle.part("HQParapet", Vector3.new(upperSize + 3, 2, upperSize + 3),
+		root * CFrame.new(0, h + upperHeight + 1, 0), model, PALETTE.stoneWarm, MATERIAL.stone)
+	decorative(parapet)
+	local edge = upperSize / 2 - 1.5
+	for _, merlonPosition in {
+		Vector2.new(-edge, -edge), Vector2.new(0, -edge), Vector2.new(edge, -edge), Vector2.new(edge, 0),
+		Vector2.new(edge, edge), Vector2.new(0, edge), Vector2.new(-edge, edge), Vector2.new(-edge, 0),
+	} do
+		decorative(WorldStyle.part("HQMerlon", Vector3.new(3.5, 3.5, 3.5),
+			root * CFrame.new(merlonPosition.X, h + upperHeight + 3.25, merlonPosition.Y),
+			model, PALETTE.stone, MATERIAL.stone))
+	end
+
+	-- Slender openings keep the upper mass from reading as another blank box.
+	for _, opening in {
+		CFrame.new(0, h + 7, upperSize / 2 + 0.25),
+		CFrame.new(0, h + 7, -(upperSize / 2 + 0.25)),
+		CFrame.new(upperSize / 2 + 0.25, h + 7, 0) * CFrame.Angles(0, math.rad(90), 0),
+		CFrame.new(-(upperSize / 2 + 0.25), h + 7, 0) * CFrame.Angles(0, math.rad(90), 0),
+	} do
+		decorative(WorldStyle.part("HQArrowWindow", Vector3.new(2.1, 6.5, 0.45),
+			root * opening, model, PALETTE.window, MATERIAL.glass))
+	end
+
+	-- Interior pieces stay against the walls. The war table is at local z=-4
+	-- and occupies x +/-9; the central 28-by-20-stud command aisle remains open.
+	for _, side in { -1, 1 } do
+		local bench = WorldStyle.part("HQInteriorBench", Vector3.new(2.4, 2.2, 11),
+			root * CFrame.new(side * (w / 2 - 2.2), 1.1, -4), model, PALETTE.timberDark, MATERIAL.timber)
+		bench.CanTouch = false
+		bench.CanQuery = false
+		bench.CastShadow = false
+		local tapestry = WorldStyle.part("HQInteriorTapestry", Vector3.new(6, 10, 0.35),
+			root * CFrame.new(side * 8, 12, -(d / 2 - 0.7)), model, PALETTE.banner, MATERIAL.cloth)
+		decorative(tapestry)
+	end
+end
+
+--- A restrained timber plaque fixed to the street facade. It is separate from
+--- the prompt anchor and obeys occlusion, so labels never hover over roofs or
+--- render through a building behind the player.
 ---
 --- [Adam] "remove those annoying labels" and then "The buildings need labels."
 --- Both are right - the problem was never that buildings were named, it was that
 --- the naming was enormous and never faded.
-local function buildingLabel(part: BasePart, text: string, topY: number)
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "BuildingLabel"
-	billboard.Size = UDim2.fromOffset(120, 20)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, topY + 4, 0)
-	billboard.AlwaysOnTop = false
-	billboard.MaxDistance = 130 -- fades before it can pile up on its neighbours
-	billboard.LightInfluence = 0
-	billboard.Parent = part
-
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = 0.35
-	label.BackgroundColor3 = Color3.fromRGB(18, 16, 14)
-	label.TextColor3 = Color3.fromRGB(236, 228, 210)
-	label.Font = Enum.Font.Merriweather
-	label.TextSize = 13
-	label.Text = text
-	label.Parent = billboard
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 4)
-	corner.Parent = label
+local function buildingPlaque(model: Model, root: CFrame, text: string, w: number, d: number, built: boolean): BasePart
+	local availablePier = math.max(10, w / 2 - 5)
+	local width = math.clamp(#text * 0.32, 10, math.min(18, availablePier))
+	local height = if built then 5.8 else 3.5
+	local front = d / 2 + (if built then 1.35 else 3)
+	local x = if built then w / 2 - width / 2 - 1 else 0
+	local plaque = WorldStyle.part("LabelAnchor", Vector3.new(width, 3.8, 0.65),
+		root * CFrame.new(x, height, front), model, PALETTE.timberDark, MATERIAL.timber)
+	plaque:SetAttribute("FacadePlaque", true)
+	decorative(plaque)
+	labelFor(plaque, text)
+	return plaque
 end
 
 --- Four walls with a DOORWAY-SHAPED GAP in the front, not a solid block with a
@@ -433,33 +910,77 @@ end
 --- Leave it a doorless entry way." So the front wall is built as two piers and a
 --- lintel around an opening you simply walk through. Roblox parts cannot have
 --- holes, so the hole has to be made of the absence of parts.
-local function walledShell(model: Model, origin: CFrame, at: Vector3, w: number, d: number, h: number, colour: Color3, material: Enum.Material)
+local function walledShell(model: Model, root: CFrame, w: number, d: number, h: number, colour: Color3, material: Enum.Material)
 	local t = 1.5 -- wall thickness
 	local doorW, doorH = 8, 9 -- a character is ~5 studs: this is a real doorway
 
 	-- floor, so an interior is a place rather than grass under a roof
 	WorldStyle.part("Floor", Vector3.new(w, 1, d),
-		origin * CFrame.new(at.X, 0.5, at.Z), model, PALETTE.stoneDark, MATERIAL.stone).CastShadow = false
+		root * CFrame.new(0, 0.5, 0), model, PALETTE.stoneDark, MATERIAL.stone).CastShadow = false
 
 	-- back and sides
 	WorldStyle.part("WallBack", Vector3.new(w, h, t),
-		origin * CFrame.new(at.X, h / 2, at.Z - d / 2), model, colour, material)
+		root * CFrame.new(0, h / 2, -d / 2), model, colour, material)
 	WorldStyle.part("WallLeft", Vector3.new(t, h, d),
-		origin * CFrame.new(at.X - w / 2, h / 2, at.Z), model, colour, material)
+		root * CFrame.new(-w / 2, h / 2, 0), model, colour, material)
 	WorldStyle.part("WallRight", Vector3.new(t, h, d),
-		origin * CFrame.new(at.X + w / 2, h / 2, at.Z), model, colour, material)
+		root * CFrame.new(w / 2, h / 2, 0), model, colour, material)
 
 	-- front: two piers and a lintel, leaving the doorway open
 	local pier = (w - doorW) / 2
 	for _, side in { -1, 1 } do
 		WorldStyle.part("WallFront", Vector3.new(pier, h, t),
-			origin * CFrame.new(at.X + side * (doorW / 2 + pier / 2), h / 2, at.Z + d / 2), model, colour, material)
+			root * CFrame.new(side * (doorW / 2 + pier / 2), h / 2, d / 2), model, colour, material)
 	end
 	WorldStyle.part("Lintel", Vector3.new(doorW + 3, h - doorH, t + 0.5),
-		origin * CFrame.new(at.X, doorH + (h - doorH) / 2, at.Z + d / 2), model, PALETTE.stoneDark, MATERIAL.stone)
+		root * CFrame.new(0, doorH + (h - doorH) / 2, d / 2), model, PALETTE.stoneDark, MATERIAL.stone)
+
+	-- Projecting foundation courses stop every wall meeting the grass as one
+	-- perfectly flat box and make the ground-floor mass feel load-bearing.
+	for _, course in {
+		{ Vector3.new(w + 1.4, 1.5, 1.2), CFrame.new(0, 0.75, d / 2 + 0.8) },
+		{ Vector3.new(w + 1.4, 1.5, 1.2), CFrame.new(0, 0.75, -(d / 2 + 0.8)) },
+		{ Vector3.new(1.2, 1.5, d), CFrame.new(w / 2 + 0.8, 0.75, 0) },
+		{ Vector3.new(1.2, 1.5, d), CFrame.new(-(w / 2 + 0.8), 0.75, 0) },
+	} do
+		decorative(WorldStyle.part("FoundationCourse", course[1] :: Vector3,
+			root * (course[2] :: CFrame), model, PALETTE.stoneDark, MATERIAL.stone))
+	end
+
+	-- Collisionless arch stones describe the opening while the absent wall
+	-- remains the actual walk-through doorway.
+	for index = 0, 4 do
+		local theta = math.pi * index / 4
+		local radius = doorW / 2 + 0.7
+		local archStone = WorldStyle.part("DoorArchStone", Vector3.new(2.7, 1.8, 0.8),
+			root
+				* CFrame.new(math.cos(theta) * radius, doorH - 0.7 + math.sin(theta) * radius, d / 2 + 1.15)
+				* CFrame.Angles(0, 0, theta - math.pi / 2),
+			model, PALETTE.stoneWarm, MATERIAL.stone)
+		decorative(archStone)
+	end
 	-- doorstep, so the opening reads as an entrance from a distance
 	WorldStyle.part("Step", Vector3.new(doorW + 4, 0.6, 4),
-		origin * CFrame.new(at.X, 0.3, at.Z + d / 2 + 2), model, PALETTE.road, MATERIAL.road).CastShadow = false
+		root * CFrame.new(0, 0.3, d / 2 + 2), model, PALETTE.road, MATERIAL.road).CastShadow = false
+end
+
+local MAX_BUILDING_PARTS = 170
+
+local function makeInteractionStructure(model: Model, root: CFrame, d: number): Model
+	-- Keep the legacy Structure -> Prompt hierarchy: CommandService and DemoTour
+	-- both use it. The model's PrimaryPart is now a doorway-height anchor rather
+	-- than a transparent roof-sized slab, so the world-space prompt is reachable
+	-- from the street and independent of the facade plaque.
+	local structure = Instance.new("Model")
+	structure.Name = "Structure"
+	local anchor = WorldStyle.part("InteractionAnchor", Vector3.new(1, 1, 1),
+		root * CFrame.new(0, 4.5, d / 2 + 2.4), structure, PALETTE.timber, MATERIAL.timber)
+	anchor.Transparency = 1
+	anchor:SetAttribute("DoorwayHeight", true)
+	decorative(anchor)
+	structure.PrimaryPart = anchor
+	structure.Parent = model
+	return structure
 end
 
 local function renderBuilding(container: Model, origin: CFrame, villageId: string, building: string, level: number)
@@ -467,82 +988,95 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 	if existing then
 		existing:Destroy()
 	end
-	local position = LAYOUT[building]
-	if not position then
+	local placement = LAYOUT[building]
+	if not placement then
 		return
 	end
+	local root = origin * CFrame.new(placement.at) * CFrame.Angles(0, math.rad(placement.yaw), 0)
 	local model = Instance.new("Model")
 	model.Name = "B_" .. building
 	model:SetAttribute("VillageId", villageId)
 	model:SetAttribute("Building", building)
 	model:SetAttribute("Level", level)
+	model:SetAttribute("FacingYaw", placement.yaw)
+	model:SetAttribute("StreetFacing", true)
+	local bounds = lotBounds(building)
+	model:SetAttribute("MaxLevelLotX", bounds.x)
+	model:SetAttribute("MaxLevelLotZ", bounds.z)
 
 	local displayName = Buildings.displayName(building)
 	local sp = SPEC[building] or SPEC.market
-	local part: Part
+	local interactionDepth = sp.d
+	local semanticCount = 0
 	if level <= 0 then
-		part = WorldStyle.part("Structure", Vector3.new(sp.w, 1, sp.d),
-			origin * CFrame.new(position.X, 0.5, position.Z), model, PALETTE.dirt, MATERIAL.road)
+		local plot = WorldStyle.part("BuildPlot", Vector3.new(sp.w, 1, sp.d),
+			root * CFrame.new(0, 0.5, 0), model, PALETTE.dirt, MATERIAL.road)
+		plot.CastShadow = false
 		for _, sx in { -1, 1 } do
 			for _, sz in { -1, 1 } do
-				WorldStyle.part("Stake", Vector3.new(1, 5, 1),
-					origin * CFrame.new(position.X + sx * (sp.w / 2 - 2), 2.5, position.Z + sz * (sp.d / 2 - 2)),
-					model, PALETTE.timber, MATERIAL.timber).CastShadow = false
+				decorative(WorldStyle.part("Stake", Vector3.new(1, 5, 1),
+					root * CFrame.new(sx * (sp.w / 2 - 2), 2.5, sz * (sp.d / 2 - 2)),
+					model, PALETTE.timber, MATERIAL.timber))
 			end
 		end
-		buildingLabel(part, displayName .. " — empty plot", 6)
+		buildingPlaque(model, root, displayName .. "  ·  Build site", sp.w, sp.d, false)
 	else
 		-- Level widens the compound. It never stretches the building upward.
-		local grow = 1 + math.min(level, 20) * 0.010
+		local grow = 1 + math.min(level, MAX_BUILDING_LEVEL) * 0.010
 		local width, depth = sp.w * grow, sp.d * grow
+		interactionDepth = depth
 
-		walledShell(model, origin, position, width, depth, sp.h, sp.wall, sp.wallMat)
-
-		-- The part the prompt and label hang off: a slim ridge marker, so we are
-		-- not re-adding the solid block the shell replaced.
-		part = WorldStyle.part("Structure", Vector3.new(width, 0.4, depth),
-			origin * CFrame.new(position.X, sp.h, position.Z), model, sp.wall, sp.wallMat)
-		part.Transparency = 1
-		part.CanCollide = false
-
-		pitchedRoof(model, origin, position, width, depth, sp.h, sp.roof, sp.roofColour, sp.roofMat)
-		windowRow(model, origin, position, width, depth, sp.h * 0.6)
+		walledShell(model, root, width, depth, sp.h, sp.wall, sp.wallMat)
+		pitchedRoof(model, root, width, depth, sp.h, sp.roof, sp.roofColour, sp.roofMat, sp.wall, sp.wallMat)
+		windowRow(model, root, width, depth, sp.h * 0.6)
 		if sp.timbered then
-			timberFrame(model, origin, position, width, depth, sp.h)
+			timberFrame(model, root, width, depth, sp.h)
 		end
 		if sp.chimney then
 			local stack = WorldStyle.part("Chimney", Vector3.new(4, sp.roof + 8, 4),
-				origin * CFrame.new(position.X + width * 0.3, sp.h + (sp.roof + 8) / 2 - 1, position.Z - depth * 0.3),
+				root * CFrame.new(width * 0.3, sp.h + (sp.roof + 8) / 2 - 1, -depth * 0.3),
 				model, PALETTE.stoneDark, MATERIAL.stone)
-			stack.CastShadow = false
+			decorative(stack)
+		end
+
+		semanticCount = decorateBuilding(model, root, building, width, depth, sp.h)
+		if building == "hq" then
+			buildHQLandmark(model, root, width, depth, sp.h)
 		end
 
 		local annexes = math.min(math.floor(level / 4), 4)
+		local annexOffsets = {
+			-- Side annexes sit forward of centre; rear annexes sit behind. This
+			-- keeps all four roof overhangs separate even on the smallest level-16
+			-- building that can display four annexes.
+			Vector3.new(-(width / 2 + ANNEX_WIDTH / 2), 0, depth * 0.24),
+			Vector3.new(width / 2 + ANNEX_WIDTH / 2, 0, depth * 0.24),
+			Vector3.new(-width * 0.24, 0, -(depth / 2 + ANNEX_DEPTH / 2)),
+			Vector3.new(width * 0.24, 0, -(depth / 2 + ANNEX_DEPTH / 2)),
+		}
 		for index = 1, annexes do
-			local angle = (index / 4) * math.pi * 2
-			local radius = math.max(width, depth) * 0.6 + 9
 			local ah = 7 + (index % 2) * 2
-			local ax = position.X + math.cos(angle) * radius
-			local az = position.Z + math.sin(angle) * radius
-			WorldStyle.part("Annex", Vector3.new(10, ah, 8),
-				origin * CFrame.new(ax, ah / 2, az), model, PALETTE.plaster, MATERIAL.plaster).CastShadow = false
-			pitchedRoof(model, origin, Vector3.new(ax, 0, az), 10, 8, ah, 4, sp.roofColour, sp.roofMat)
+			local offset = annexOffsets[index]
+			local annexRoot = root * CFrame.new(offset)
+			WorldStyle.part("AnnexWall", Vector3.new(ANNEX_WIDTH, ah, ANNEX_DEPTH),
+				annexRoot * CFrame.new(0, ah / 2, 0), model, PALETTE.plaster, MATERIAL.plaster)
+			pitchedRoof(model, annexRoot, ANNEX_WIDTH, ANNEX_DEPTH, ah, 4,
+				sp.roofColour, sp.roofMat, PALETTE.plaster, MATERIAL.plaster)
 		end
 
-		buildingLabel(part, string.format("%s  ·  Lv %d", displayName, level), sp.roof + 2)
+		buildingPlaque(model, root, string.format("%s  ·  Level %d", displayName, level), width, depth, true)
 	end
+	model:SetAttribute("SemanticPartCount", semanticCount)
 
+	local structure = makeInteractionStructure(model, root, interactionDepth)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "InteractPrompt"
-	prompt.ActionText = "Upgrade"
+	prompt.ActionText = if level <= 0 then "Build" else string.format("Upgrade to Level %d", level + 1)
 	prompt.ObjectText = displayName
 	prompt.HoldDuration = 0.35
-	-- Reach scaled with the buildings: 12 studs was right when a building WAS
-	-- 12 studs wide. These are 90-170 across, so you would have to stand inside
-	-- the wall to get a prompt.
-	prompt.MaxActivationDistance = 22
+	prompt.MaxActivationDistance = 16
 	prompt.RequiresLineOfSight = false
-	prompt.Parent = part
+	prompt.Parent = structure
 
 	if building == "barracks" then
 		local recruit = Instance.new("ProximityPrompt")
@@ -550,13 +1084,23 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 		recruit.ActionText = Buildings.RECRUIT_PRESET.label
 		recruit.ObjectText = displayName
 		recruit.HoldDuration = 0.35
-		recruit.MaxActivationDistance = 22
+		recruit.MaxActivationDistance = 16
 		recruit.RequiresLineOfSight = false
 		recruit.UIOffset = Vector2.new(0, 60)
 		recruit.KeyboardKeyCode = Enum.KeyCode.R
-		recruit.Parent = part
+		recruit.Parent = structure
 	end
 
+	local partCount = 0
+	for _, descendant in model:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			partCount += 1
+		end
+	end
+	model:SetAttribute("ArchitecturePartCount", partCount)
+	model:SetAttribute("ArchitecturePartBudget", MAX_BUILDING_PARTS)
+	assert(partCount <= MAX_BUILDING_PARTS,
+		string.format("%s exceeded architecture part budget: %d", building, partCount))
 	model.Parent = container
 end
 
@@ -564,31 +1108,153 @@ local function renderFullShellParts(model: Model, origin: CFrame, villageName: s
 	-- Everything a settlement is made of now lives in renderShellWalls: walls,
 	-- towers, gatehouse, streets and the gate spawn. This is kept as the single
 	-- entry point so callers do not need to know that.
-	renderShellWalls(model, origin)
+	renderShellWalls(model, origin, true)
 end
 
-local function renderFull(player: Player, village: any, origin: CFrame): Entry
+local function renderFull(player: Player, village: any, origin: CFrame): Model
 	local villageId = tostring(village.id)
 	local model = Instance.new("Model")
-	model.Name = "Settlement_" .. villageId
+	model.Name = "SettlementDetail_" .. villageId
 	model:SetAttribute("VillageId", villageId)
 	model:SetAttribute("OwnerUserId", player.UserId)
+	model:SetAttribute("Foreign", false)
+	model:SetAttribute("VisibilityLayer", "OwnerDetail")
+	model:SetAttribute("FogSafe", false)
+	model:SetAttribute("OwnerOnlySource", true)
 	model:SetAttribute("CenterX", origin.Position.X)
 	model:SetAttribute("CenterZ", origin.Position.Z)
 	model:SetAttribute("BoundsHalf", WALL_HALF + 20)
 	renderFullShellParts(model, origin, tostring(village.name))
-	model.Parent = settlementsFolder
-	return {
-		model = model,
-		mode = "full",
-		origin = origin,
-		stateVersion = -1,
-		levels = {},
-		villageName = tostring(village.name),
-		kingdomName = "",
-		kingdomColor = Color3.fromRGB(150, 150, 150),
-		ownerUserId = player.UserId,
-	}
+	model.Parent = detailsFolder
+	return model
+end
+
+-- Owner-only visual transport -------------------------------------------------
+--
+-- Roblox PlayerGui is replicated only to its owning player. The authoritative
+-- detailed model stays in ServerStorage; when visuals change, a clone is placed
+-- in that owner's private PlayerGui folder. Their client clones it locally into
+-- Workspace. No foreign client receives the model, its Level attributes or its
+-- prompts.
+local function privateDetailsFolder(player: Player): Folder?
+	local playerGui = player:FindFirstChildOfClass("PlayerGui")
+	if not playerGui then
+		return nil
+	end
+	local existing = playerGui:FindFirstChild("SettlementDetailsPrivate")
+	if existing and existing:IsA("Folder") then
+		return existing
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "SettlementDetailsPrivate"
+	folder:SetAttribute("OwnerUserId", player.UserId)
+	folder.Parent = playerGui
+	return folder
+end
+
+local function publishDetail(player: Player, detail: DetailEntry)
+	if player.Parent ~= Players or detail.ownerUserId ~= player.UserId then
+		return
+	end
+	local folder = privateDetailsFolder(player)
+	if not folder then
+		-- PlayerGui can trail PlayerAdded briefly. The next state heartbeat or
+		-- WarTable completion retries without exposing the source elsewhere.
+		return
+	end
+	local villageId = tostring(detail.model:GetAttribute("VillageId"))
+	local name = "SettlementDetail_" .. villageId
+	local old = folder:FindFirstChild(name)
+	local clone = detail.model:Clone()
+	clone.Name = name
+	clone:SetAttribute("OwnerUserId", player.UserId)
+	clone:SetAttribute("VisibilityLayer", "OwnerDetail")
+	clone:SetAttribute("PrivatePlayerGuiSource", true)
+	clone.Parent = folder
+	-- Publish the replacement before removing the previous source. The client
+	-- installs the new local model first, avoiding a shell flash between updates.
+	if old then
+		old:Destroy()
+	end
+end
+
+function SettlementBuilder.syncPlayer(player: Player, villageId: string?)
+	if villageId then
+		local entry = rendered[villageId]
+		local detail = entry and entry.detail or nil
+		if detail and detail.ownerUserId == player.UserId then
+			publishDetail(player, detail)
+		end
+		return
+	end
+	for _, ownedVillageId in playerVillageIds[player] or {} do
+		local entry = rendered[ownedVillageId]
+		local detail = entry and entry.detail or nil
+		if detail and detail.ownerUserId == player.UserId then
+			publishDetail(player, detail)
+		end
+	end
+end
+
+local function provisionPrivateDetails(player: Player)
+	task.spawn(function()
+		local playerGui = player:WaitForChild("PlayerGui", 30)
+		if not playerGui or player.Parent ~= Players then
+			return
+		end
+		privateDetailsFolder(player)
+		-- Covers the race where the first world snapshot built detail before
+		-- PlayerGui existed; this republishes only that player's owned sources.
+		SettlementBuilder.syncPlayer(player)
+	end)
+	player.CharacterAdded:Connect(function()
+		task.delay(1, function()
+			if player.Parent == Players then
+				privateDetailsFolder(player)
+				SettlementBuilder.syncPlayer(player)
+			end
+		end)
+	end)
+end
+
+Players.PlayerAdded:Connect(provisionPrivateDetails)
+for _, presentPlayer in Players:GetPlayers() do
+	provisionPrivateDetails(presentPlayer)
+end
+
+local function removeClientDetail(player: Player, villageId: string)
+	local folder = privateDetailsFolder(player)
+	if not folder then
+		return
+	end
+	local existing = folder:FindFirstChild("SettlementDetail_" .. villageId)
+	if existing then
+		existing:Destroy()
+	end
+end
+
+local function ensureSpawnAnchor(villageId: string, origin: CFrame): SpawnLocation
+	local name = "GateSpawn_" .. villageId
+	local existing = spawnFolder:FindFirstChild(name)
+	if existing and existing:IsA("SpawnLocation") then
+		return existing
+	end
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Name = name
+	spawn:SetAttribute("VillageId", villageId)
+	spawn:SetAttribute("FogSafe", true)
+	spawn.Size = Vector3.new(10, 1, 10)
+	spawn.CFrame = origin * CFrame.new(0, 0.8, WALL_HALF - 16)
+	spawn.Anchored = true
+	spawn.Neutral = false
+	spawn.Enabled = true
+	spawn.Duration = 0
+	spawn.Transparency = 1
+	spawn.CanCollide = false
+	spawn.CanTouch = false
+	spawn.CanQuery = false
+	spawn.Parent = spawnFolder
+	return spawn
 end
 
 local function buildWilderness(villages: { any })
@@ -676,35 +1342,84 @@ function SettlementBuilder.onState(player: Player, snapshot: any, kingdomId: str
 	end
 	buildWilderness(villages)
 
+	local previousOwned = playerVillageIds[player] or {}
 	local owned: { string } = {}
+	local ownedSet: { [string]: boolean } = {}
+	local hasOwnedCapital = false
 	for _, village in villages do
 		local villageId = tostring(village.id)
 		local origin = villageOrigin(village)
 		local isOwn = village.kingdomId == kingdomId
+		local kingdomName, kingdomColor = kingdomInfo(snapshot, tostring(village.kingdomId))
 		local entry = rendered[villageId]
 
+		-- Every village keeps one replicated, fog-safe shell. Owner detail is a
+		-- separate server-only source in ServerStorage and is published only into
+		-- that owner's private PlayerGui; it is never a Workspace sibling.
+		local identityChanged = entry ~= nil
+			and (entry.villageName ~= tostring(village.name)
+				or entry.kingdomName ~= kingdomName
+				or entry.kingdomColor ~= kingdomColor)
+		local moved = entry ~= nil and (entry.origin.Position - origin.Position).Magnitude > 0.1
+		if entry == nil or identityChanged or moved then
+			local existingDetail = entry and entry.detail or nil
+			if entry then
+				entry.shell:Destroy()
+				if moved and existingDetail then
+					local previousOwner = Players:GetPlayerByUserId(existingDetail.ownerUserId)
+					if previousOwner then
+						removeClientDetail(previousOwner, villageId)
+					end
+					existingDetail.model:Destroy()
+					existingDetail = nil
+				end
+			end
+			local shell = renderShell(villageId, origin, tostring(village.name), kingdomName, kingdomColor)
+			entry = {
+				shell = shell,
+				detail = existingDetail,
+				origin = origin,
+				villageName = tostring(village.name),
+				kingdomName = kingdomName,
+				kingdomColor = kingdomColor,
+			}
+			rendered[villageId] = entry
+		end
+
 		if isOwn then
+			ownedSet[villageId] = true
 			if village.isCapital then
 				table.insert(owned, 1, villageId) -- capital first: it owns the war table binding
 			else
 				table.insert(owned, villageId)
 			end
-			if entry and entry.mode ~= "full" then
-				entry.model:Destroy()
-				entry = nil
+			local detail = entry.detail
+			local detailChanged = false
+			if detail and detail.ownerUserId ~= player.UserId then
+				local previousOwner = Players:GetPlayerByUserId(detail.ownerUserId)
+				if previousOwner then
+					removeClientDetail(previousOwner, villageId)
+				end
+				detail.model:Destroy()
+				detail = nil
 			end
-			if not entry then
-				entry = renderFull(player, village, origin)
-				entry.kingdomName, entry.kingdomColor = kingdomInfo(snapshot, tostring(village.kingdomId))
-				rendered[villageId] = entry
+			if not detail then
+				detail = {
+					model = renderFull(player, village, origin),
+					stateVersion = -1,
+					levels = {},
+					ownerUserId = player.UserId,
+				}
+				entry.detail = detail
+				detailChanged = true
 			end
-			if entry.stateVersion ~= village.stateVersion then
+			if detail.stateVersion ~= village.stateVersion then
 				local rendered_count = 0
 				for _, building in Buildings.ORDER do
 					local level = tonumber(village.buildings and village.buildings[building]) or 0
-					if entry.levels[building] ~= level then
-						renderBuilding(entry.model, origin, villageId, building, level)
-						entry.levels[building] = level
+					if detail.levels[building] ~= level then
+						renderBuilding(detail.model, origin, villageId, building, level)
+						detail.levels[building] = level
 						rendered_count += 1
 					end
 				end
@@ -713,13 +1428,12 @@ function SettlementBuilder.onState(player: Player, snapshot: any, kingdomId: str
 						tostring(village.name), rendered_count,
 						math.floor(origin.Position.X), math.floor(origin.Position.Z)))
 				end
-				entry.stateVersion = village.stateVersion
+				detail.stateVersion = village.stateVersion
+				detailChanged = detailChanged or rendered_count > 0
 			end
 			if village.isCapital then
-				local spawn = entry.model:FindFirstChild("GateSpawn")
-				if spawn and spawn:IsA("SpawnLocation") then
-					player.RespawnLocation = spawn
-				end
+				hasOwnedCapital = true
+				player.RespawnLocation = ensureSpawnAnchor(villageId, origin)
 				-- The region is placed from map coordinates, so it sits
 				-- THOUSANDS of studs from the origin — and Roblox's default
 				-- spawn is the origin. A player who is not moved to their own
@@ -761,39 +1475,29 @@ function SettlementBuilder.onState(player: Player, snapshot: any, kingdomId: str
 					end)
 				end
 			end
-		else
-			-- Foreign: shell only. An online owner's full render always wins.
-			local kingdomName, kingdomColor = kingdomInfo(snapshot, tostring(village.kingdomId))
-			if entry and entry.mode == "full" then
-				-- another present player owns it; leave their render alone
-			elseif not entry then
-				rendered[villageId] = {
-					model = renderShell(villageId, origin, tostring(village.name), kingdomName, kingdomColor),
-					mode = "shell",
-					origin = origin,
-					stateVersion = -1,
-					levels = {},
-					villageName = tostring(village.name),
-					kingdomName = kingdomName,
-					kingdomColor = kingdomColor,
-					ownerUserId = nil,
-				}
-			elseif entry.villageName ~= tostring(village.name) or entry.kingdomName ~= kingdomName then
-				-- conquest/rename reached us: rebuild the shell's identity
-				entry.model:Destroy()
-				rendered[villageId] = {
-					model = renderShell(villageId, origin, tostring(village.name), kingdomName, kingdomColor),
-					mode = "shell",
-					origin = origin,
-					stateVersion = -1,
-					levels = {},
-					villageName = tostring(village.name),
-					kingdomName = kingdomName,
-					kingdomColor = kingdomColor,
-					ownerUserId = nil,
-				}
+			if detailChanged then
+				publishDetail(player, detail)
 			end
 		end
+	end
+
+	-- Revoke old owner detail before replacing the ownership index. This also
+	-- handles snapshots where a conquered/deleted village vanished from the
+	-- village list entirely, not only rows that remain as explicit foreign data.
+	for _, oldVillageId in previousOwned do
+		if not ownedSet[oldVillageId] then
+			local entry = rendered[oldVillageId]
+			local detail = entry and entry.detail or nil
+			if entry and detail and detail.ownerUserId == player.UserId then
+				detail.model:Destroy()
+				entry.detail = nil
+			end
+			removeClientDetail(player, oldVillageId)
+		end
+	end
+	if not hasOwnedCapital then
+		player.RespawnLocation = nil
+		gateLanding[player] = nil
 	end
 	playerVillageIds[player] = owned
 end
@@ -801,8 +1505,9 @@ end
 function SettlementBuilder.getSettlement(player: Player): Model?
 	for _, villageId in playerVillageIds[player] or {} do
 		local entry = rendered[villageId]
-		if entry and entry.mode == "full" and entry.ownerUserId == player.UserId then
-			return entry.model
+		local detail = entry and entry.detail or nil
+		if detail and detail.ownerUserId == player.UserId then
+			return detail.model
 		end
 	end
 	return nil
@@ -814,23 +1519,14 @@ SettlementBuilder.greyPart = greyPart
 SettlementBuilder.labelFor = labelFor
 
 Players.PlayerRemoving:Connect(function(player)
-	-- Their villages stay in the world (they're database rows, spec §4) but
-	-- drop to fog silhouettes now that no one is entitled to the detail.
+	-- Their fog-safe shells stay in the world (they're database rows, spec §4),
+	-- while the entitlement-bearing detail layer is removed.
 	for _, villageId in playerVillageIds[player] or {} do
 		local entry = rendered[villageId]
-		if entry and entry.mode == "full" and entry.ownerUserId == player.UserId then
-			entry.model:Destroy()
-			rendered[villageId] = {
-				model = renderShell(villageId, entry.origin, entry.villageName, entry.kingdomName ~= "" and entry.kingdomName or entry.villageName, entry.kingdomColor),
-				mode = "shell",
-				origin = entry.origin,
-				stateVersion = -1,
-				levels = {},
-				villageName = entry.villageName,
-				kingdomName = entry.kingdomName,
-				kingdomColor = entry.kingdomColor,
-				ownerUserId = nil,
-			}
+		local detail = entry and entry.detail or nil
+		if entry and detail and detail.ownerUserId == player.UserId then
+			detail.model:Destroy()
+			entry.detail = nil
 		end
 	end
 	playerVillageIds[player] = nil

@@ -28,6 +28,7 @@ WorldStyle.PALETTE = {
 	stoneWarm    = Color3.fromRGB(186, 172, 148),
 	plaster      = Color3.fromRGB(216, 206, 184),
 	timber       = Color3.fromRGB(92, 66, 44),
+	timberDark   = Color3.fromRGB(62, 44, 32),
 	timberLight  = Color3.fromRGB(126, 92, 60),
 	-- Roofs
 	roofTile     = Color3.fromRGB(122, 62, 48),
@@ -37,9 +38,15 @@ WorldStyle.PALETTE = {
 	grass        = Color3.fromRGB(104, 130, 74),
 	dirt         = Color3.fromRGB(126, 104, 78),
 	road         = Color3.fromRGB(146, 134, 112),
+	pathEdge     = Color3.fromRGB(108, 92, 72),
 	iron         = Color3.fromRGB(74, 74, 78),
+	ore          = Color3.fromRGB(82, 78, 72),
 	banner       = Color3.fromRGB(150, 44, 44),
+	bannerGold   = Color3.fromRGB(204, 164, 82),
 	window       = Color3.fromRGB(58, 48, 40),
+	straw        = Color3.fromRGB(194, 160, 88),
+	crop         = Color3.fromRGB(126, 118, 62),
+	warmLight    = Color3.fromRGB(255, 184, 104),
 }
 
 --- Materials, kept beside the palette so a colour and its surface travel
@@ -150,6 +157,20 @@ function WorldStyle.part(
 	part.BottomSurface = Enum.SurfaceType.Smooth
 	part.Parent = parent
 	return part
+end
+
+--- One restrained local light for a landmark. Callers own the budget; this
+--- helper only makes the settings consistent and keeps Shadows disabled on
+--- decorative lights so a focal glow never becomes the performance problem.
+function WorldStyle.pointLight(parent: BasePart, colour: Color3, brightness: number, range: number): PointLight
+	local light = Instance.new("PointLight")
+	light.Name = "FocalLight"
+	light.Color = colour
+	light.Brightness = brightness
+	light.Range = range
+	light.Shadows = false
+	light.Parent = parent
+	return light
 end
 
 return WorldStyle

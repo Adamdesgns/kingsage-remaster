@@ -9,6 +9,15 @@ if not styleOk then
 	warn(string.format("[World] lighting failed to apply (the game still runs): %s", tostring(styleErr)))
 end
 
+-- The commander outfit is visual-only too. Any future Roblox avatar change is
+-- allowed to fail here without delaying remotes, settlement state, or spawn.
+local characterStyleOk, characterStyleErr = pcall(function()
+	require(script:WaitForChild("CharacterStyle")).start()
+end)
+if not characterStyleOk then
+	warn(string.format("[World] commander costume failed to start (the game still runs): %s", tostring(characterStyleErr)))
+end
+
 local WorldSession = require(script:WaitForChild("WorldSession"))
 local SettlementBuilder = require(script:WaitForChild("SettlementBuilder"))
 require(script:WaitForChild("CommandService"))

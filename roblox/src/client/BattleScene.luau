@@ -76,7 +76,13 @@ local function seedNumber(seed: string): number
 	return value
 end
 
-local function makePart(size: Vector3, color: Color3, parent: Instance): BasePart
+local function makePart(
+	size: Vector3,
+	color: Color3,
+	parent: Instance,
+	material: Enum.Material?,
+	shape: Enum.PartType?
+): BasePart
 	local part = Instance.new("Part")
 	part.Size = size
 	part.Anchored = true
@@ -85,32 +91,99 @@ local function makePart(size: Vector3, color: Color3, parent: Instance): BasePar
 	part.CanTouch = false
 	part.CastShadow = false
 	part.Color = color
-	part.Material = Enum.Material.SmoothPlastic
+	part.Material = material or Enum.Material.SmoothPlastic
+	part.Shape = shape or Enum.PartType.Block
 	part.Parent = parent
 	return part
 end
 
-local SOLDIER_OFFSETS: { CFrame } = {
-	CFrame.new(0, 2.8, 0), -- torso
-	CFrame.new(0, 4.3, 0), -- head
-	CFrame.new(-1.2, 2.9, 0), -- left arm
-	CFrame.new(1.2, 2.9, 0), -- right arm
-	CFrame.new(-0.45, 0.9, 0), -- left leg
-	CFrame.new(0.45, 0.9, 0), -- right leg
+-- Six parts remain the hard budget for every soldier. The same six pieces now
+-- carry a readable late-medieval kit through silhouette, material, and colour:
+-- a cloth or mail body, one hood/helmet, two sleeves, and two hose/boot legs.
+-- No weapon, plume, horn, or fantasy armour is hidden outside that budget.
+local VANGUARD_OFFSETS: { CFrame } = {
+	CFrame.new(0, 2.9, 0), -- wool surcoat over mail
+	CFrame.new(0, 4.5, 0), -- simple iron helmet
+	CFrame.new(-1.16, 3, 0), -- mail sleeve
+	CFrame.new(1.16, 3, 0), -- mail sleeve / striking arm
+	CFrame.new(-0.43, 0.95, 0), -- wool hose and shoe
+	CFrame.new(0.43, 0.95, 0), -- wool hose and shoe
 }
 
-local function makeSoldier(color: Color3, root: CFrame, parent: Instance): Soldier
-	local parts = {
-		makePart(Vector3.new(1.6, 2, 0.9), color, parent),
-		makePart(Vector3.new(1, 1, 1), Color3.fromRGB(200, 170, 140), parent),
-		makePart(Vector3.new(0.6, 1.8, 0.6), color, parent),
-		makePart(Vector3.new(0.6, 1.8, 0.6), color, parent),
-		makePart(Vector3.new(0.7, 1.8, 0.7), Color3.fromRGB(70, 60, 50), parent),
-		makePart(Vector3.new(0.7, 1.8, 0.7), Color3.fromRGB(70, 60, 50), parent),
-	}
+local ARCHER_OFFSETS: { CFrame } = {
+	CFrame.new(0, 2.78, 0), -- belted wool tunic / leather jerkin
+	CFrame.new(0, 4.23, -0.04), -- close wool hood
+	CFrame.new(-1.02, 2.82, 0), -- fitted leather sleeve
+	CFrame.new(1.02, 2.82, 0), -- fitted leather sleeve / striking arm
+	CFrame.new(-0.37, 0.88, 0), -- narrow wool hose
+	CFrame.new(0.37, 0.88, 0), -- narrow wool hose
+}
+
+local RIDER_OFFSETS: { CFrame } = {
+	CFrame.new(0, 3.02, 0), -- broad surcoat over mail
+	CFrame.new(0, 4.72, 0), -- iron helmet
+	CFrame.new(-1.28, 3.12, 0), -- heavier mail sleeve
+	CFrame.new(1.28, 3.12, 0), -- heavier mail sleeve / striking arm
+	CFrame.new(-0.5, 0.98, 0), -- riding hose and tall leather boot
+	CFrame.new(0.5, 0.98, 0), -- riding hose and tall leather boot
+}
+
+local MAIL = Color3.fromRGB(112, 116, 116)
+local DARK_MAIL = Color3.fromRGB(83, 88, 89)
+local WORN_LEATHER = Color3.fromRGB(102, 72, 45)
+local DARK_LEATHER = Color3.fromRGB(62, 47, 35)
+local DARK_WOOL = Color3.fromRGB(53, 49, 43)
+local HOOD_WOOL = Color3.fromRGB(73, 67, 56)
+
+local function makeSoldier(color: Color3, squadId: string, root: CFrame, parent: Instance): Soldier
+	local parts: { BasePart }
+	local offsets: { CFrame }
+
+	if squadId == "archers" then
+		-- Archers stay visibly lighter than the battle line: a muted wool tunic,
+		-- leather sleeves, close hood, narrow hose, and practical shoes.
+		local tunic = color:Lerp(Color3.fromRGB(91, 78, 57), 0.38)
+		parts = {
+			makePart(Vector3.new(1.42, 2.05, 0.72), tunic, parent, Enum.Material.Fabric),
+			makePart(Vector3.new(1.08, 1.08, 1.04), HOOD_WOOL, parent, Enum.Material.Fabric, Enum.PartType.Ball),
+			makePart(Vector3.new(0.48, 1.72, 0.48), WORN_LEATHER, parent),
+			makePart(Vector3.new(0.48, 1.72, 0.48), WORN_LEATHER, parent),
+			makePart(Vector3.new(0.58, 1.7, 0.58), DARK_WOOL, parent, Enum.Material.Fabric),
+			makePart(Vector3.new(0.58, 1.7, 0.58), DARK_WOOL, parent, Enum.Material.Fabric),
+		}
+		offsets = ARCHER_OFFSETS
+	elseif squadId == "riders" then
+		-- Riders use the same plausible mail-and-surcoat language as the
+		-- vanguard, but a taller, broader silhouette and dark riding boots make
+		-- their formation legible without adding horses or decorative parts.
+		local surcoat = color:Lerp(Color3.fromRGB(44, 38, 32), 0.12)
+		parts = {
+			makePart(Vector3.new(1.88, 2.3, 1), surcoat, parent, Enum.Material.Fabric),
+			makePart(Vector3.new(1.22, 1.22, 1.18), DARK_MAIL, parent, Enum.Material.Metal, Enum.PartType.Ball),
+			makePart(Vector3.new(0.65, 1.95, 0.65), DARK_MAIL, parent, Enum.Material.Metal),
+			makePart(Vector3.new(0.65, 1.95, 0.65), DARK_MAIL, parent, Enum.Material.Metal),
+			makePart(Vector3.new(0.76, 1.9, 0.76), DARK_LEATHER, parent),
+			makePart(Vector3.new(0.76, 1.9, 0.76), DARK_LEATHER, parent),
+		}
+		offsets = RIDER_OFFSETS
+	else
+		-- Vanguard: coloured wool surcoat, visible mail sleeves, dark hose,
+		-- and an undecorated iron skullcap. It reads as a working levy/man-at-
+		-- arms rather than plate-clad fantasy infantry.
+		parts = {
+			makePart(Vector3.new(1.68, 2.22, 0.92), color, parent, Enum.Material.Fabric),
+			makePart(Vector3.new(1.16, 1.16, 1.12), MAIL, parent, Enum.Material.Metal, Enum.PartType.Ball),
+			makePart(Vector3.new(0.58, 1.86, 0.58), MAIL, parent, Enum.Material.Metal),
+			makePart(Vector3.new(0.58, 1.86, 0.58), MAIL, parent, Enum.Material.Metal),
+			makePart(Vector3.new(0.68, 1.82, 0.68), DARK_WOOL, parent, Enum.Material.Fabric),
+			makePart(Vector3.new(0.68, 1.82, 0.68), DARK_WOOL, parent, Enum.Material.Fabric),
+		}
+		offsets = VANGUARD_OFFSETS
+	end
+
 	return {
 		parts = parts,
-		offsets = SOLDIER_OFFSETS,
+		offsets = offsets,
 		root = root,
 		alive = true,
 		engaged = false,
@@ -223,7 +296,12 @@ local function buildBlocks(
 					0,
 					row * BattleConfig.RANK_SPACING * (if side == "attacker" then 1 else -1)
 				)
-				local soldier = makeSoldier(color, CFrame.new(home + offset) * CFrame.Angles(0, facingYaw, 0), folder)
+				local soldier = makeSoldier(
+					color,
+					squad.id,
+					CFrame.new(home + offset) * CFrame.Angles(0, facingYaw, 0),
+					folder
+				)
 				table.insert(soldiers, soldier)
 				slotIndex += 1
 				table.insert(roster, soldier)
