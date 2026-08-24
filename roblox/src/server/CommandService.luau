@@ -297,15 +297,14 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 		if not report then
 			return nil, nil, "You hold no report on that village."
 		end
-		-- The world server refuses a report taken before the defender changed
-		-- (STALE_SCOUT_REPORT). Saying it here explains WHY, which its code
-		-- alone cannot: the player has to send scouts again.
-		local target = findVillage(snapshot, targetId)
-		local reportVersion = math.floor(tonumber(report.targetVillageVersion) or -1)
-		local currentVersion = math.floor(tonumber(target and target.stateVersion) or -1)
-		if currentVersion >= 0 and reportVersion ~= currentVersion then
-			return nil, nil, "They have changed since your report — scout again before you commit."
-		end
+		-- Staleness is the WORLD SERVER'S call, not ours. Its intelIsCurrent()
+		-- compares the report's observed garrison and wall against the
+		-- defender's real ones - resources ticking over there change nothing
+		-- an attacker planned around. This mirror used to demand an exact
+		-- stateVersion match instead, and stateVersion bumps every time the
+		-- defender's wood ticks (~17s at level 14), so attending a battle was
+		-- refused after almost any march. The client cannot compare substance
+		-- itself - foreign garrisons are fogged - so it must not pre-judge.
 		return {
 			type = "battle.open",
 			payload = {

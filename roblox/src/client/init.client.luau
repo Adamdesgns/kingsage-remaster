@@ -1045,7 +1045,7 @@ local function sectionHeader(parent: Instance, order: number, text: string): Tex
 	header.Size = UDim2.new(1, -8, 0, 26)
 	header.LayoutOrder = order
 	header.TextXAlignment = Enum.TextXAlignment.Left
-	header.TextTransparency = 0.25
+	header.TextTransparency = 0
 	header.Text = "  " .. text
 	return header
 end
@@ -1055,7 +1055,7 @@ local function noteRow(parent: Instance, order: number, text: string, height: nu
 	note.Size = UDim2.new(1, -8, 0, height or 26)
 	note.LayoutOrder = order
 	note.TextXAlignment = Enum.TextXAlignment.Left
-	note.TextTransparency = 0.4
+	note.TextTransparency = 0.15
 	note.TextScaled = false
 	note.TextSize = 14
 	note.TextWrapped = true
@@ -1067,8 +1067,8 @@ end
 local function actionRow(parent: Instance, order: number, text: string, buttonText: string, color: Color3, onClick: () -> ()): Frame
 	local row = Instance.new("Frame")
 	row.Size = UDim2.new(1, -8, 0, 36)
-	row.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-	row.BackgroundTransparency = 0.2
+	row.BackgroundColor3 = Color3.fromRGB(38, 38, 52)
+	row.BackgroundTransparency = 0.05
 	row.LayoutOrder = order
 	row.Parent = parent
 
@@ -1098,8 +1098,8 @@ type RowAction = { label: string, color: Color3, onClick: () -> () }
 local function dualActionRow(parent: Instance, order: number, text: string, left: RowAction, right: RowAction): Frame
 	local row = Instance.new("Frame")
 	row.Size = UDim2.new(1, -8, 0, 40)
-	row.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-	row.BackgroundTransparency = 0.2
+	row.BackgroundColor3 = Color3.fromRGB(38, 38, 52)
+	row.BackgroundTransparency = 0.05
 	row.LayoutOrder = order
 	row.Parent = parent
 
@@ -1158,7 +1158,7 @@ local function buildVillageTab(scroll: ScrollingFrame, village: any, villageId: 
 	for index, building in Buildings.ORDER do
 		local level = tonumber(village.buildings and village.buildings[building]) or 0
 		actionRow(scroll, index, string.format("%s  Lv %d", Buildings.displayName(building), level), "Upgrade",
-			Color3.fromRGB(50, 70, 50), function()
+			Color3.fromRGB(72, 112, 72), function()
 				invokeQueue({ kind = "build", villageId = villageId, building = building })
 			end)
 	end
@@ -1408,7 +1408,7 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 
 		dualActionRow(scroll, nextOrder(), text, {
 			label = if canScout then "Scout" else "—",
-			color = if canScout then Color3.fromRGB(45, 60, 85) else Color3.fromRGB(45, 45, 45),
+			color = if canScout then Color3.fromRGB(62, 92, 138) else Color3.fromRGB(45, 45, 45),
 			onClick = function()
 				if not canScout then
 					toast("No scouts in this village — recruit some first.", false)
@@ -1425,9 +1425,9 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 			label = if armed then (if conquering then "CONQUER?" else "SEND?")
 				else (if conquering then "Conquer" else "Attack"),
 			color = if armed
-				then Color3.fromRGB(120, 45, 35)
+				then Color3.fromRGB(178, 62, 46)
 				else (if canAttack
-					then (if conquering then Color3.fromRGB(105, 80, 30) else Color3.fromRGB(80, 45, 40))
+					then (if conquering then Color3.fromRGB(152, 112, 42) else Color3.fromRGB(128, 62, 52))
 					else Color3.fromRGB(45, 45, 45)),
 			onClick = function()
 				if not scouted then
@@ -1489,7 +1489,7 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 		actionRow(scroll, nextOrder(),
 			if rideWithNobles then "Conquest: noblemen ride" else "Raid: noblemen stay home",
 			if rideWithNobles then "Stand down" else "Ride",
-			if rideWithNobles then Color3.fromRGB(105, 80, 30) else Color3.fromRGB(50, 50, 60), function()
+			if rideWithNobles then Color3.fromRGB(152, 112, 42) else Color3.fromRGB(50, 50, 60), function()
 				rideWithNobles = not rideWithNobles
 				-- The armed target was armed for a DIFFERENT order.
 				disarmAttack()
@@ -1714,8 +1714,8 @@ function buildTablePanel()
 	panel.Name = "TablePanel"
 	panel.Size = UDim2.fromOffset(panelWidth, panelHeight)
 	panel.Position = UDim2.fromOffset(safeLeft, panelTop)
-	panel.BackgroundColor3 = Color3.fromRGB(15, 15, 22)
-	panel.BackgroundTransparency = 0.15
+	panel.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
+	panel.BackgroundTransparency = 0.02
 	panel.ZIndex = 2
 	panel.Parent = gui
 	addCorner(panel, 6)
