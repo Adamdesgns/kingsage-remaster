@@ -62,6 +62,7 @@ import {
   type PlayerArenaStanding,
   type ResourceStock,
   type ScoutReportState,
+  type TroopLevels,
   type TroopType,
   type VillageState,
   type WorldState,
@@ -1008,6 +1009,11 @@ export class SharedWorldStore {
         return;
       }
 
+      if (envelope.command.type !== "village.build.queue") {
+        result = this.reject(envelope.commandId, "INVALID_COMMAND", "This world command is not active yet.", currentVersion);
+        this.insertCommand(player, envelope, result);
+        return;
+      }
       const payload = envelope.command.payload;
       if (!BUILDING_TYPES.includes(payload.building)) {
         result = this.reject(envelope.commandId, "INVALID_COMMAND", "Unknown building type.", currentVersion);

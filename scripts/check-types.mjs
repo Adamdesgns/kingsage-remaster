@@ -13,12 +13,10 @@
  * test suite reported seven failures in unrelated-looking places. `tsc` reports
  * one line naming the three missing properties.
  *
- * SCOPE, STATED HONESTLY. This checks `packages/game-core/src` only - the pure
- * game logic, which imports nothing from Node. The server cannot be checked
- * here because it needs `@types/node`, which is not installed and cannot be
- * without a network fetch. That is a real gap, not an oversight: game-core is
- * where the contracts and the maths live, so it is where a type error does the
- * most damage, but `server/src` is currently unchecked.
+ * SCOPE. This checks `packages/game-core/src` (pure game logic) and
+ * `server/src` (the authoritative world server). The server needs
+ * `@types/node`; that is now a root devDependency, pinned to the Node
+ * major the world server runs.
  *
  * The compiler is borrowed from `mobile-rebuild/node_modules` rather than added
  * as a new dependency, so this gate costs nothing to install.
@@ -61,5 +59,4 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
 
-console.log("Type check passed: packages/game-core/src is type-clean.");
-console.log("NOTE: server/src is NOT covered — it needs @types/node, which is not installed.");
+console.log("Type check passed: packages/game-core/src and server/src are type-clean.");

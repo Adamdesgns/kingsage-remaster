@@ -9,7 +9,11 @@
     "noEmit": true,
     "strict": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
   },
-  "include": ["packages/game-core/src/**/*.ts"]
+  "include": [
+    "packages/game-core/src/**/*.ts",
+    "server/src/**/*.ts"
+  ]
 }
