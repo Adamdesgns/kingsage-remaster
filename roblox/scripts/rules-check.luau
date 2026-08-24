@@ -18,6 +18,22 @@ local function loadModule(path: string): any
 	return chunk()
 end
 
+-- BattleConfig is data, but it spells its colours with Roblox constructors,
+-- which Lune does not have. Stubbing them is enough to LOAD the real file and
+-- read its real field names -- much stronger than grepping for them.
+local function loadWithRobloxStubs(path: string): any
+	local stub = function(...) return { ... } end
+	local chunk = luau.load(fs.readFile(path), {
+		debugName = path,
+		environment = {
+			Color3 = { fromRGB = stub, new = stub, fromHSV = stub },
+			Vector3 = { new = stub, zero = {} },
+			CFrame = { new = stub, Angles = stub, lookAt = stub },
+		},
+	})
+	return chunk()
+end
+
 local Buildings = loadModule("roblox/src/shared/Buildings.luau")
 local Config = loadModule("roblox/src/shared/Config.luau")
 
@@ -177,14 +193,14 @@ local function readAll(directory: string, into: { string })
 end
 
 local luauFiles = {}
-for _, root in { "roblox/src", "roblox/demo", "roblox/scripts" } do
+for _, root in { "roblox/src", "roblox/demo", "roblox/scripts", "roblox/spike" } do
 	readAll(root, luauFiles)
 end
 
 -- The names Rojo actually creates under ReplicatedStorage, read from the
 -- project files rather than assumed.
 local replicatedNames: { [string]: boolean } = {}
-for _, project in { "roblox/default.project.json", "roblox/demo.project.json" } do
+for _, project in { "roblox/default.project.json", "roblox/demo.project.json", "roblox/spike.project.json" } do
 	local tree = serde.decode("json", fs.readFile(project)).tree
 	local replicated = tree.ReplicatedStorage
 	if replicated then
@@ -235,6 +251,107 @@ check("every ReplicatedStorage:WaitForChild name is mapped by Rojo or created in
 
 check("every script:WaitForChild in an init script has a sibling module",
 	#badSibling == 0, table.concat(badSibling, "; "))
+
+-- ---- THE MEASUREMENT MUST MEASURE THE REAL GAME ----
+-- roblox/spike is the ONLY build that can run on a real phone today: it speaks
+-- no HTTP, so it needs no world server and can be published on its own. That
+-- makes it the instrument for the Slice 0 phone measure -- and an instrument
+-- that draws something cheaper than the real battle reports a number the real
+-- battle cannot honour. These rules keep the spike honest by construction.
+
+-- These rules read SOURCE, so a comment mentioning the right name would
+-- otherwise satisfy them -- and this file's whole job is refusing to be
+-- satisfied by prose. Strip comments first and match against code only.
+local NEWLINE = string.char(10)
+local function codeOnly(source: string): string
+	local out = {}
+	for line in (source .. NEWLINE):gmatch("([^" .. NEWLINE .. "]*)" .. NEWLINE) do
+		table.insert(out, (line:gsub("%-%-.*$", "")))
+	end
+	return table.concat(out, NEWLINE)
+end
+
+local battleSceneSource = codeOnly(fs.readFile("roblox/src/client/BattleScene.luau"))
+local spikeClientSource = codeOnly(fs.readFile("roblox/spike/client/init.client.luau"))
+local spikeServerSource = codeOnly(fs.readFile("roblox/spike/server/init.server.luau"))
+
+check("the battle scene and the phone spike build soldiers from ONE shared module", (function(): boolean
+	-- Two copies of the soldier is exactly the mirror-drift bug this repo keeps
+	-- shipping. If either side stops requiring the shared build, the phone
+	-- number stops describing the battle it is supposed to size.
+	if not fs.isFile("roblox/src/shared/SoldierBuild.luau") then
+		return false
+	end
+	local wanted = 'require%(worldShared:WaitForChild%("SoldierBuild"%)%)'
+	return string.find(battleSceneSource, wanted) ~= nil
+		and string.find(spikeClientSource, wanted) ~= nil
+end)())
+
+check("neither consumer keeps a private copy of the soldier build", (function(): boolean
+	-- The offset tables and the part recipe live in SoldierBuild and nowhere
+	-- else. Re-inlining them is how the spike would silently drift back to cheap
+	-- plastic boxes while still reporting a PASS.
+	for _, source in { battleSceneSource, spikeClientSource, spikeServerSource } do
+		if string.find(source, "VANGUARD_OFFSETS%s*:%s*{") then
+			return false
+		end
+		if string.find(source, "local function makeSoldier") then
+			return false
+		end
+	end
+	return true
+end)())
+
+check("the spike draws its population from BattleConfig, not a hardcoded number", (function(): boolean
+	-- MAX_SOLDIERS is the number Slice 0 exists to set. If the spike counted its
+	-- own soldiers, the measurement and the game could disagree about what "200"
+	-- means and nobody would see it.
+	return string.find(spikeClientSource, "BattleConfig%.MAX_SOLDIERS") ~= nil
+end)())
+
+check("the phone spike builds its soldiers on the CLIENT, like the real battle", (function(): boolean
+	-- BattleScene is a client module on purpose: nothing it builds replicates,
+	-- so 200 soldiers cost the network nothing. A spike that spawned them
+	-- server-side would make a phone pay a replication bill the real game never
+	-- sends, and would fail Slice 0 for the wrong reason.
+	return string.find(spikeServerSource, "BulkMoveTo") == nil
+		and string.find(spikeServerSource, "SOLDIERS_PER_SIDE") == nil
+end)())
+
+check("every BattleConfig field the spike reads actually exists", (function(): boolean
+	-- THE SILENT-SUCCESS TRAP, in the exact shape this repo keeps hitting. A
+	-- mistyped field reads as nil, not an error: WALK_SPEED nil means the
+	-- soldiers never march, never make contact, and the spike reports a
+	-- magnificent frame rate for a still photograph. Slice 0 would PASS on a
+	-- measurement of nothing, and every visual slice below it would be sized
+	-- by that number. BattleConfig is pure Lua, so Lune can LOAD it and check
+	-- the field names for real rather than trusting a grep.
+	local BattleConfig = loadWithRobloxStubs("roblox/src/shared/BattleConfig.luau")
+	local missing = {}
+	for field in spikeClientSource:gmatch("BattleConfig%.([A-Za-z_][A-Za-z0-9_]*)") do
+		if BattleConfig[field] == nil then
+			table.insert(missing, field)
+		end
+	end
+	for field in spikeServerSource:gmatch("BattleConfig%.([A-Za-z_][A-Za-z0-9_]*)") do
+		if BattleConfig[field] == nil then
+			table.insert(missing, field)
+		end
+	end
+	return #missing == 0
+end)())
+
+check("the phone spike still speaks no HTTP", (function(): boolean
+	-- The entire reason the spike can be published and played on a phone while
+	-- the world server sits on 127.0.0.1. One HttpService call here and Slice 0
+	-- becomes blocked on public hosting.
+	for _, source in { spikeClientSource, spikeServerSource } do
+		if string.find(source, "HttpService") or string.find(source, "API_BASE") then
+			return false
+		end
+	end
+	return true
+end)())
 
 -- ---- the region floor: Roblox will not build a part bigger than 2048 ----
 

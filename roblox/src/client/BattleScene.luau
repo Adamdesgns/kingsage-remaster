@@ -25,6 +25,7 @@ local RunService = game:GetService("RunService")
 local worldShared = ReplicatedStorage:WaitForChild("WorldShared")
 local BattleConfig = require(worldShared:WaitForChild("BattleConfig"))
 local Config = require(worldShared:WaitForChild("Config"))
+local SoldierBuild = require(worldShared:WaitForChild("SoldierBuild"))
 
 local BattleScene = {}
 
@@ -76,117 +77,17 @@ local function seedNumber(seed: string): number
 	return value
 end
 
-local function makePart(
-	size: Vector3,
-	color: Color3,
-	parent: Instance,
-	material: Enum.Material?,
-	shape: Enum.PartType?
-): BasePart
-	local part = Instance.new("Part")
-	part.Size = size
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	part.CastShadow = false
-	part.Color = color
-	part.Material = material or Enum.Material.SmoothPlastic
-	part.Shape = shape or Enum.PartType.Block
-	part.Parent = parent
-	return part
-end
+local makePart = SoldierBuild.makePart
 
--- Six parts remain the hard budget for every soldier. We spend the fourth part
--- on a weapon silhouette instead of a second featureless arm: body, headgear,
--- shield/leading arm, weapon, and two legs. That keeps the existing 1,200-part
--- worst case while making each formation read as an army rather than peg dolls.
--- No plume, horn, fantasy armour, hidden attachments, or per-soldier animation.
-local VANGUARD_OFFSETS: { CFrame } = {
-	CFrame.new(0, 2.82, 0), -- belted wool surcoat over mail
-	CFrame.new(0, 4.34, 0) * CFrame.Angles(0, 0, math.pi / 2), -- iron skullcap
-	CFrame.new(-1.03, 3.02, -0.03), -- shield/leading mail arm
-	CFrame.new(1.02, 3.12, 0.05) * CFrame.Angles(0, 0, math.pi / 2), -- spear
-	CFrame.new(-0.4, 0.93, 0), -- wool hose and shoe
-	CFrame.new(0.4, 0.93, 0), -- wool hose and shoe
-}
-
-local ARCHER_OFFSETS: { CFrame } = {
-	CFrame.new(0, 2.72, 0), -- belted wool tunic / leather jerkin
-	CFrame.new(0, 4.14, 0.08), -- close wool hood
-	CFrame.new(-0.92, 2.82, -0.04), -- bracer/leading arm
-	CFrame.new(0.98, 3, 0.04) * CFrame.Angles(0, 0, math.pi / 2), -- bow stave
-	CFrame.new(-0.37, 0.88, 0), -- narrow wool hose
-	CFrame.new(0.37, 0.88, 0), -- narrow wool hose
-}
-
-local RIDER_OFFSETS: { CFrame } = {
-	CFrame.new(0, 2.95, 0), -- broad surcoat over mail
-	CFrame.new(0, 4.5, 0) * CFrame.Angles(0, 0, math.pi / 2), -- iron helmet
-	CFrame.new(-1.12, 3.12, -0.03), -- heavier leading arm
-	CFrame.new(1.16, 3.18, 0.08) * CFrame.Angles(0, 0, math.rad(58)), -- sword
-	CFrame.new(-0.46, 0.96, 0), -- riding hose and tall leather boot
-	CFrame.new(0.46, 0.96, 0), -- riding hose and tall leather boot
-}
-
-local MAIL = Color3.fromRGB(112, 116, 116)
-local DARK_MAIL = Color3.fromRGB(83, 88, 89)
-local WORN_LEATHER = Color3.fromRGB(102, 72, 45)
-local DARK_LEATHER = Color3.fromRGB(62, 47, 35)
-local DARK_WOOL = Color3.fromRGB(53, 49, 43)
-local HOOD_WOOL = Color3.fromRGB(73, 67, 56)
-local ASH_WOOD = Color3.fromRGB(112, 82, 49)
-local BLADE = Color3.fromRGB(139, 142, 138)
-
-local function makeSoldier(color: Color3, squadId: string, root: CFrame, parent: Instance): Soldier
-	local parts: { BasePart }
-	local offsets: { CFrame }
-
-	if squadId == "archers" then
-		-- Archers stay visibly lighter than the battle line: muted wool, close
-		-- hood, leather bracer, narrow hose, and a tall bow-stave silhouette.
-		local tunic = color:Lerp(Color3.fromRGB(91, 78, 57), 0.38)
-		parts = {
-			makePart(Vector3.new(1.38, 2.08, 0.7), tunic, parent, Enum.Material.Fabric),
-			makePart(Vector3.new(0.92, 0.94, 0.96), HOOD_WOOL, parent, Enum.Material.Fabric, Enum.PartType.Ball),
-			makePart(Vector3.new(0.43, 1.58, 0.43), WORN_LEATHER, parent, Enum.Material.Fabric),
-			makePart(Vector3.new(3.05, 0.16, 0.16), ASH_WOOD, parent, Enum.Material.Wood, Enum.PartType.Cylinder),
-			makePart(Vector3.new(0.54, 1.68, 0.54), DARK_WOOL, parent, Enum.Material.Fabric),
-			makePart(Vector3.new(0.54, 1.68, 0.54), DARK_WOOL, parent, Enum.Material.Fabric),
-		}
-		offsets = ARCHER_OFFSETS
-	elseif squadId == "riders" then
-		-- Riders use the same mail-and-surcoat language as the vanguard, but a
-		-- broader torso, dark riding boots, and short sword make the block legible
-		-- without adding horses or any seventh decorative part.
-		local surcoat = color:Lerp(Color3.fromRGB(44, 38, 32), 0.12)
-		parts = {
-			makePart(Vector3.new(1.78, 2.25, 0.9), surcoat, parent, Enum.Material.Fabric),
-			makePart(Vector3.new(0.76, 1.12, 1.12), DARK_MAIL, parent, Enum.Material.Metal, Enum.PartType.Cylinder),
-			makePart(Vector3.new(0.58, 1.84, 0.58), DARK_MAIL, parent, Enum.Material.Metal),
-			makePart(Vector3.new(2.36, 0.2, 0.12), BLADE, parent, Enum.Material.Metal),
-			makePart(Vector3.new(0.7, 1.86, 0.7), DARK_LEATHER, parent, Enum.Material.Fabric),
-			makePart(Vector3.new(0.7, 1.86, 0.7), DARK_LEATHER, parent, Enum.Material.Fabric),
-		}
-		offsets = RIDER_OFFSETS
-	else
-		-- Vanguard: coloured wool over mail, one leading mail arm, dark hose,
-		-- iron skullcap, and ash spear. It remains a levy/man-at-arms rather than
-		-- plate-clad fantasy infantry.
-		parts = {
-			makePart(Vector3.new(1.58, 2.18, 0.84), color, parent, Enum.Material.Fabric),
-			makePart(Vector3.new(0.72, 1.06, 1.06), MAIL, parent, Enum.Material.Metal, Enum.PartType.Cylinder),
-			makePart(Vector3.new(0.52, 1.76, 0.52), MAIL, parent, Enum.Material.Metal),
-			makePart(Vector3.new(4.2, 0.18, 0.18), ASH_WOOD, parent, Enum.Material.Wood, Enum.PartType.Cylinder),
-			makePart(Vector3.new(0.62, 1.78, 0.62), DARK_WOOL, parent, Enum.Material.Fabric),
-			makePart(Vector3.new(0.62, 1.78, 0.62), DARK_WOOL, parent, Enum.Material.Fabric),
-		}
-		offsets = VANGUARD_OFFSETS
-	end
-
+-- The soldier's BODY lives in shared/SoldierBuild so the phone spike and this
+-- scene can never draw different armies (see rules-check: the Slice 0 measure
+-- is only worth something if the instrument matches the game). Behaviour --
+-- marching, swinging, dying, culling -- stays here.
+local function newSoldier(color: Color3, squadId: string, root: CFrame, parent: Instance): Soldier
+	local body = SoldierBuild.build(color, squadId, parent)
 	return {
-		parts = parts,
-		offsets = offsets,
+		parts = body.parts,
+		offsets = body.offsets,
 		root = root,
 		alive = true,
 		engaged = false,
@@ -196,10 +97,7 @@ local function makeSoldier(color: Color3, squadId: string, root: CFrame, parent:
 end
 
 local function destroySoldier(soldier: Soldier)
-	for _, part in soldier.parts do
-		part:Destroy()
-	end
-	table.clear(soldier.parts)
+	SoldierBuild.destroy({ parts = soldier.parts, offsets = soldier.offsets })
 end
 
 -- Which orderable squad a troop type fights in. Anything the config does not
@@ -299,7 +197,7 @@ local function buildBlocks(
 					0,
 					row * BattleConfig.RANK_SPACING * (if side == "attacker" then 1 else -1)
 				)
-				local soldier = makeSoldier(
+				local soldier = newSoldier(
 					color,
 					squad.id,
 					CFrame.new(home + offset) * CFrame.Angles(0, facingYaw, 0),

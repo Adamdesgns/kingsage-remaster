@@ -2,11 +2,31 @@
   "name": "TroopSpike",
   "tree": {
     "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "WorldShared": { "$path": "src/shared" }
+    },
     "ServerScriptService": { "$className": "ServerScriptService", "Spike": { "$path": "spike/server" } },
     "StarterPlayer": {
       "$className": "StarterPlayer",
       "StarterPlayerScripts": { "$className": "StarterPlayerScripts", "SpikeClient": { "$path": "spike/client" } }
     },
-    "Workspace": { "$className": "Workspace", "$properties": { "StreamingEnabled": false } }
+    "Workspace": { "$className": "Workspace", "$properties": { "StreamingEnabled": false } },
+    "Lighting": {
+      "$className": "Lighting",
+      "$properties": {
+        "Technology": "Future",
+        "Ambient": [0.345, 0.329, 0.376],
+        "OutdoorAmbient": [0.439, 0.455, 0.518],
+        "Brightness": 2.6,
+        "ClockTime": 15.6,
+        "GeographicLatitude": 24,
+        "ExposureCompensation": 0.18,
+        "EnvironmentDiffuseScale": 0.55,
+        "EnvironmentSpecularScale": 0.35,
+        "GlobalShadows": true,
+        "ShadowSoftness": 0.35
+      }
+    }
   }
 }
