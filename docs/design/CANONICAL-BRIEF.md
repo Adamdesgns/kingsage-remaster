@@ -186,17 +186,19 @@ Do not reopen these without new evidence.
 
 **Blocking the combat/army pass (2026-08-22):**
 
-- **The "deterministic combat math" the spec locked as *lives, barely changes*
-  turns out to be a flat power sum** — one total versus another, with no troop
-  counters. Under it, Axemen strictly dominate Light Cavalry on both
-  attack-per-population and attack-per-resource; "fast flanking" cavalry has no
-  speed system at all; and Battering Rams have **zero** wall interaction
-  despite wall-breaking being their entire stated role. This brief records that
-  as a **falsified assumption**, not a locked decision.
-- **There is no on-ramp.** Every village in the fixture carries an identical
-  garrison behind an identical wall, so a fresh kingdom loses every attack it
-  can afford. "Take over the world one settlement at a time" currently has no
-  first rung.
+- **RESOLVED 2026-08-22 (recorded 2026-08-23): the flat power sum is gone.**
+  The real KingsAge engine shipped the same day this brief was written
+  (`b1f8183`…`bfa28f3`): three parallel class battles with counters at
+  `(loser/winner)^1.5`, the `1.04^level` wall, rams that hit the wall, march
+  at slowest unit, and Realm of Power conquest. The old cavalry-domination
+  finding predates the migration and is void; cavalry balance under the NEW
+  engine has not been re-measured. **What still does not exist: unit
+  positions.** The server resolves class totals — no unit stands anywhere.
+  Any design that needs "near," "flank," or "local" is unbuildable today.
+- **RESOLVED 2026-08-22/23: the on-ramp exists.** Four Freeholds
+  (abandoned, lightly-held settlements) ship in every world as the designed
+  first rung. Proven live 2026-08-23: a two-wave Realm-of-Power conquest of
+  Saltmarsh Freehold completed in the full-game audit.
 
 **Never reviewed — the five solo design calls** made across slices with no
 specialist lens and no red team. They work and are proven; none has been
