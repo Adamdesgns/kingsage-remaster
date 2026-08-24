@@ -42,7 +42,7 @@ Required honest test: the repaired contract must fail if conquest is deleted.
    - `the village changed hands — a Luau-built army completed a conquest end to end`
    - expected `kingdom-1`, actual `kingdom-2`
 3. Restored `this.applyConquest(...)`.
-4. Same test then passed (2/2). Full `npm run test:server` after restore: see the PR / final report.
+4. Same test then passed (2/2). Full suite after restore: **81/81**, 0 skipped.
 
 The test is not a number-until-green gate. Deleting capture leaves the village on the defender.
 
@@ -78,8 +78,36 @@ This environment's `node --version` is **v22.14.0**. Types are pinned to **26.2.
 - No Roblox client authority. World server remains authoritative.
 - No `packages/game-core` edits.
 - No schema / migrations.
-- `test:luau` was not part of the required bar; run and report if Lune is available.
 - Lune is installed on this agent VM only, not in the repo.
+
+## Gate output (this branch, after restore)
+
+`npm run test:server` (Lune 0.10.5 on PATH — contract tests **ran**, did not skip):
+
+```
+1..81
+# tests 81
+# suites 0
+# pass 81
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2459.853476
+```
+
+`npm run check:types`:
+
+```
+Type check passed: packages/game-core/src and server/src are type-clean.
+```
+
+`npm run test:luau` (optional, Lune available):
+
+```
+---- 23 files checked, 0 failed ----
+---- 21 rules checked, 0 failed ----
+```
 
 ## Open doubts
 
