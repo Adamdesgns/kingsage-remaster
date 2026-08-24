@@ -45,6 +45,32 @@ enforced rather than remembered. `roblox/scripts/rules-check.luau` fails if:
 All six were mutation-checked on 2026-08-24: each one was deliberately broken
 and the matching rule fired.
 
+## And it has been proven to actually DO something
+
+Studio is the only place the *rendering* can be judged, and nobody has looked
+yet. But the worse failure was never a crash -- it was the spike quietly
+measuring nothing: soldiers that never march never make contact, the meter then
+reports a superb frame rate **for a still photograph**, and Slice 0 passes on a
+lie.
+
+```bash
+npm run test:luau
+```
+
+That now includes `roblox/scripts/spike-sim-check.luau`, which stubs the Roblox
+globals, LOADS the real spike client, and drives its frame callback for ten
+simulated seconds. It asserts the armies close, engage, take casualties and
+resolve to a verdict -- and that all 1,200 parts move in ONE bulk call per
+frame, not one call per part.
+
+Mutation-checked the same day. With the march speed set to zero it reports:
+
+> FAIL -- after 10s the verdict line never left 'not in contact'; a spike that
+> never makes contact reports a frame rate for a still photograph
+
+**What it does NOT prove:** anything about frame rate, draw calls, materials or
+how it looks. Only a phone can say that.
+
 ## How to run it
 
 **Build and publish (needs Studio, on the PC):**

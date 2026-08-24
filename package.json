@@ -16,7 +16,8 @@
     "test:roblox-layer": "npm --prefix server run test:roblox",
     "check:luau": "lune run roblox/scripts/syntax-check.luau",
     "check:luau-rules": "lune run roblox/scripts/rules-check.luau",
-    "test:luau": "npm run check:luau && npm run check:luau-rules",
+    "check:spike-sim": "lune run roblox/scripts/spike-sim-check.luau",
+    "test:luau": "npm run check:luau && npm run check:luau-rules && npm run check:spike-sim",
     "check:gate-d": "node scripts/check-gate-d.mjs",
     "test:gate-d": "npm run test:gate-c && npm run check:gate-d"
   },

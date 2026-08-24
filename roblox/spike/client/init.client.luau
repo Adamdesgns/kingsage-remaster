@@ -37,7 +37,6 @@ local TARGET_FPS = BattleConfig.TARGET_FPS
 -- be comparable, or a PASS/FAIL is noise.
 local WALK_SPEED = BattleConfig.WALK_SPEED
 local ENGAGE_DISTANCE = BattleConfig.ENGAGE_DISTANCE
-local ENGAGE_DISTANCE_SQ = ENGAGE_DISTANCE * ENGAGE_DISTANCE
 local SWING_PERIOD = BattleConfig.SWING_PERIOD
 local FALL_SECONDS = BattleConfig.FALL_SECONDS
 local CASUALTY_INTERVAL = 0.5
@@ -107,19 +106,33 @@ end
 spawnSide(1)
 spawnSide(2)
 
-local function nearEnemy(me: Soldier): boolean
-	-- Squared distances, no sqrt, early exit. Bookkeeping must not pollute the
-	-- frame time this place exists to report.
-	local myPos = me.root.Position
-	for _, other in soldiers do
-		if other.alive and other.side ~= me.side then
-			local delta = other.root.Position - myPos
-			if delta:Dot(delta) <= ENGAGE_DISTANCE_SQ then
-				return true
+-- ENGAGEMENT, WITHOUT INVENTING WORK THE REAL GAME NEVER DOES.
+--
+-- The old spike asked every soldier to measure its distance to every other
+-- soldier: 40,000 checks, five times a second. The real BattleScene never
+-- does that -- it thinks per BLOCK, a handful of them. Leaving that scan in
+-- would have spent a chunk of the phone budget on CPU the game does not
+-- spend, and a FAIL might then have been the scan rather than the rendering.
+--
+-- Both armies occupy the same X band and close head-on, so engagement is
+-- purely a question of how far each line has advanced. One pass finds each
+-- side its front rank; every soldier then compares against a single number.
+local function frontOf(side: number): number?
+	-- Side 1 marches +Z, so its front is its LARGEST z; side 2 the smallest.
+	local front: number? = nil
+	for _, soldier in soldiers do
+		if soldier.alive and soldier.side == side then
+			local z = soldier.root.Position.Z
+			if front == nil then
+				front = z
+			elseif side == 1 then
+				front = math.max(front :: number, z)
+			else
+				front = math.min(front :: number, z)
 			end
 		end
 	end
-	return false
+	return front
 end
 
 local function killOne(side: number)
@@ -201,11 +214,22 @@ RunService.RenderStepped:Connect(function(dt)
 	local anyEngaged = false
 	local dead: { Soldier } = {}
 
+	local frontOne = if rescan then frontOf(1) else nil
+	local frontTwo = if rescan then frontOf(2) else nil
+
 	for _, soldier in soldiers do
 		if soldier.alive then
 			aliveCount += 1
 			if rescan then
-				soldier.engaged = nearEnemy(soldier)
+				local enemyFront = if soldier.side == 1 then frontTwo else frontOne
+				if enemyFront == nil then
+					soldier.engaged = false
+				else
+					local gap = if soldier.side == 1
+						then (enemyFront :: number) - soldier.root.Position.Z
+						else soldier.root.Position.Z - (enemyFront :: number)
+					soldier.engaged = gap <= ENGAGE_DISTANCE
+				end
 			end
 			if soldier.engaged then
 				anyEngaged = true
