@@ -25,8 +25,11 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   emptyArmy,
+  REALM_OF_POWER_ON_CAPTURE,
+  settlementPoints,
   TROOP_ORDER,
   type BattlePlan,
+  type BuildingLevels,
 } from "../../packages/game-core/src/index.ts";
 import { createWorldHttpServer } from "../src/http.ts";
 import { SharedWorldStore } from "../src/store.ts";
@@ -140,10 +143,13 @@ test("the world server ACCEPTS the army Luau builds, and it lands as a conquest"
     // would, not from the literal we posed with.
     store.db.prepare("UPDATE local_villages SET army_json = ?, state_version = state_version + 1 WHERE id = ?")
       .run(JSON.stringify({ ...emptyArmy(), ...GARRISON }), home.id);
-    // Loyalty 20: the very first surviving Nobleman takes it, because the
-    // minimum drop is 20. This test is about the contract, not the curve.
-    store.db.prepare("UPDATE local_villages SET army_json = ?, loyalty = 20, state_version = state_version + 1 WHERE id = ?")
-      .run(JSON.stringify({ ...emptyArmy(), spear: 8 }), target.id);
+    // Realm of Power: seed already at 1 so one surviving Count finishes the
+    // campaign. Maximum is the settlement's own point score; one Count acts
+    // per attack and never removes more than 50% of that maximum, so an
+    // untouched hold always takes two waves. This test is the Luau→HTTP
+    // contract, not the curve — the target is posed already on the last step.
+    store.db.prepare("UPDATE local_villages SET army_json = ?, realm_of_power = 1, realm_of_power_at = ?, state_version = state_version + 1 WHERE id = ?")
+      .run(JSON.stringify({ ...emptyArmy(), spear: 8 }), now.toISOString(), target.id);
 
     const beforeScout = await state(ATTACKER_ID);
     const scoutResponse = await post("/api/roblox/commands", {
@@ -172,10 +178,21 @@ test("the world server ACCEPTS the army Luau builds, and it lands as a conquest"
     now = new Date(now.getTime() + 600);
     await state(ATTACKER_ID);
 
-    const after = store.db.prepare("SELECT kingdom_id, loyalty FROM local_villages WHERE id = ?").get(target.id) as any;
+    const after = store.db.prepare("SELECT kingdom_id, realm_of_power, buildings_json FROM local_villages WHERE id = ?").get(target.id) as {
+      kingdom_id: string;
+      realm_of_power: number;
+      buildings_json: string;
+    };
+    // Maximum is read AFTER the fight: rams can raze the wall first, and
+    // applyConquest scores the settlement from the buildings that remain.
+    const capturedMax = settlementPoints(JSON.parse(String(after.buildings_json)) as BuildingLevels);
     assert.equal(String(after.kingdom_id), opening.kingdom.id,
       "the village changed hands — a Luau-built army completed a conquest end to end");
-    assert.equal(Number(after.loyalty), 25, "and reset to a fragile 25");
+    assert.equal(
+      Number(after.realm_of_power),
+      Math.max(1, Math.round(capturedMax * REALM_OF_POWER_ON_CAPTURE)),
+      "and reset to a fragile 30% of the settlement's own maximum",
+    );
   } finally {
     await app.close();
     store.close();
