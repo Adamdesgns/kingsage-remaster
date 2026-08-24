@@ -18,6 +18,31 @@ if not characterStyleOk then
 	warn(string.format("[World] commander costume failed to start (the game still runs): %s", tostring(characterStyleErr)))
 end
 
+-- ===== private-realm door =====
+-- Kicks anyone not on Config.ALLOWED_PLAYERS. Runs BEFORE sessions open so
+-- an uninvited join never touches the world server. Studio and an empty
+-- list always pass - the gate exists for the published private world only.
+do
+	local RunService = game:GetService("RunService")
+	local Players = game:GetService("Players")
+	local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("WorldShared"):WaitForChild("Config"))
+	local allowed: { [number]: boolean } = {}
+	for _, id in (Config.ALLOWED_PLAYERS or {}) :: { number } do
+		allowed[id] = true
+	end
+	if next(allowed) ~= nil and not RunService:IsStudio() then
+		local function checkPlayer(player: Player)
+			if not allowed[player.UserId] then
+				player:Kick("This realm is invite-only. Ask Dad for a seat at the table.")
+			end
+		end
+		Players.PlayerAdded:Connect(checkPlayer)
+		for _, player in Players:GetPlayers() do
+			checkPlayer(player)
+		end
+	end
+end
+
 local WorldSession = require(script:WaitForChild("WorldSession"))
 local SettlementBuilder = require(script:WaitForChild("SettlementBuilder"))
 require(script:WaitForChild("CommandService"))

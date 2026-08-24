@@ -22,6 +22,19 @@ local Config = {
 	-- open country between it and the next one.
 	WALL_HALF = 200,
 
+	-- Private-realm allowlist for the published game. Roblox's own
+	-- private-experience Play permissions are the real lock; this is the
+	-- belt-and-braces beneath it, so a permissions slip on the website never
+	-- lets a stranger into the kids' world. An EMPTY list leaves the door
+	-- open, and Studio always passes, so local dev and the demo tour are
+	-- never locked out. UserIds, not usernames - usernames can change.
+	ALLOWED_PLAYERS = {
+		11141646980, -- Adam - Dadisaking86
+		1767398786, -- Keegan - Adamsaking
+		5405597651, -- Orion - OrionTheDestroyer15
+		4751547102, -- Aria - Airasecret
+	},
+
 	-- The conquest celebration (spec §5: big, skippable, non-blocking). Every
 	-- number here is a HARD cap, not a target: the spectacle must never be the
 	-- reason a phone drops frames, and it decides nothing either way.
