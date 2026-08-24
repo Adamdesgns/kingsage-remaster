@@ -1009,114 +1009,272 @@ export class SharedWorldStore {
         return;
       }
 
-      if (envelope.command.type !== "village.build.queue") {
-        result = this.reject(envelope.commandId, "INVALID_COMMAND", "This world command is not active yet.", currentVersion);
-        this.insertCommand(player, envelope, result);
-        return;
-      }
-      const payload = envelope.command.payload;
-      if (!BUILDING_TYPES.includes(payload.building)) {
-        result = this.reject(envelope.commandId, "INVALID_COMMAND", "Unknown building type.", currentVersion);
-        this.insertCommand(player, envelope, result);
-        return;
-      }
-      const villageRow = this.db.prepare(`
-        SELECT v.*, k.controller_player_id
-        FROM local_villages v
-        JOIN local_kingdoms k ON k.id = v.kingdom_id
-        WHERE v.id = ? AND v.world_id = ?
-      `).get(payload.villageId, envelope.worldId) as DbRow | undefined;
-      if (!villageRow || String(villageRow.controller_player_id) !== player.id) {
-        result = this.reject(envelope.commandId, "FORBIDDEN", "The player does not own that village.", currentVersion);
-        this.insertCommand(player, envelope, result);
-        return;
-      }
-      // 'queued' is the job actually building; 'waiting' is one holding its
-      // place until the village can pay for it. `completes_at` is NOT NULL in
-      // the schema, so the status carries the distinction rather than a null.
-      const pending = this.db.prepare(
-        "SELECT building, target_level, status FROM local_construction_jobs WHERE village_id = ? AND status IN ('queued', 'waiting') ORDER BY rowid",
-      ).all(payload.villageId) as DbRow[];
-      if (pending.length >= BUILD_QUEUE_LIMIT) {
-        result = this.reject(envelope.commandId, "QUEUE_FULL",
-          `That village is already holding ${BUILD_QUEUE_LIMIT} construction orders.`, currentVersion);
+      if (envelope.command.type === "village.build.queue") {
+        result = this.queueConstruction(player, envelope, envelope.command.payload, currentVersion, published);
         this.insertCommand(player, envelope, result);
         return;
       }
 
-      const resources = parseJson<ResourceStock>(villageRow.resources_json);
-      const buildings = parseJson<BuildingLevels>(villageRow.buildings_json);
-
-      // Stack on top of what is already queued. Two Timber Camp orders mean
-      // level 2 THEN level 3 - reading the standing level twice would silently
-      // throw the second upgrade away.
-      const alreadyQueued = pending.filter((job) => String(job.building) === payload.building).length;
-      const currentLevel = buildings[payload.building] + alreadyQueued;
-      if (currentLevel >= BUILDINGS[payload.building].maxLevel) {
-        result = this.reject(envelope.commandId, "INVALID_COMMAND",
-          `${BUILDINGS[payload.building].name} is already at its maximum level.`, currentVersion);
-        this.insertCommand(player, envelope, result);
-        return;
-      }
-      const prerequisiteProblem = buildingRequirementProblem(payload.building, buildings);
-      if (prerequisiteProblem) {
-        result = this.reject(envelope.commandId, "PREREQUISITE_MISSING", prerequisiteProblem, currentVersion);
-        this.insertCommand(player, envelope, result);
-        return;
-      }
-
-      // Resources are charged when a job STARTS, never when it is queued.
-      // Adam's rule: line up what you want, and it goes ahead as production
-      // covers it. Queueing is free; building is not.
-      const runningJob = pending.some((job) => String(job.status) === "queued");
-      const canStartNow = !runningJob && canAfford(resources, buildingCost(payload.building, currentLevel));
-      const startedAt = this.now();
-      let job: ConstructionJob;
-      if (canStartNow) {
-        const cost = buildingCost(payload.building, currentLevel);
-        resources.wood -= cost.wood;
-        resources.stone -= cost.stone;
-        resources.iron -= cost.iron;
-        const durationMs = this.buildDurationMs || buildingDurationSeconds(payload.building, currentLevel, buildings.hq) * 1000;
-        job = {
-          id: `construction-${randomUUID()}`,
-          villageId: payload.villageId,
-          building: payload.building,
-          targetLevel: currentLevel + 1,
-          startedAt: startedAt.toISOString(),
-          completesAt: new Date(startedAt.getTime() + durationMs).toISOString(),
-        };
-        this.db.prepare("UPDATE local_villages SET resources_json = ?, state_version = state_version + 1 WHERE id = ?")
-          .run(JSON.stringify(resources), payload.villageId);
-      } else {
-        // Waiting: no completion time yet. `startNextConstruction` picks it up
-        // the moment the village can pay, which is what makes the queue drain
-        // by itself.
-        // Waiting: `completesAt` is only a placeholder and means nothing until
-        // startNextConstruction sets a real one. The 'waiting' status is what
-        // keeps materializeDueJobs from ever completing an unpaid job.
-        job = {
-          id: `construction-${randomUUID()}`,
-          villageId: payload.villageId,
-          building: payload.building,
-          targetLevel: currentLevel + 1,
-          startedAt: startedAt.toISOString(),
-          completesAt: startedAt.toISOString(),
-        };
-      }
-      this.db.prepare(`
-        INSERT INTO local_construction_jobs(id, world_id, village_id, building, target_level, started_at, completes_at, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(job.id, envelope.worldId, job.villageId, job.building, job.targetLevel, job.startedAt, job.completesAt,
-        canStartNow ? "queued" : "waiting");
-      const worldVersion = this.incrementWorldVersion(envelope.worldId);
-      const village = this.readVillage(payload.villageId);
-      published.push(this.insertEvent(envelope.worldId, worldVersion, "village.changed", { village, constructionJob: job }));
-      result = { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, constructionJob: job } };
+      result = this.reject(envelope.commandId, "INVALID_COMMAND", "This world command is not active yet.", currentVersion);
       this.insertCommand(player, envelope, result);
     });
     this.publish(published);
     return result;
+  }
+
+  /**
+   * Queue a construction job through the same core the player command uses.
+   * Intended for the AI tick: no player identity, no command inbox.
+   */
+  queueVillageBuild(worldId: string, villageId: string, building: BuildingType): CommandResult {
+    const published: StoredWorldEvent[] = [];
+    let result!: CommandResult;
+    this.withTransaction(() => {
+      result = this.queueConstructionCore(
+        worldId,
+        villageId,
+        building,
+        `ai-build-${villageId}-${building}`,
+        this.currentWorldVersion(worldId),
+        published,
+      );
+    });
+    this.publish(published);
+    return result;
+  }
+
+  /**
+   * Queue recruitment through the same core the player command uses.
+   */
+  queueVillageRecruit(worldId: string, villageId: string, troop: TroopType, quantity: number): CommandResult {
+    const published: StoredWorldEvent[] = [];
+    let result!: CommandResult;
+    this.withTransaction(() => {
+      result = this.queueRecruitmentCore(
+        worldId,
+        { villageId, troop, quantity },
+        `ai-recruit-${villageId}-${troop}`,
+        this.currentWorldVersion(worldId),
+        published,
+      );
+    });
+    this.publish(published);
+    return result;
+  }
+
+  /**
+   * Launch a scout or attack march through the same core the player command uses.
+   */
+  launchVillageMarch(
+    worldId: string,
+    kingdomId: string,
+    payload: Extract<GameCommand, { type: "march.launch" }>["payload"],
+  ): CommandResult {
+    const published: StoredWorldEvent[] = [];
+    let result!: CommandResult;
+    this.withTransaction(() => {
+      result = this.launchMarchCore(
+        kingdomId,
+        worldId,
+        `ai-march-${payload.fromVillageId}-${payload.kind}`,
+        payload,
+        this.currentWorldVersion(worldId),
+        published,
+      );
+    });
+    this.publish(published);
+    return result;
+  }
+
+  private queueConstruction(
+    player: SessionPlayer,
+    envelope: CommandEnvelope,
+    payload: Extract<GameCommand, { type: "village.build.queue" }>["payload"],
+    currentVersion: number,
+    published: StoredWorldEvent[],
+  ): CommandResult {
+    const villageRow = this.db.prepare(`
+      SELECT v.*, k.controller_player_id
+      FROM local_villages v
+      JOIN local_kingdoms k ON k.id = v.kingdom_id
+      WHERE v.id = ? AND v.world_id = ?
+    `).get(payload.villageId, envelope.worldId) as DbRow | undefined;
+    if (!villageRow || String(villageRow.controller_player_id) !== player.id) {
+      return this.reject(envelope.commandId, "FORBIDDEN", "The player does not own that village.", currentVersion);
+    }
+    return this.queueConstructionCore(
+      envelope.worldId,
+      payload.villageId,
+      payload.building,
+      envelope.commandId,
+      currentVersion,
+      published,
+    );
+  }
+
+  private queueConstructionCore(
+    worldId: string,
+    villageId: string,
+    building: BuildingType,
+    commandId: string,
+    currentVersion: number,
+    published: StoredWorldEvent[],
+  ): CommandResult {
+    if (!BUILDING_TYPES.includes(building)) {
+      return this.reject(commandId, "INVALID_COMMAND", "Unknown building type.", currentVersion);
+    }
+    const villageRow = this.db.prepare("SELECT * FROM local_villages WHERE id = ? AND world_id = ?")
+      .get(villageId, worldId) as DbRow | undefined;
+    if (!villageRow) {
+      return this.reject(commandId, "FORBIDDEN", "The player does not own that village.", currentVersion);
+    }
+    // 'queued' is the job actually building; 'waiting' is one holding its
+    // place until the village can pay for it. `completes_at` is NOT NULL in
+    // the schema, so the status carries the distinction rather than a null.
+    const pending = this.db.prepare(
+      "SELECT building, target_level, status FROM local_construction_jobs WHERE village_id = ? AND status IN ('queued', 'waiting') ORDER BY rowid",
+    ).all(villageId) as DbRow[];
+    if (pending.length >= BUILD_QUEUE_LIMIT) {
+      return this.reject(commandId, "QUEUE_FULL",
+        `That village is already holding ${BUILD_QUEUE_LIMIT} construction orders.`, currentVersion);
+    }
+
+    const resources = parseJson<ResourceStock>(villageRow.resources_json);
+    const buildings = parseJson<BuildingLevels>(villageRow.buildings_json);
+
+    // Stack on top of what is already queued. Two Timber Camp orders mean
+    // level 2 THEN level 3 - reading the standing level twice would silently
+    // throw the second upgrade away.
+    const alreadyQueued = pending.filter((job) => String(job.building) === building).length;
+    const currentLevel = buildings[building] + alreadyQueued;
+    if (currentLevel >= BUILDINGS[building].maxLevel) {
+      return this.reject(commandId, "INVALID_COMMAND",
+        `${BUILDINGS[building].name} is already at its maximum level.`, currentVersion);
+    }
+    const prerequisiteProblem = buildingRequirementProblem(building, buildings);
+    if (prerequisiteProblem) {
+      return this.reject(commandId, "PREREQUISITE_MISSING", prerequisiteProblem, currentVersion);
+    }
+
+    // Resources are charged when a job STARTS, never when it is queued.
+    // Adam's rule: line up what you want, and it goes ahead as production
+    // covers it. Queueing is free; building is not.
+    const runningJob = pending.some((job) => String(job.status) === "queued");
+    const canStartNow = !runningJob && canAfford(resources, buildingCost(building, currentLevel));
+    const startedAt = this.now();
+    let job: ConstructionJob;
+    if (canStartNow) {
+      const cost = buildingCost(building, currentLevel);
+      resources.wood -= cost.wood;
+      resources.stone -= cost.stone;
+      resources.iron -= cost.iron;
+      const durationMs = this.buildDurationMs || buildingDurationSeconds(building, currentLevel, buildings.hq) * 1000;
+      job = {
+        id: `construction-${randomUUID()}`,
+        villageId,
+        building,
+        targetLevel: currentLevel + 1,
+        startedAt: startedAt.toISOString(),
+        completesAt: new Date(startedAt.getTime() + durationMs).toISOString(),
+      };
+      this.db.prepare("UPDATE local_villages SET resources_json = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(JSON.stringify(resources), villageId);
+    } else {
+      // Waiting: no completion time yet. `startNextConstruction` picks it up
+      // the moment the village can pay, which is what makes the queue drain
+      // by itself.
+      // Waiting: `completesAt` is only a placeholder and means nothing until
+      // startNextConstruction sets a real one. The 'waiting' status is what
+      // keeps materializeDueJobs from ever completing an unpaid job.
+      job = {
+        id: `construction-${randomUUID()}`,
+        villageId,
+        building,
+        targetLevel: currentLevel + 1,
+        startedAt: startedAt.toISOString(),
+        completesAt: startedAt.toISOString(),
+      };
+    }
+    this.db.prepare(`
+      INSERT INTO local_construction_jobs(id, world_id, village_id, building, target_level, started_at, completes_at, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(job.id, worldId, job.villageId, job.building, job.targetLevel, job.startedAt, job.completesAt,
+      canStartNow ? "queued" : "waiting");
+    const worldVersion = this.incrementWorldVersion(worldId);
+    const village = this.readVillage(villageId);
+    published.push(this.insertEvent(worldId, worldVersion, "village.changed", { village, constructionJob: job }));
+    return { type: "command.accepted", payload: { commandId, worldVersion, constructionJob: job } };
+  }
+
+  private launchMarchCore(
+    kingdomId: string,
+    worldId: string,
+    commandId: string,
+    payload: Extract<GameCommand, { type: "march.launch" }>["payload"],
+    currentVersion: number,
+    published: StoredWorldEvent[],
+  ): CommandResult {
+    const { fromVillageId, targetVillageId, kind, army, plan: launchPlan } = payload;
+    if (!isValidArmy(army) || armyUnitCount(army) < 1 || !["scout", "attack"].includes(kind)) {
+      return this.reject(commandId, "INVALID_ARMY", "Send a valid scout or attack formation with at least one troop.", currentVersion);
+    }
+    if (kind === "scout" && (army.scout < 1 || TROOP_TYPES.some((troop) => troop !== "scout" && army[troop] > 0))) {
+      return this.reject(commandId, "INVALID_ARMY", "Scouting marches may contain scouts only.", currentVersion);
+    }
+    if (kind === "attack" && TROOP_TYPES.every((troop) => TROOPS[troop].attack === 0 || army[troop] === 0)) {
+      return this.reject(commandId, "INVALID_ARMY", "An attack needs at least one combat troop.", currentVersion);
+    }
+    if (kind === "attack" && !this.db.prepare("SELECT 1 FROM local_scout_reports WHERE kingdom_id = ? AND target_village_id = ? LIMIT 1").get(kingdomId, targetVillageId)) {
+      return this.reject(commandId, "SCOUT_REQUIRED", "Scout this village before committing an attack march.", currentVersion);
+    }
+    // The plan is chosen when the attack is DESIGNED (spec SS5: at the war
+    // table), not when it lands — otherwise an attack whose owner is offline
+    // on arrival has no orders to be fought under and strands forever.
+    if (launchPlan !== undefined && !isValidBattlePlan(launchPlan)) {
+      return this.reject(commandId, "INVALID_PLAN", "The attack plan contains an unknown order.", currentVersion);
+    }
+    const from = this.kingdomVillageRow(worldId, fromVillageId, kingdomId);
+    const target = this.db.prepare("SELECT * FROM local_villages WHERE id = ? AND world_id = ?").get(targetVillageId, worldId) as DbRow | undefined;
+    if (!from) return this.reject(commandId, "FORBIDDEN", "The player does not own the departure village.", currentVersion);
+    if (!target || String(target.kingdom_id) === kingdomId || targetVillageId === fromVillageId) {
+      return this.reject(commandId, "INVALID_TARGET", "Choose a foreign village in this world.", currentVersion);
+    }
+    const remaining = subtractArmy(parseJson<Army>(from.army_json), army);
+    if (!remaining) return this.reject(commandId, "INSUFFICIENT_TROOPS", "Those troops are not available in the departure village.", currentVersion);
+    const departedAt = this.now();
+    const distance = distanceBetween({ x: Number(from.x), y: Number(from.y) }, { x: Number(target.x), y: Number(target.y) });
+    // The army that marches decides the pace: a column moves at its slowest
+    // unit, so one Trebuchet drags a Crusader raid to a third of its speed.
+    const durationMs = this.marchDurationMs ?? marchDurationSeconds(distance, kind, army) * 1000;
+    const march: MarchState = {
+      id: `march-${randomUUID()}`,
+      worldId,
+      kingdomId,
+      fromVillageId,
+      targetVillageId,
+      kind,
+      status: "outbound",
+      army,
+      loot: { wood: 0, stone: 0, iron: 0 },
+      departedAt: departedAt.toISOString(),
+      arrivesAt: new Date(departedAt.getTime() + durationMs).toISOString(),
+      battleId: null,
+    };
+    this.db.prepare("UPDATE local_villages SET army_json = ?, state_version = state_version + 1 WHERE id = ?")
+      .run(JSON.stringify(remaining), fromVillageId);
+    this.db.prepare(`
+      INSERT INTO local_marches(id, world_id, kingdom_id, from_village_id, target_village_id, kind, status, army_json, loot_json, departed_at, arrives_at, battle_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+    `).run(march.id, march.worldId, march.kingdomId, march.fromVillageId, march.targetVillageId, march.kind, march.status, JSON.stringify(march.army), JSON.stringify(march.loot), march.departedAt, march.arrivesAt);
+    if (kind === "attack") {
+      // auto_resolve_at stays NULL until the march ARRIVES: the deadline is
+      // how long the attacker has at the walls, not how long the road is.
+      this.db.prepare("INSERT INTO local_march_plans(march_id, plan_json, auto_resolve_at) VALUES (?, ?, NULL)")
+        .run(march.id, JSON.stringify(launchPlan ?? UNPLANNED_ATTACK_PLAN));
+    }
+    const worldVersion = this.incrementWorldVersion(worldId);
+    published.push(this.insertEvent(worldId, worldVersion, "march.changed", { march, village: this.readVillage(fromVillageId) }));
+    return { type: "command.accepted", payload: { commandId, worldVersion, march } };
   }
 
   private applyWarCommand(
@@ -1127,67 +1285,14 @@ export class SharedWorldStore {
   ): CommandResult {
     const command = envelope.command;
     if (command.type === "march.launch") {
-      const { fromVillageId, targetVillageId, kind, army, plan: launchPlan } = command.payload;
-      if (!isValidArmy(army) || armyUnitCount(army) < 1 || !["scout", "attack"].includes(kind)) {
-        return this.reject(envelope.commandId, "INVALID_ARMY", "Send a valid scout or attack formation with at least one troop.", currentVersion);
-      }
-      if (kind === "scout" && (army.scout < 1 || TROOP_TYPES.some((troop) => troop !== "scout" && army[troop] > 0))) {
-        return this.reject(envelope.commandId, "INVALID_ARMY", "Scouting marches may contain scouts only.", currentVersion);
-      }
-      if (kind === "attack" && TROOP_TYPES.every((troop) => TROOPS[troop].attack === 0 || army[troop] === 0)) {
-        return this.reject(envelope.commandId, "INVALID_ARMY", "An attack needs at least one combat troop.", currentVersion);
-      }
-      if (kind === "attack" && !this.db.prepare("SELECT 1 FROM local_scout_reports WHERE kingdom_id = ? AND target_village_id = ? LIMIT 1").get(player.kingdomId, targetVillageId)) {
-        return this.reject(envelope.commandId, "SCOUT_REQUIRED", "Scout this village before committing an attack march.", currentVersion);
-      }
-      // The plan is chosen when the attack is DESIGNED (spec SS5: at the war
-      // table), not when it lands — otherwise an attack whose owner is offline
-      // on arrival has no orders to be fought under and strands forever.
-      if (launchPlan !== undefined && !isValidBattlePlan(launchPlan)) {
-        return this.reject(envelope.commandId, "INVALID_PLAN", "The attack plan contains an unknown order.", currentVersion);
-      }
-      const from = this.ownedVillageRow(player, envelope.worldId, fromVillageId);
-      const target = this.db.prepare("SELECT * FROM local_villages WHERE id = ? AND world_id = ?").get(targetVillageId, envelope.worldId) as DbRow | undefined;
-      if (!from) return this.reject(envelope.commandId, "FORBIDDEN", "The player does not own the departure village.", currentVersion);
-      if (!target || String(target.kingdom_id) === player.kingdomId || targetVillageId === fromVillageId) {
-        return this.reject(envelope.commandId, "INVALID_TARGET", "Choose a foreign village in this world.", currentVersion);
-      }
-      const remaining = subtractArmy(parseJson<Army>(from.army_json), army);
-      if (!remaining) return this.reject(envelope.commandId, "INSUFFICIENT_TROOPS", "Those troops are not available in the departure village.", currentVersion);
-      const departedAt = this.now();
-      const distance = distanceBetween({ x: Number(from.x), y: Number(from.y) }, { x: Number(target.x), y: Number(target.y) });
-      // The army that marches decides the pace: a column moves at its slowest
-      // unit, so one Trebuchet drags a Crusader raid to a third of its speed.
-      const durationMs = this.marchDurationMs ?? marchDurationSeconds(distance, kind, army) * 1000;
-      const march: MarchState = {
-        id: `march-${randomUUID()}`,
-        worldId: envelope.worldId,
-        kingdomId: player.kingdomId,
-        fromVillageId,
-        targetVillageId,
-        kind,
-        status: "outbound",
-        army,
-        loot: { wood: 0, stone: 0, iron: 0 },
-        departedAt: departedAt.toISOString(),
-        arrivesAt: new Date(departedAt.getTime() + durationMs).toISOString(),
-        battleId: null,
-      };
-      this.db.prepare("UPDATE local_villages SET army_json = ?, state_version = state_version + 1 WHERE id = ?")
-        .run(JSON.stringify(remaining), fromVillageId);
-      this.db.prepare(`
-        INSERT INTO local_marches(id, world_id, kingdom_id, from_village_id, target_village_id, kind, status, army_json, loot_json, departed_at, arrives_at, battle_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-      `).run(march.id, march.worldId, march.kingdomId, march.fromVillageId, march.targetVillageId, march.kind, march.status, JSON.stringify(march.army), JSON.stringify(march.loot), march.departedAt, march.arrivesAt);
-      if (kind === "attack") {
-        // auto_resolve_at stays NULL until the march ARRIVES: the deadline is
-        // how long the attacker has at the walls, not how long the road is.
-        this.db.prepare("INSERT INTO local_march_plans(march_id, plan_json, auto_resolve_at) VALUES (?, ?, NULL)")
-          .run(march.id, JSON.stringify(launchPlan ?? UNPLANNED_ATTACK_PLAN));
-      }
-      const worldVersion = this.incrementWorldVersion(envelope.worldId);
-      published.push(this.insertEvent(envelope.worldId, worldVersion, "march.changed", { march, village: this.readVillage(fromVillageId) }));
-      return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, march } };
+      return this.launchMarchCore(
+        player.kingdomId,
+        envelope.worldId,
+        envelope.commandId,
+        command.payload,
+        currentVersion,
+        published,
+      );
     }
 
     if (command.type === "battle.open") {
@@ -1285,19 +1390,32 @@ export class SharedWorldStore {
     currentVersion: number,
     published: StoredWorldEvent[],
   ): CommandResult {
-    if (!TROOP_TYPES.includes(payload.troop) || !Number.isInteger(payload.quantity) || payload.quantity < 1 || payload.quantity > 100) {
-      return this.reject(envelope.commandId, "INVALID_COMMAND", "Recruitment orders must contain 1–100 valid troops.", currentVersion);
-    }
     const villageRow = this.ownedVillageRow(player, envelope.worldId, payload.villageId);
     if (!villageRow) return this.reject(envelope.commandId, "FORBIDDEN", "The player does not own that village.", currentVersion);
+    return this.queueRecruitmentCore(envelope.worldId, payload, envelope.commandId, currentVersion, published);
+  }
+
+  private queueRecruitmentCore(
+    worldId: string,
+    payload: Extract<GameCommand, { type: "village.recruit.queue" }>["payload"],
+    commandId: string,
+    currentVersion: number,
+    published: StoredWorldEvent[],
+  ): CommandResult {
+    if (!TROOP_TYPES.includes(payload.troop) || !Number.isInteger(payload.quantity) || payload.quantity < 1 || payload.quantity > 100) {
+      return this.reject(commandId, "INVALID_COMMAND", "Recruitment orders must contain 1–100 valid troops.", currentVersion);
+    }
+    const villageRow = this.db.prepare("SELECT * FROM local_villages WHERE id = ? AND world_id = ?")
+      .get(payload.villageId, worldId) as DbRow | undefined;
+    if (!villageRow) return this.reject(commandId, "FORBIDDEN", "The player does not own that village.", currentVersion);
     if (this.db.prepare("SELECT 1 FROM local_recruitment_jobs WHERE village_id = ? AND status = 'queued'").get(payload.villageId)) {
-      return this.reject(envelope.commandId, "QUEUE_FULL", "That village already has an active recruitment order.", currentVersion);
+      return this.reject(commandId, "QUEUE_FULL", "That village already has an active recruitment order.", currentVersion);
     }
     const resources = parseJson<ResourceStock>(villageRow.resources_json);
     const buildings = parseJson<BuildingLevels>(villageRow.buildings_json);
     const army = parseJson<Army>(villageRow.army_json);
     const prerequisiteProblem = troopRequirementProblem(payload.troop, buildings);
-    if (prerequisiteProblem) return this.reject(envelope.commandId, "PREREQUISITE_MISSING", prerequisiteProblem, currentVersion);
+    if (prerequisiteProblem) return this.reject(commandId, "PREREQUISITE_MISSING", prerequisiteProblem, currentVersion);
     // CAVALRY IS CONVERTED, NOT TRAINED. [Adam] "the stables is to add horses to
     // the troops to create cavalry." A Crusader is a Berserker you already hold
     // plus a horse, so it costs the time spent on the soldier AND the time the
@@ -1321,7 +1439,7 @@ export class SharedWorldStore {
         const message = plan.shortfall === "horses"
           ? `Not enough horses. ${payload.quantity} ${TROOPS[payload.troop].plural} need ${payload.quantity}, and the Stable holds ${horses}.`
           : `Not enough ${TROOPS[conversion.from].plural}. ${payload.quantity} ${TROOPS[payload.troop].plural} need ${payload.quantity}, and the village holds ${army[conversion.from]}.`;
-        return this.reject(envelope.commandId, "INSUFFICIENT_TROOPS", message, currentVersion);
+        return this.reject(commandId, "INSUFFICIENT_TROOPS", message, currentVersion);
       }
       // The soldiers and horses are committed the moment the order is placed -
       // they are off the board, exactly like resources spent on training.
@@ -1331,10 +1449,10 @@ export class SharedWorldStore {
     }
 
     const cost = conversion ? { wood: 0, stone: 0, iron: 0 } : troopCost(payload.troop, payload.quantity);
-    if (!canAfford(resources, cost)) return this.reject(envelope.commandId, "INSUFFICIENT_RESOURCES", "The village cannot afford that recruitment order.", currentVersion);
+    if (!canAfford(resources, cost)) return this.reject(commandId, "INSUFFICIENT_RESOURCES", "The village cannot afford that recruitment order.", currentVersion);
     const usedPopulation = armyPopulation(army) + this.queuedPopulation(payload.villageId);
     if (usedPopulation + TROOPS[payload.troop].population * payload.quantity > populationCapacity(buildings.farm)) {
-      return this.reject(envelope.commandId, "POPULATION_FULL", "Upgrade the Farm before recruiting that many troops.", currentVersion);
+      return this.reject(commandId, "POPULATION_FULL", "Upgrade the Farm before recruiting that many troops.", currentVersion);
     }
     for (const kind of RESOURCE_KINDS) resources[kind] -= cost[kind];
     const startedAt = this.now();
@@ -1351,10 +1469,10 @@ export class SharedWorldStore {
     this.db.prepare(`
       INSERT INTO local_recruitment_jobs(id, world_id, village_id, troop, quantity, started_at, completes_at, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'queued')
-    `).run(job.id, envelope.worldId, job.villageId, job.troop, job.quantity, job.startedAt, job.completesAt);
-    const worldVersion = this.incrementWorldVersion(envelope.worldId);
-    published.push(this.insertEvent(envelope.worldId, worldVersion, "recruitment.queued", { villageId: payload.villageId, recruitmentJob: job }));
-    return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, recruitmentJob: job } };
+    `).run(job.id, worldId, job.villageId, job.troop, job.quantity, job.startedAt, job.completesAt);
+    const worldVersion = this.incrementWorldVersion(worldId);
+    published.push(this.insertEvent(worldId, worldVersion, "recruitment.queued", { villageId: payload.villageId, recruitmentJob: job }));
+    return { type: "command.accepted", payload: { commandId, worldVersion, recruitmentJob: job } };
   }
 
   private queueResearch(
@@ -2262,6 +2380,12 @@ export class SharedWorldStore {
       JOIN local_kingdoms k ON k.id = v.kingdom_id
       WHERE v.id = ? AND v.world_id = ? AND k.controller_player_id = ?
     `).get(villageId, worldId, player.id) as DbRow | undefined;
+  }
+
+  private kingdomVillageRow(worldId: string, villageId: string, kingdomId: string): DbRow | undefined {
+    return this.db.prepare(`
+      SELECT * FROM local_villages WHERE id = ? AND world_id = ? AND kingdom_id = ?
+    `).get(villageId, worldId, kingdomId) as DbRow | undefined;
   }
 
   private updateVillageResources(villageId: string, resources: ResourceStock): void {

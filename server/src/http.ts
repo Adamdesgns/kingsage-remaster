@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
+import { scheduleAiKingdomTick } from "./ai.ts";
 import { SharedWorldStore, StoreError, type SessionPlayer } from "./store.ts";
 import { GAME_CONTRACT_VERSION, makeCommandEnvelope, type CommandEnvelope, type GameCommand } from "../../packages/game-core/src/contracts.ts";
 
@@ -108,10 +109,12 @@ function serveStatic(response: ServerResponse, staticRoot: string, pathname: str
 export function createWorldHttpServer(options: ServerOptions): {
   server: Server;
   close: () => Promise<void>;
+  aiTickScheduled: boolean;
 } {
   const { store, staticRoot } = options;
   const materializeTimer = setInterval(() => store.materializeDueJobs(), options.materializeIntervalMs ?? 500);
   materializeTimer.unref();
+  const aiTickTimer = scheduleAiKingdomTick(store);
 
   const server = createServer(async (request, response) => {
     try {
@@ -280,8 +283,10 @@ export function createWorldHttpServer(options: ServerOptions): {
     server,
     close: () => new Promise((resolveClose, rejectClose) => {
       clearInterval(materializeTimer);
+      if (aiTickTimer) clearInterval(aiTickTimer);
       server.close((error) => error ? rejectClose(error) : resolveClose());
       server.closeAllConnections();
     }),
+    aiTickScheduled: aiTickTimer !== undefined,
   };
 }
