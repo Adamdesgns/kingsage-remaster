@@ -392,6 +392,38 @@ if buildingsModule and buildingsModule:IsA("ModuleScript") then
 	end
 end
 
+-- Week 2.1 field dressing is a pure shared spec (same pattern as Buildings):
+-- evidence can count it without a live battle, which a client-only folder
+-- would hide from this server script.
+local dressingModule = sharedFolder and sharedFolder:FindFirstChild("BattlefieldDressing")
+check("WorldShared.BattlefieldDressing exists", dressingModule ~= nil)
+if dressingModule and dressingModule:IsA("ModuleScript") then
+	local okDressing, Dressing = pcall(require, dressingModule)
+	check("BattlefieldDressing module loads", okDressing, tostring(Dressing))
+	if okDressing and typeof(Dressing) == "table" then
+		local groundN, bannerN, combinedN = Dressing.counts()
+		check("battlefield dressing ≤120 parts",
+			typeof(groundN) == "number" and groundN > 0 and groundN <= 120, tostring(groundN))
+		check("squad banners ≤9 parts",
+			typeof(bannerN) == "number" and bannerN > 0 and bannerN <= 9, tostring(bannerN))
+		check("dressing + banners ≤129 parts",
+			typeof(combinedN) == "number" and combinedN <= 129, tostring(combinedN))
+		local unanchored, scripted = 0, 0
+		for _, list in { Dressing.groundSpecs(), Dressing.allBannerSpecs() } do
+			for _, part in list do
+				if part.anchored ~= true then
+					unanchored += 1
+				end
+				if part.className == "Script" or part.className == "LocalScript" then
+					scripted += 1
+				end
+			end
+		end
+		check("every dressing/banner spec is anchored", unanchored == 0, tostring(unanchored))
+		check("no dressing/banner spec is a script", scripted == 0, tostring(scripted))
+	end
+end
+
 print(string.format("[EVIDENCE] ---- automated: %d PASS, %d FAIL ----", pass, fail))
 print([[
 [EVIDENCE] BY-HAND CHECKLIST (docs/superpowers/drills-slice-one.md has full steps):

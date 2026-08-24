@@ -24,6 +24,7 @@ local RunService = game:GetService("RunService")
 
 local worldShared = ReplicatedStorage:WaitForChild("WorldShared")
 local BattleConfig = require(worldShared:WaitForChild("BattleConfig"))
+local BattlefieldDressing = require(worldShared:WaitForChild("BattlefieldDressing"))
 local Config = require(worldShared:WaitForChild("Config"))
 
 local BattleScene = {}
@@ -46,12 +47,22 @@ type Block = {
 	home: Vector3,
 }
 
+-- One 3-part banner per orderable squad. Moved by the scene tick (BulkMoveTo),
+-- never by a Script on the instance. Anchored, like the soldiers.
+type Banner = {
+	squadId: string,
+	parts: { BasePart },
+	offsets: { CFrame },
+	root: CFrame,
+}
+
 local state: {
 	battleId: string?,
 	seed: string,
 	status: string,
 	folder: Folder?,
 	blocks: { Block },
+	banners: { Banner },
 	order: { Soldier }, -- deterministic cull/casualty order, per side
 	casualtyOrder: { [string]: { Soldier } },
 	center: Vector3,
@@ -95,6 +106,57 @@ local function makePart(
 	part.Shape = shape or Enum.PartType.Block
 	part.Parent = parent
 	return part
+end
+
+local MATERIALS: { [string]: Enum.Material } = {
+	Grass = Enum.Material.Grass,
+	Ground = Enum.Material.Ground,
+	Cobblestone = Enum.Material.Cobblestone,
+	WoodPlanks = Enum.Material.WoodPlanks,
+	Fabric = Enum.Material.Fabric,
+	Metal = Enum.Material.Metal,
+	Slate = Enum.Material.Slate,
+	SmoothPlastic = Enum.Material.SmoothPlastic,
+}
+
+local SHAPES: { [string]: Enum.PartType } = {
+	Block = Enum.PartType.Block,
+	Ball = Enum.PartType.Ball,
+	Cylinder = Enum.PartType.Cylinder,
+}
+
+local function placeSpec(spec: any, origin: CFrame, parent: Instance, tint: Color3?): BasePart
+	local colour = if spec.tint == "squad" and tint
+		then tint
+		else Color3.fromRGB(spec.r, spec.g, spec.b)
+	local part = makePart(
+		Vector3.new(spec.sx, spec.sy, spec.sz),
+		colour,
+		parent,
+		MATERIALS[spec.material] or Enum.Material.SmoothPlastic,
+		SHAPES[spec.shape] or Enum.PartType.Block
+	)
+	part.Name = spec.name
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	part.CFrame = origin * CFrame.new(spec.ox, spec.oy, spec.oz) * CFrame.Angles(spec.rx, spec.ry, spec.rz)
+	return part
+end
+
+-- WarTable-style construction audit: count, anchored, zero scripts, no Humanoids.
+local function assertPropFolder(folder: Instance, budget: number, label: string): number
+	local count = 0
+	for _, inst in folder:GetDescendants() do
+		if inst:IsA("BasePart") then
+			count += 1
+			assert(inst.Anchored, label .. " part is unanchored: " .. inst.Name)
+		end
+		assert(not inst:IsA("Script"), label .. " has a Script: " .. inst.Name)
+		assert(not inst:IsA("LocalScript"), label .. " has a LocalScript: " .. inst.Name)
+		assert(not inst:IsA("Humanoid"), label .. " has a Humanoid: " .. inst.Name)
+	end
+	assert(count <= budget, string.format("%s exceeded its visual part budget: %d", label, count))
+	return count
 end
 
 -- Six parts remain the hard budget for every soldier. We spend the fourth part
@@ -427,9 +489,114 @@ local function tick(dt: number)
 		end
 	end
 
+	for _, banner in scene.banners do
+		local followed = false
+		for _, block in scene.blocks do
+			if block.side == "attacker" and block.squadId == banner.squadId then
+				for _, soldier in block.soldiers do
+					if soldier.alive then
+						-- Left-rear flank of the file, outside the bodies.
+						banner.root = soldier.root * CFrame.new(-9, 0, 3)
+						followed = true
+						break
+					end
+				end
+				if followed then
+					break
+				end
+			end
+		end
+		for index, part in banner.parts do
+			table.insert(parts, part)
+			table.insert(cframes, banner.root * banner.offsets[index])
+		end
+	end
+
 	if #parts > 0 then
 		workspace:BulkMoveTo(parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)
 	end
+end
+
+-- ---------------------------------------------------------------------------
+-- week 2.1 dressing + banners (movie only; zero scripts on the instances)
+-- ---------------------------------------------------------------------------
+
+local function buildFieldDressing(center: Vector3, parent: Folder): number
+	local dressing = Instance.new("Folder")
+	dressing.Name = "FieldDressing"
+	dressing:SetAttribute("VisualPartBudget", BattlefieldDressing.BUDGET.GROUND)
+	dressing.Parent = parent
+
+	local origin = CFrame.new(center)
+	local placed = 0
+	for _, partSpec in BattlefieldDressing.groundSpecs() do
+		placed += 1
+		assert(placed <= BattlefieldDressing.BUDGET.GROUND, "battlefield dressing exceeded its visual part budget")
+		placeSpec(partSpec, origin, dressing)
+	end
+	local counted = assertPropFolder(dressing, BattlefieldDressing.BUDGET.GROUND, "FieldDressing")
+	dressing:SetAttribute("VisualPartCount", counted)
+	return counted
+end
+
+local function defaultAttackerHome(center: Vector3, squadId: string): Vector3
+	local lineZ = BattleConfig.FIELD_DEPTH / 2
+	local lane = if squadId == "archers" then -14 else 0
+	local laneX = 0
+	if squadId == "riders" then
+		laneX = 32
+	elseif squadId == "archers" then
+		laneX = -24
+	end
+	return center + Vector3.new(laneX, 0, lineZ - lane)
+end
+
+local function bannerHome(center: Vector3, squadId: string, blocks: { Block }): Vector3
+	for _, block in blocks do
+		if block.side == "attacker" and block.squadId == squadId then
+			local side = if block.home.X >= center.X then 10 else -10
+			if math.abs(block.home.X - center.X) < 1 then
+				side = -10
+			end
+			return block.home + Vector3.new(side, 0, 6)
+		end
+	end
+	return defaultAttackerHome(center, squadId) + Vector3.new(-10, 0, 6)
+end
+
+local function buildSquadBanners(center: Vector3, blocks: { Block }, parent: Folder): ({ Banner }, number)
+	local bannersFolder = Instance.new("Folder")
+	bannersFolder.Name = "SquadBanners"
+	bannersFolder:SetAttribute("VisualPartBudget", BattlefieldDressing.BUDGET.BANNERS)
+	bannersFolder.Parent = parent
+
+	local banners: { Banner } = {}
+	local placed = 0
+	for _, squad in BattleConfig.SQUADS do
+		local squadFolder = Instance.new("Folder")
+		squadFolder.Name = squad.label .. "Banner"
+		squadFolder.Parent = bannersFolder
+
+		local root = CFrame.new(bannerHome(center, squad.id, blocks)) * CFrame.Angles(0, math.pi, 0)
+		local parts: { BasePart } = {}
+		local offsets: { CFrame } = {}
+		for _, partSpec in BattlefieldDressing.bannerSpecsForSquad(squad.id) do
+			placed += 1
+			assert(placed <= BattlefieldDressing.BUDGET.BANNERS, "squad banners exceeded their visual part budget")
+			local part = placeSpec(partSpec, root, squadFolder, squad.color)
+			table.insert(parts, part)
+			table.insert(offsets, CFrame.new(partSpec.ox, partSpec.oy, partSpec.oz) * CFrame.Angles(partSpec.rx, partSpec.ry, partSpec.rz))
+		end
+		table.insert(banners, {
+			squadId = squad.id,
+			parts = parts,
+			offsets = offsets,
+			root = root,
+		})
+	end
+	local counted = assertPropFolder(bannersFolder, BattlefieldDressing.BUDGET.BANNERS, "SquadBanners")
+	bannersFolder:SetAttribute("VisualPartCount", counted)
+	return banners, counted
 end
 
 -- ---------------------------------------------------------------------------
@@ -485,15 +652,11 @@ function BattleScene.start(battle: any, village: any): boolean
 
 	local folder = Instance.new("Folder")
 	folder.Name = "BattleScene"
+	folder:SetAttribute("DressingPartBudget", BattlefieldDressing.BUDGET.GROUND)
+	folder:SetAttribute("BannerPartBudget", BattlefieldDressing.BUDGET.BANNERS)
 	folder.Parent = workspace
 
-	local ground = makePart(
-		Vector3.new(BattleConfig.FIELD_WIDTH + 80, 1, BattleConfig.FIELD_DEPTH + 80),
-		Color3.fromRGB(96, 104, 74),
-		folder
-	)
-	ground.Material = Enum.Material.Grass
-	ground.CFrame = CFrame.new(center - Vector3.new(0, 0.5, 0))
+	local dressingCount = buildFieldDressing(center, folder)
 
 	local random = Random.new(seedNumber(tostring(battle.seed or battle.id or "battle")))
 
@@ -535,12 +698,21 @@ function BattleScene.start(battle: any, village: any): boolean
 		table.insert(cullOrder, soldier)
 	end
 
+	local banners, bannerCount = buildSquadBanners(center, blocks, folder)
+	folder:SetAttribute("DressingPartCount", dressingCount)
+	folder:SetAttribute("BannerPartCount", bannerCount)
+	assert(
+		dressingCount + bannerCount <= BattlefieldDressing.BUDGET.COMBINED,
+		"battlefield dressing + banners exceeded the combined part budget"
+	)
+
 	state = {
 		battleId = tostring(battle.id),
 		seed = tostring(battle.seed or ""),
 		status = tostring(battle.status),
 		folder = folder,
 		blocks = blocks,
+		banners = banners,
 		order = cullOrder,
 		casualtyOrder = { attacker = attackerRoster, defender = defenderRoster },
 		center = center,

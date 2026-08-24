@@ -308,6 +308,160 @@ check("the server entry point cannot be killed by styling", (function(): boolean
 	return string.find(source, "pcall") ~= nil
 end)())
 
+-- ---- week 2.1 battlefield dressing + squad banners (analytic part budget) ----
+-- Same gate as WarTable / streetscape: a counted spec, a hard ceiling, and a
+-- test that fails if the movie is deleted or grows past the phone budget.
+
+local BattlefieldDressing = loadModule("roblox/src/shared/BattlefieldDressing.luau")
+local groundParts = BattlefieldDressing.groundSpecs()
+local bannerParts = BattlefieldDressing.allBannerSpecs()
+local groundCount, bannerCount, combinedCount = BattlefieldDressing.counts()
+
+check("battlefield dressing budget is the locked 120/9/129",
+	BattlefieldDressing.BUDGET.GROUND == 120
+		and BattlefieldDressing.BUDGET.BANNERS == 9
+		and BattlefieldDressing.BUDGET.COMBINED == 129)
+
+check("counts() matches the spec lists",
+	groundCount == #groundParts and bannerCount == #bannerParts and combinedCount == groundCount + bannerCount,
+	string.format("ground=%d banners=%d combined=%d", groundCount, bannerCount, combinedCount))
+
+check("field dressing is present and within 120 parts",
+	groundCount > 0 and groundCount <= 120,
+	tostring(groundCount))
+
+check("squad banners are 3 squads × 3 parts (≤9)",
+	bannerCount == 9 and bannerCount <= 9,
+	tostring(bannerCount))
+
+check("dressing + banners stay within 129 parts",
+	combinedCount <= 129,
+	tostring(combinedCount))
+
+check("every dressing and banner spec is an anchored Part with no collision", (function(): boolean
+	for _, list in { groundParts, bannerParts } do
+		for _, part in list do
+			if part.className ~= "Part" or part.anchored ~= true or part.canCollide ~= false then
+				return false
+			end
+		end
+	end
+	return true
+end)())
+
+check("no dressing or banner spec is a script or Humanoid", (function(): boolean
+	for _, list in { groundParts, bannerParts } do
+		for _, part in list do
+			local className = part.className
+			if className == "Script" or className == "LocalScript" or className == "Humanoid" then
+				return false
+			end
+		end
+	end
+	return true
+end)())
+
+check("each orderable squad carries a 3-part tinted banner", (function(): boolean
+	for _, squadId in BattlefieldDressing.SQUAD_IDS do
+		local specs = BattlefieldDressing.bannerSpecsForSquad(squadId)
+		if #specs ~= 3 then
+			return false
+		end
+		local hasCloth = false
+		for _, part in specs do
+			if part.squadId ~= squadId or part.group ~= "banner" or part.anchored ~= true then
+				return false
+			end
+			if part.tint == "squad" then
+				hasCloth = true
+			end
+		end
+		if not hasCloth then
+			return false
+		end
+	end
+	return #BattlefieldDressing.SQUAD_IDS == 3
+end)())
+
+check("cobble road runs toward the defender gate", (function(): boolean
+	for _, part in groundParts do
+		if part.name == "ApproachRoad" then
+			return part.kind == "road" and part.sz > part.sx and math.abs(part.ox) < 1 and part.material == "Cobblestone"
+		end
+	end
+	return false
+end)())
+
+check("dressing has grass, shoulder dirt, trees and rocks", (function(): boolean
+	local kinds: { [string]: number } = {}
+	local trunks = 0
+	for _, part in groundParts do
+		kinds[part.kind] = (kinds[part.kind] or 0) + 1
+		if part.kind == "tree" and string.find(part.name, "Trunk") then
+			trunks += 1
+		end
+	end
+	return (kinds.grass or 0) >= 1
+		and (kinds.dirt or 0) >= 2
+		and (kinds.road or 0) >= 1
+		and trunks >= 4 and trunks <= 8
+		and (kinds.rock or 0) >= 8
+end)())
+
+check("trees and rocks sit at field edges, not in the fight", (function(): boolean
+	for _, part in groundParts do
+		if part.kind == "tree" or part.kind == "rock" then
+			if not BattlefieldDressing.isEdgeProp(part) then
+				return false
+			end
+			if math.abs(part.ox) < BattlefieldDressing.FIGHT_HALF_X
+				and math.abs(part.oz) < BattlefieldDressing.FIGHT_HALF_Z then
+				return false
+			end
+		end
+	end
+	return true
+end)())
+
+check("BattleScene consumes BattlefieldDressing and asserts the budget", (function(): boolean
+	local source = fs.readFile("roblox/src/client/BattleScene.luau")
+	return string.find(source, 'WaitForChild%("BattlefieldDressing"%)') ~= nil
+		and string.find(source, "BUDGET.GROUND") ~= nil
+		and string.find(source, "BUDGET.BANNERS") ~= nil
+		and string.find(source, "FieldDressing") ~= nil
+		and string.find(source, "SquadBanners") ~= nil
+end)())
+
+check("BattleScene never parents scripts onto dressing or banners", (function(): boolean
+	local source = fs.readFile("roblox/src/client/BattleScene.luau")
+	return string.find(source, 'Instance%.new%("Script"%)') == nil
+		and string.find(source, 'Instance%.new%("LocalScript"%)') == nil
+		and string.find(source, 'Instance%.new%("Humanoid"%)') == nil
+end)())
+
+check("dressing palette is locked to WorldStyle", (function(): boolean
+	local worldStyle = fs.readFile("roblox/src/server/WorldStyle.luau")
+	local locks = {
+		"grass%s+=%s+Color3.fromRGB%(104, 130, 74%)",
+		"dirt%s+=%s+Color3.fromRGB%(126, 104, 78%)",
+		"cobbleLight%s+=%s+Color3.fromRGB%(170, 158, 136%)",
+		"pathEdge%s+=%s+Color3.fromRGB%(108, 92, 72%)",
+		"foliage%s+=%s+Color3.fromRGB%(67, 104, 55%)",
+		"timber%s+=%s+Color3.fromRGB%(92, 66, 44%)",
+		"bannerGold%s+=%s+Color3.fromRGB%(204, 164, 82%)",
+	}
+	for _, pattern in locks do
+		if not string.find(worldStyle, pattern) then
+			return false
+		end
+	end
+	-- The dressing module must actually USE those numbers, not just sit next to them.
+	local dressing = fs.readFile("roblox/src/shared/BattlefieldDressing.luau")
+	return string.find(dressing, "104, 130, 74") ~= nil
+		and string.find(dressing, "170, 158, 136") ~= nil
+		and string.find(dressing, "92, 66, 44") ~= nil
+end)())
+
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then
 	process.exit(1)
