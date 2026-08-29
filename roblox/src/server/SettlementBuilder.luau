@@ -1368,7 +1368,10 @@ local function renderBuilding(container: Model, origin: CFrame, villageId: strin
 
 	local partCount = 0
 	for _, descendant in model:GetDescendants() do
-		if descendant:IsA("BasePart") then
+		-- The market row carries its OWN Lune-audited budget (MarketRowSpec,
+		-- asserted at placement); counting it here too would either trip this
+		-- gate or force every building's cap up to cover one street's stalls.
+		if descendant:IsA("BasePart") and descendant:GetAttribute("MarketRow") ~= true then
 			partCount += 1
 		end
 	end
