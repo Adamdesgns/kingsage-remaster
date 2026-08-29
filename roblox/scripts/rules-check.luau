@@ -853,6 +853,43 @@ check("the villager renderer draws only what VillagerSpec counts", (function()
 		and string.find(villagers, "Instance%.new%(\"Part\"%)") == nil
 end)())
 
+local marketOk, MarketRowSpec = pcall(loadModule, "roblox/src/shared/MarketRowSpec.luau")
+
+check("the market row stays inside its 120-part budget with three real stalls", (function()
+	if not marketOk then
+		return false
+	end
+	local parts = MarketRowSpec.parts()
+	if #parts > 120 or #parts > MarketRowSpec.BUDGET then
+		return false
+	end
+	-- Three stalls, hanging goods and a bread rack must all actually exist -
+	-- an empty spec passing a budget gate would be the classic silent lie.
+	local stalls: { [string]: boolean } = {}
+	local hasHanging = false
+	local hasBreadRack = false
+	for _, spec in parts do
+		local stall = string.match(spec.name, "^Stall(%d)")
+		if stall then
+			stalls[stall] = true
+		end
+		if string.find(spec.name, "Hanging") then
+			hasHanging = true
+		end
+		if string.find(spec.name, "BreadRack") or string.find(spec.name, "RackLoaf") then
+			hasBreadRack = true
+		end
+	end
+	return stalls["1"] == true and stalls["2"] == true and stalls["3"] == true
+		and hasHanging and hasBreadRack
+end)())
+
+check("SettlementBuilder dresses the market street from MarketRowSpec, audited", (function()
+	local builder = fs.readFile("roblox/src/server/SettlementBuilder.luau")
+	return string.find(builder, "MarketRowSpec%.parts") ~= nil
+		and string.find(builder, "MarketRowSpec%.BUDGET") ~= nil
+end)())
+
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then
 	process.exit(1)

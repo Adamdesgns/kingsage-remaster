@@ -13,6 +13,7 @@ local ServerStorage = game:GetService("ServerStorage")
 local worldShared = ReplicatedStorage:WaitForChild("WorldShared")
 local Buildings = require(worldShared:WaitForChild("Buildings"))
 local Config = require(worldShared:WaitForChild("Config"))
+local MarketRowSpec = require(worldShared:WaitForChild("MarketRowSpec"))
 local WorldStyle = require(script.Parent:WaitForChild("WorldStyle"))
 local PALETTE = WorldStyle.PALETTE
 local MATERIAL = WorldStyle.MATERIAL
@@ -893,12 +894,33 @@ local function decorateBuilding(
 		add("HQShield", Vector3.new(5, 6, 0.6), CFrame.new(0, h * 0.58, d / 2 + 1.3), PALETTE.bannerGold, MATERIAL.iron)
 	elseif building == "market" then
 		add("MarketAwning", Vector3.new(w * 0.72, 1, 10), CFrame.new(0, 7, front - 3), PALETTE.bannerGold, MATERIAL.cloth)
-		for _, sx in { -1, 1 } do
-			add("MarketStall", Vector3.new(12, 3, 5), CFrame.new(sx * 10, 1.5, front + 2), PALETTE.timber, MATERIAL.timber)
+		-- The dressed street face (slice 4): three trade stalls, hanging
+		-- goods and the bread rack, from the shared Lune-audited spec.
+		-- Deliberately outside the 8-part semantic cap - the row carries its
+		-- OWN budget, asserted here so Studio can never draw more than the
+		-- gate counted.
+		local rowMaterials: { [string]: Enum.Material } = {
+			WoodPlanks = Enum.Material.WoodPlanks,
+			Fabric = Enum.Material.Fabric,
+			SmoothPlastic = Enum.Material.SmoothPlastic,
+		}
+		local rowCount = 0
+		for _, rowSpec in MarketRowSpec.parts() do
+			rowCount += 1
+			assert(rowCount <= MarketRowSpec.BUDGET, "the market row exceeded its visual part budget")
+			local made = WorldStyle.part(
+				rowSpec.name,
+				Vector3.new(rowSpec.sx, rowSpec.sy, rowSpec.sz),
+				root * CFrame.new(rowSpec.ox, rowSpec.oy, rowSpec.oz) * CFrame.Angles(rowSpec.rx, rowSpec.ry, rowSpec.rz),
+				model,
+				Color3.fromRGB(rowSpec.r, rowSpec.g, rowSpec.b),
+				rowMaterials[rowSpec.material] or Enum.Material.WoodPlanks
+			)
+			made:SetAttribute("MarketRow", true)
+			decorative(made)
 		end
-		for index = -1, 1 do
-			add("MarketCrate", Vector3.new(3.5, 3.5, 3.5), CFrame.new(index * 5, 1.75, front + 7), PALETTE.timberLight, MATERIAL.timber)
-		end
+		model:SetAttribute("MarketRowPartCount", rowCount)
+		model:SetAttribute("MarketRowPartBudget", MarketRowSpec.BUDGET)
 	elseif building == "warehouse" then
 		add("LoadingCanopy", Vector3.new(w * 0.65, 1, 8), CFrame.new(0, 8, front - 3), PALETTE.roofTile, MATERIAL.roof)
 		for index = -1, 1 do
