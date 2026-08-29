@@ -1,6 +1,6 @@
 # Slice 0 — the 200-troop phone measure
 
-**Status: instrument READY, measurement NOT TAKEN.**
+**Status: instrument PUBLISHED (private, 2026-08-28) and verified on desktop — phone measurement NOT TAKEN.**
 Created 2026-08-24. `BattleConfig.MAX_SOLDIERS` is still an unmeasured guess
 until the results table at the bottom has a dated row in it.
 
@@ -117,8 +117,14 @@ evidence; it does not rescue a broken build.
 
 | Date | Device | Soldiers | Parts | avg fps | worst-1% | In contact? | Verdict |
 |---|---|---|---|---|---|---|---|
-| _(none yet)_ | | | | | | | |
+| 2026-08-28 | **DESKTOP — Adam's Alienware PC, Studio F5 (does NOT satisfy Slice 0)** | 200 | 1200 | 60.0 | 19 ms | YES | PASS — holds 30 fps at 200 soldiers |
+| _(phone: none yet)_ | | | | | | | |
 
-> The instrument was built 2026-08-24 and its gates pass, but **nobody has read
-> it on a phone yet.** Until a dated row sits above, every visual number in this
-> project is still a guess, and this file must not be cited as a PASS.
+> **Phone rows only** satisfy Slice 0. The desktop row above is the first
+> human-eyes verification that the instrument works (armies in mail and spears
+> marched, clashed, took casualties 200→76, meter read throughout) — recorded
+> per the rule that a Studio number may appear only in a row clearly labeled
+> desktop. Published private as **TroopSpike** on Dadisaking86 the same day;
+> Keegan/Orion/Aria invited as collaborators (pending their acceptance).
+> Until a dated PHONE row sits above, every visual number in this project is
+> still a guess, and this file must not be cited as a PASS.
