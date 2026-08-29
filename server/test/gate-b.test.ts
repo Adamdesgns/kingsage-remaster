@@ -230,6 +230,39 @@ test("the HTTP boundary keeps two cookie sessions isolated and streams committed
     const eventsResponse = await fetch(`${base}/api/world/events?since=${firstSnapshot.world.version}`, { headers: { Cookie: secondCookie } });
     const events = await eventsResponse.json() as any;
     assert.equal(events.events.at(-1)?.type, "village.changed");
+    // Delivered, but wearing the same fog as the snapshot: watching the wire
+    // must not be free scouting (audit finding 8.2).
+    const foreignView = events.events.at(-1).payload;
+    assert.equal(foreignView.constructionJob, undefined, "a rival's build order is not broadcast");
+    assert.equal(foreignView.village.buildings.barracks, 0, "building levels are fogged on the wire");
+    assert.deepEqual(foreignView.village.resources, { wood: 0, stone: 0, iron: 0 }, "resources are fogged on the wire");
+
+    // The owner reading the same events sees their own truth.
+    const ownEventsResponse = await fetch(`${base}/api/world/events?since=${firstSnapshot.world.version}`, { headers: { Cookie: firstCookie } });
+    const ownEvents = await ownEventsResponse.json() as any;
+    const ownView = ownEvents.events.at(-1).payload;
+    assert.ok(ownView.constructionJob, "the owner still sees their build order");
+    assert.ok(ownView.village.buildings.barracks > 0, "and their true building levels");
+
+    // Private events never reach a rival at all.
+    const recruit = makeCommandEnvelope({
+      commandId: "http-recruit-command",
+      worldId: firstSnapshot.world.id,
+      actorPlayerId: firstSnapshot.player.id,
+      expectedWorldVersion: (await (await fetch(`${base}/api/world/snapshot`, { headers: { Cookie: firstCookie } })).json() as any).world.version,
+      issuedAt: new Date().toISOString(),
+      command: { type: "village.recruit.queue", payload: { villageId: village.id, troop: "spear", quantity: 1 } },
+    });
+    const recruitResponse = await fetch(`${base}/api/world/commands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: firstCookie },
+      body: JSON.stringify(recruit),
+    });
+    assert.equal(recruitResponse.status, 200, await recruitResponse.clone().text());
+    const rivalAfter = await (await fetch(`${base}/api/world/events?since=0`, { headers: { Cookie: secondCookie } })).json() as any;
+    assert.ok(!rivalAfter.events.some((e: any) => e.type === "recruitment.queued"), "a rival never hears a recruitment order");
+    const ownAfter = await (await fetch(`${base}/api/world/events?since=0`, { headers: { Cookie: firstCookie } })).json() as any;
+    assert.ok(ownAfter.events.some((e: any) => e.type === "recruitment.queued"), "the owner still does");
 
     const abort = new AbortController();
     const streamResponse = await fetch(`${base}/api/world/stream?since=${firstSnapshot.world.version}`, {

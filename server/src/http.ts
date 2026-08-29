@@ -192,7 +192,7 @@ export function createWorldHttpServer(options: ServerOptions): {
         const player = authenticate(request, store);
         const snapshot = store.getSnapshot(player);
         const since = Math.max(0, Number(url.searchParams.get("since") ?? 0) || 0);
-        json(response, 200, { events: store.readEvents(snapshot.world.id, since), currentWorldVersion: snapshot.world.version });
+        json(response, 200, { events: store.readEvents(snapshot.world.id, since, player.kingdomId), currentWorldVersion: snapshot.world.version });
         return;
       }
 
@@ -207,10 +207,13 @@ export function createWorldHttpServer(options: ServerOptions): {
           "X-Accel-Buffering": "no",
         });
         const send = (event: unknown) => response.write(`data: ${JSON.stringify(event)}\n\n`);
-        for (const event of store.readEvents(snapshot.world.id, since)) send(event);
+        for (const event of store.readEvents(snapshot.world.id, since, player.kingdomId)) send(event);
         response.write(`event: ready\ndata: ${JSON.stringify({ worldVersion: snapshot.world.version })}\n\n`);
         const unsubscribe = store.subscribe((event) => {
-          if (event.worldId === snapshot.world.id) send(event);
+          if (event.worldId !== snapshot.world.id) return;
+          // Live pushes wear the same per-reader fog as the replay above.
+          const visible = store.filterEventForKingdom(event, player.kingdomId);
+          if (visible) send(visible);
         });
         const keepAlive = setInterval(() => response.write(": keep-alive\n\n"), 15_000);
         request.on("close", () => {

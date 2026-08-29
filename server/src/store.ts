@@ -953,8 +953,8 @@ export class SharedWorldStore {
     };
   }
 
-  readEvents(worldId: string, sinceVersion: number): StoredWorldEvent[] {
-    return (this.db.prepare(`
+  readEvents(worldId: string, sinceVersion: number, forKingdomId?: string): StoredWorldEvent[] {
+    const events = (this.db.prepare(`
       SELECT world_id, world_version, event_sequence, event_type, payload_json, created_at
       FROM local_world_events
       WHERE world_id = ? AND world_version > ?
@@ -967,6 +967,94 @@ export class SharedWorldStore {
       payload: parseJson(row.payload_json),
       createdAt: String(row.created_at),
     }));
+    if (!forKingdomId) return events;
+    return events
+      .map((event) => this.filterEventForKingdom(event, forKingdomId))
+      .filter((event): event is StoredWorldEvent => event !== null);
+  }
+
+  /**
+   * The event stream wears the same fog as the snapshot (audit finding 8.2:
+   * before this, /api/world/events?since=0 handed any session every rival's
+   * exact resources, buildings, army and march timings - the entire premise
+   * of scouting, free).
+   *
+   * Private events (marches, scout reports, queue orders, battles you are
+   * not part of) are dropped for other readers; public ones pass with any
+   * embedded village fogged and foreign job details stripped. Consumers
+   * already tolerate version gaps - the snapshot is the authority.
+   */
+  filterEventForKingdom(event: StoredWorldEvent, kingdomId: string): StoredWorldEvent | null {
+    const payload = event.payload as Record<string, unknown> | null;
+    if (!payload || typeof payload !== "object") return event;
+
+    switch (event.type) {
+      case "chat.message":
+      case "kingdom.claimed":
+        return event;
+
+      case "village.changed":
+      case "recruitment.completed":
+      case "troop.level.changed": {
+        const village = payload.village as VillageState | undefined;
+        if (!village || village.kingdomId === kingdomId) return event;
+        // Foreign: the village is fogged and the job/message details
+        // (which name the building or troop) do not travel.
+        return { ...event, payload: { village: this.fogVillageForKingdom(village, kingdomId) } };
+      }
+
+      case "march.changed":
+      case "march.arrived":
+      case "march.completed": {
+        const march = payload.march as { kingdomId?: string } | undefined;
+        return march?.kingdomId === kingdomId ? event : null;
+      }
+
+      case "recruitment.queued": {
+        const villageId = String(payload.villageId ?? "");
+        return this.villageOwnerKingdomId(villageId) === kingdomId ? event : null;
+      }
+
+      case "research.queued": {
+        const job = payload.researchJob as { kingdomId?: string } | undefined;
+        return job?.kingdomId === kingdomId ? event : null;
+      }
+
+      case "scout.report.ready": {
+        const report = payload.report as { kingdomId?: string } | undefined;
+        return report?.kingdomId === kingdomId ? event : null;
+      }
+
+      case "battle.started":
+      case "battle.retreated":
+      case "battle.resolved": {
+        const battle = payload.battle as { attackerKingdomId?: string; defenderKingdomId?: string } | undefined;
+        const involved = battle?.attackerKingdomId === kingdomId || battle?.defenderKingdomId === kingdomId;
+        return involved ? event : null;
+      }
+
+      case "village.conquered": {
+        // Conquest is public news (the map changed hands) - but the village
+        // detail inside it is only for the two kingdoms that fought over it.
+        const involved = payload.fromKingdomId === kingdomId || payload.toKingdomId === kingdomId;
+        if (involved) return event;
+        const village = payload.village as VillageState | undefined;
+        return {
+          ...event,
+          payload: { ...payload, village: village ? this.fogVillageForKingdom(village, kingdomId) : undefined },
+        };
+      }
+
+      default:
+        // A type this filter does not know is a leak waiting to happen:
+        // fail closed for foreign readers rather than open.
+        return null;
+    }
+  }
+
+  private villageOwnerKingdomId(villageId: string): string | null {
+    const row = this.db.prepare("SELECT kingdom_id FROM local_villages WHERE id = ?").get(villageId) as DbRow | undefined;
+    return row ? String(row.kingdom_id) : null;
   }
 
   applyCommand(player: SessionPlayer, envelope: CommandEnvelope): CommandResult {
