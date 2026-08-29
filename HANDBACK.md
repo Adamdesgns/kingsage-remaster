@@ -51,17 +51,22 @@ war room on exit with the loot arriving home.
   implementation. Recorded in the plan's Global Constraints.
 - Nothing else from Slices 2–4 (rally, heartbeat, horses, villagers).
 
-## Found during verification (NOT fixed here, pre-existing)
+## Found during verification — AND FIXED (`6da8416`)
 
-**Client-path `battleOpen` is refused as stale intel when direct HTTP with
-the same march + newest report version succeeds.** Four consecutive
-refusals ("The defender changed after your report") against intel that
-matches the live defender row field-for-field (verified in sqlite, WAL
-read). Root cause not yet isolated — candidates: the version the Luau
-mirror claims from its snapshot, server report pruning, or a transient
-defender change around auto-resolve. A task chip with the full evidence
-trail was filed. This is the only reason live verification needed a raw
-HTTP `battle.open`; everything after the open used the real client UI.
+**Every client `battleOpen` since commit `9467e02` was refused as stale
+intel.** That commit removed the mirror's pre-judging stale check and
+deleted `local reportVersion = ...` with it, while the payload four lines
+down still said `targetVillageVersion = reportVersion`. Undefined Luau
+global → nil → key absent from payload → world server reads NaN → report
+lookup matches no row → `intelIsCurrent` false, forever, for everyone.
+Raw HTTP with a real version worked, which is what isolated it. Fixed by
+reinstating the local; gated by a new rules-check pinning the definition
+to the payload's use (46 rules now). **Re-verified live post-fix:** banner
+tap 1 opened a contested battle at Saltmarsh Freehold (139 units on the
+field, real defenders), tap 2 took the field, on-foot walk + Victory —
+the whole loop through the real client UI with no HTTP crutch. This also
+retires the earlier "walkover" doubt: the contested battle rendered and
+resolved correctly.
 
 Also worth knowing: dev worlds auto-resolve unattended battles in 25s
 (`start-dev.ps1`), which is too tight to attend by hand through remote
@@ -88,11 +93,6 @@ field is a place.
 
 ## Open doubts
 
-- The battleOpen stale-intel bug above must be fixed before kids play
-  attended battles — they WILL double-tap the banner and be told to scout
-  again forever.
-- The defender garrison was empty (all zeros) in the verification battles
-  (the drill world's Verdant Pact had been auto-farmed by earlier rounds),
-  so the clash read as a walkover; banners/dressing/cap/restore do not
-  depend on that, but a contested-battle look is still worth one glance in
-  the next Studio session.
+- None blocking. The gates are green (server 94/94, types clean, luau 46
+  rules + 7 sim checks after the fix), and both an empty-garrison and a
+  contested battle have been played through live.
