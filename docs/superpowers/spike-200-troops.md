@@ -1,6 +1,6 @@
 # Slice 0 — the 200-troop phone measure
 
-**Status: instrument PUBLISHED (private, 2026-08-28) and verified on desktop — phone measurement NOT TAKEN.**
+**Status: MEASURED — PASS on Adam's real phone, 2026-08-28. `MAX_SOLDIERS = 200` is no longer a guess.**
 Created 2026-08-24. `BattleConfig.MAX_SOLDIERS` is still an unmeasured guess
 until the results table at the bottom has a dated row in it.
 
@@ -117,14 +117,21 @@ evidence; it does not rescue a broken build.
 
 | Date | Device | Soldiers | Parts | avg fps | worst-1% | In contact? | Verdict |
 |---|---|---|---|---|---|---|---|
-| 2026-08-28 | **DESKTOP — Adam's Alienware PC, Studio F5 (does NOT satisfy Slice 0)** | 200 | 1200 | 60.0 | 19 ms | YES | PASS — holds 30 fps at 200 soldiers |
-| _(phone: none yet)_ | | | | | | | |
+| 2026-08-28 | **Adam's iPhone (exact model TBC) — real phone, published place** | 200 | 1200 | 60.0¹ | **18 ms** | YES | **PASS — holds 30 fps at 200 soldiers** |
+| 2026-08-28 | DESKTOP — Adam's Alienware PC, Studio F5 (context only) | 200 | 1200 | 60.0 | 19 ms | YES | PASS — holds 30 fps at 200 soldiers |
 
-> **Phone rows only** satisfy Slice 0. The desktop row above is the first
-> human-eyes verification that the instrument works (armies in mail and spears
-> marched, clashed, took casualties 200→76, meter read throughout) — recorded
-> per the rule that a Studio number may appear only in a row clearly labeled
-> desktop. Published private as **TroopSpike** on Dadisaking86 the same day;
-> Keegan/Orion/Aria invited as collaborators (pending their acceptance).
-> Until a dated PHONE row sits above, every visual number in this project is
-> still a guess, and this file must not be cited as a PASS.
+> ¹ Adam read the meter live on the phone mid-clash (126 soldiers still
+> fighting, IN CONTACT) and sent screenshots. Roblox's mobile top-bar chips
+> covered the first digit of the avg, but worst-1% = 18 ms puts even the worst
+> frames at ~55 fps, so the average can only be 60 (mobile caps there). The
+> meter's own verdict line — the sentence written to be read with no
+> interpretation — said **PASS — holds 30 fps at 200 soldiers**, and a second
+> screenshot after the battle resolved (0 soldiers) shows the verdict latched.
+>
+> **Slice 0's 200-soldier drill is CLOSED.** `MAX_SOLDIERS = 200` stands as a
+> measured number; per the rules above, nothing is set and Slices 1–4 of
+> `docs/design/2026-08-23-battle-horses-living-city.md` are unblocked. The
+> settlement half of Slice 0 remains blocked on roadmap 4.1 hosting. The kids'
+> devices can add rows here after they accept their collaborator invites — the
+> weakest family device is still the number that matters for anything below
+> this phone's tier.
