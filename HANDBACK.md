@@ -1,100 +1,73 @@
-# HANDBACK — Slice 2: "RALLY, honestly"
+# HANDBACK — Slice 3: "The herd"
 
-Branch: `feat/slice2-rally` (stacked on `feat/slice1-field-is-a-place`).
-Never committed to `main`. Written 2026-08-29, same overnight session as
-slice 1, on Adam's standing word. Plan:
-`docs/superpowers/plans/2026-08-29-slice2-rally-honestly.md`. Slice 1's
-handback lives in that branch's history (`d30cd4a`) — read it first.
+Branch: `feat/slice3-the-herd` (stacked on `feat/slice2-rally` on
+`feat/slice1-field-is-a-place`). Never committed to `main`. Written
+2026-08-29, same overnight session, Adam's standing word. Plan:
+`docs/superpowers/plans/2026-08-29-slice3-the-herd.md`. Slices 1 and 2
+have their own handbacks in their branches' history.
 
 ## Built
 
-- **`BATTLE_RALLY_CLAMP = 700`** order-units/sec shared TS↔Luau with the
-  same text-parity gate as ORDER_CAP. Derived: WalkSpeed 16 × ~27.8
-  units/stud × 1.5 headroom.
-- **Rally rides the state pull** (red team #6 — zero new request budget):
-  `/api/roblox/state` accepts an optional `rallies` array; the store's
-  `applyRallyUpdate` walk-clamps each step against an in-memory pace clock
-  (restart forgets the clock, never the position — fails safe), rejects
-  and LOGS teleport-sized moves, ignores anything stale (a rally arriving
-  after resolve is the normal end of every rally), and rewrites the
-  existing order row's x,y — no schema change, no worldVersion bump.
-- **Banked time capped at 3s**: at the 10s heartbeat cadence an uncapped
-  Δt × clamp would allow the whole field in one step. Caught during
-  implementation, test-first.
-- **The Roblox server is the position source**: it reads the commander's
-  replicated character itself (no new client channel to spoof) and maps it
-  through **one shared `BattleConfig.toOrderSpace`** — BattleScene's
-  tap-to-order and the heartbeat can no longer drift apart (rules-check
-  pins both call sites; ApiClient.post("/api/roblox/state") count is
-  pinned at 2 so the budget can never quietly grow).
-- **`battleRally` command kind**: first tap issues a normal `battle.order`
-  at the commander's field position (standard weight, counts against the
-  cap) then registers heartbeat tracking; a re-tap on an already-rallied
-  squad RE-REGISTERS instead of spending another order (the rejoin path).
-  PlayerRemoving clears the registration — disconnect freezes the rally at
-  its last accepted position; the order stands.
-- **Client**: Rally button exists ONLY on foot (rules-check gated — a
-  rally from the overhead view would be a position claim with no body
-  behind it); the local movie retargets the rallied squad to the commander
-  every frame. Positions never touch the maths — slice 1's determinism
-  gate stands unchanged.
+- **`PaddockSpec.luau`** (shared, pure, Lune-audited — the
+  BattlefieldDressing discipline): a horse is exactly TEN anchored parts
+  (barrel, chest, hindquarters, raked neck, head, muzzle, two leg slabs,
+  tail, mane), coats from a four-entry bay/chestnut palette cycled by
+  index — no randomness anywhere in the module (rules-check greps for
+  `math.random`). `displayCount = ceil(herd/12)` clamped 0..8: **zero
+  shows zero** (the red team's exact fix), eleven real horses never read
+  as an empty paddock, garbage in ⇒ empty paddock out.
+- **`Paddock.luau`** (client, the BattleScene pattern): the owner's
+  client draws its own herd from its own snapshot — nothing replicates,
+  foreign settlements stay fog shells by construction, a phone pays only
+  for what its player owns. One `BulkMoveTo` per frame moves the whole
+  herd; deterministic per-index waypoint triangles inside the stable's
+  existing paddock strip; grazing pauses; tail flick; everything parked
+  beyond 120 studs (the villager LOD rule, applied a slice early).
+  Rebuilds only when the DISPLAYED count or village changes — a herd of
+  72 and a herd of 80 are both six horses, and six horses do not blink.
+- Rules-check grew to **55**: budget (8 × 10 = exactly 80 ≤ BUDGET,
+  mutation-checked — an 11th part fails the gate), the display-count
+  table from the design row, waypoint bounds for all eight indexes,
+  determinism grep, and renderer-only-draws-what-the-spec-counts.
 
-## Verified live in Studio (2026-08-29, contested battles, human eyes)
+## Verified live in Studio (2026-08-29, human eyes)
 
-- Rally tapped on foot at The Ashen Court Hold (197 units): landed as
-  order 1 (+2%), vanguard visibly turned and followed the walking
-  commander; the SERVER row tracked the walk across heartbeats
-  (y 5000 → 4335 across samples) and froze at resolve.
-- Spoof drill at Warlord Kaas Hold: rally placed, then the character
-  teleported ~160 studs across the field via the command bar. The world
-  server rejected it on three consecutive heartbeats —
-  `[rally] rejected teleport-sized move ... 4870 units in 3.00s (allowed
-  2100)` — and the row held at the pre-teleport position. Honest walking
-  produced zero rejections all night.
+Stable Level 14, herd 72/72 ⇒ six horses on the grass between the
+building face and the existing rails, alongside the trough and hay bale.
+Two fixed-camera frames seconds apart show changed poses/positions —
+they amble, they do not teleport, and they stay inside the rails. One
+polish iteration was made after the first look: coats brightened ~40
+points (the first palette read as one black mass in the stable's shade)
+and grazing slots widened to 8-stud spacing (a horse is ~9 studs long;
+7-stud slots overlapped into a blob).
 
-## Not built (deliberate)
+## Not built (deliberate — deferred by the red-team table)
 
-- No "cap reverts to 3" on disconnect: slice 1 recorded that the cap is a
-  flat 5 per open battle and orders are rows, so "issued orders stand"
-  holds by construction; disconnect semantics here are freeze + rejoin
-  re-register, per the plan's Global Constraints.
-- Defender-side rally, positional combat: out of scope (deferred by the
-  red team).
-
-## Known quirk (recorded, not fixed)
-
-Tap-ordering a squad that is currently rallying still SENDS the order
-(spends cap) but the local movie overrides its target on the next frame —
-the player pays for an order they cannot see land. Small fix candidates:
-clear `rallySquadId` on manual order of the same squad, or swallow the tap
-with a toast. Left for the morning review because either choice is a UX
-decision.
+- Conversion ceremony, mounted battle silhouettes (await the cavalry
+  balance check), chickens, day/night.
 
 ## Gates (run 2026-08-29, branch tip)
 
-- `npm run test:server` — **97/97** (+3: rally clamp parity, walk/teleport
-  /banked-time, dies-with-battle)
+- `npm run test:server` — 97/97 (unchanged; this slice is client+shared)
 - `npm run check:types` — clean
-- `npm run test:luau` — **50 rules**, 7 sim checks, 0 failed
+- `npm run test:luau` — 26 files, **55 rules**, 7 sim checks, 0 failed
 
 ## How to run
 
 ```bash
-npm run test:server && npm run check:types && npm run test:luau
+npm run test:luau
 powershell -ExecutionPolicy Bypass -File roblox\start-dev.ps1 -Fresh -Play
 ```
 
-Attend a battle, WALK THE FIELD, tap RALLY, and walk — the squad fights
-toward wherever you stand. Watch the world-server window for `[rally]`
-lines if you try to cheat.
+Walk past the Stable. If the panel says HORSES 0, the grass is empty —
+that is the feature working, not failing.
 
 ## Open doubts
 
-- The 10s heartbeat makes the server record follow in 10s steps; the local
-  movie is instant. Fine for the record's honesty; if a future multiplayer
-  spectator should SEE the rally move live, the cadence (Config.
-  HEARTBEAT_SECONDS) is the knob, at real HTTP cost.
-- Dev-world note: verification battles kept auto-resolving mid-drill until
-  the world server was run with `KINGSAGE_AUTO_RESOLVE_MS=180000`; the
-  25s default in start-dev.ps1 is tuned for demo recordings, not manual
-  play. Worth a flag someday.
+- The horses live in the stable's roof shadow at most times of day; the
+  brightened coats read, but Adam may want them a shade lighter still, or
+  the paddock strip nudged out of the shadow line. 30-second morning look.
+- Herd display changes only on displayed-count boundaries (by design). If
+  Adam recruits 12 cavalry in one sitting he will see one horse walk off
+  the grass at most — the "herd visibly thins" promise holds at the dozen
+  scale, not per animal.

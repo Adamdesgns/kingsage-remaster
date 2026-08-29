@@ -46,10 +46,12 @@ export type PartSpec = {
 -- herd reads varied without a random roll. Values are plain RGB triples so
 -- Lune can read them (the WorldStyle lock pattern from the battlefield).
 local COATS: { { number } } = {
-	{ 107, 76, 50 },  -- bay
-	{ 128, 84, 46 },  -- chestnut
-	{ 84, 62, 44 },   -- dark bay
-	{ 56, 50, 46 },   -- near-black
+	-- Bright enough to stay a horse in the stable's shade: the first pass
+	-- sat 40 points darker and the herd read as one black mass at dusk.
+	{ 129, 94, 62 },  -- bay
+	{ 152, 102, 56 }, -- chestnut
+	{ 104, 78, 55 },  -- dark bay
+	{ 76, 67, 60 },   -- smoky black
 }
 local MANE = { 43, 37, 32 }
 local MUZZLE = { 62, 55, 50 }
@@ -92,13 +94,18 @@ end
 -- horse always walks the same small triangle, offset from its neighbours.
 function PaddockSpec.waypoints(index: number): { { x: number, z: number } }
 	local slot = ((math.floor(index) - 1) % PaddockSpec.MAX_DISPLAY)
-	local baseX = -12.25 + (slot % 4) * 7
-	local baseZ = if slot < 4 then 15.5 else 18.5
-	local sway = if slot % 2 == 0 then 1.75 else -1.75
+	-- Full 8-stud stalls across the strip: a horse is ~9 studs nose to tail,
+	-- so tighter spacing made six of them read as one dark mass at the rail.
+	local baseX = -12 + (slot % 4) * 8
+	local baseZ = if slot < 4 then 15.5 else 19
+	local sway = if slot % 2 == 0 then 2 else -2
+	local function clampX(x: number): number
+		return math.clamp(x, -14, 14)
+	end
 	return {
-		{ x = baseX, z = baseZ },
-		{ x = baseX + sway, z = math.clamp(baseZ + 1.5, 14.5, 20.5) },
-		{ x = baseX - sway * 0.6, z = math.clamp(baseZ + 0.4, 14.5, 20.5) },
+		{ x = clampX(baseX), z = baseZ },
+		{ x = clampX(baseX + sway), z = math.clamp(baseZ + 1.4, 14.5, 20.5) },
+		{ x = clampX(baseX - sway * 0.6), z = math.clamp(baseZ - 0.8, 14.5, 20.5) },
 	}
 end
 
