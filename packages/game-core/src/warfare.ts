@@ -99,6 +99,18 @@ export function battlePlanScore(plan: BattlePlan): number {
 export const REFERENCE_MARCH_SPEED = 18;
 
 /**
+ * The most field orders one battle accepts. Presence buys capacity and
+ * expressiveness, never multipliers (design 2026-08-23, red-team revised:
+ * view-neutral — attending the scene at all earns the full cap, and field
+ * orders can only exist through an opened battle, so there is no separate
+ * unattended cap to gate). The orderBonus formula above saturates at six
+ * orders by its own 0.12 ceiling; with the cap at five the reachable bonus
+ * is 0.10 — the ceiling is left as-is because changing the formula would
+ * change recorded battle outcomes.
+ */
+export const BATTLE_ORDER_CAP = 5;
+
+/**
  * [CONFIRMED] An army marches at its SLOWEST unit. Speed is minutes per tile in
  * KingsAge, so the column is pinned by the maximum.
  *

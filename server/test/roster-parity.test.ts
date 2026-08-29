@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { TROOP_ORDER, TROOPS } from "../../packages/game-core/src/index.ts";
+import { BATTLE_ORDER_CAP, TROOP_ORDER, TROOPS } from "../../packages/game-core/src/index.ts";
 
 /**
  * Roster parity between TypeScript and Luau, checked by reading the Luau as
@@ -71,4 +71,14 @@ test("a troop the client cannot afford to describe is still a real troop", () =>
   for (const troop of luauTroopOrder()) {
     assert.ok(TROOPS[troop as keyof typeof TROOPS], `the client lists "${troop}", which game-core has never heard of`);
   }
+});
+
+test("the client's order cap is the server's order cap", () => {
+  // Same no-Lune text-parity discipline as the roster: the cap the client
+  // shows ("Orders left: N") and refuses at must be the number the server
+  // enforces, or a player is promised orders the realm will bounce.
+  const source = luauSource("BattleConfig.luau");
+  const match = /BattleConfig\.ORDER_CAP\s*=\s*(\d+)/.exec(source);
+  assert.ok(match, "BattleConfig.ORDER_CAP not found - the client cannot show orders remaining");
+  assert.equal(Number(match[1]), BATTLE_ORDER_CAP);
 });

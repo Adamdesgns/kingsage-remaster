@@ -74,6 +74,13 @@ BattleConfig.FILE_SPACING = 3.6
 -- never be refused for being out of bounds.
 BattleConfig.ORDER_SPACE = 5000
 
+-- The most field orders one battle accepts. Mirrors game-core's
+-- BATTLE_ORDER_CAP; roster-parity reads this line as text, so a drifted
+-- number fails npm run test:server. The server stays authoritative — this
+-- exists so the client can refuse order six with a sentence instead of a
+-- round trip, and show "Orders left".
+BattleConfig.ORDER_CAP = 5
+
 BattleConfig.ATTACKER_COLOR = Color3.fromRGB(160, 60, 60)
 BattleConfig.DEFENDER_COLOR = Color3.fromRGB(60, 90, 160)
 
