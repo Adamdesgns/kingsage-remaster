@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { BATTLE_ORDER_CAP, TROOP_ORDER, TROOPS } from "../../packages/game-core/src/index.ts";
+import { BATTLE_ORDER_CAP, BATTLE_RALLY_CLAMP, TROOP_ORDER, TROOPS } from "../../packages/game-core/src/index.ts";
 
 /**
  * Roster parity between TypeScript and Luau, checked by reading the Luau as
@@ -81,4 +81,11 @@ test("the client's order cap is the server's order cap", () => {
   const match = /BattleConfig\.ORDER_CAP\s*=\s*(\d+)/.exec(source);
   assert.ok(match, "BattleConfig.ORDER_CAP not found - the client cannot show orders remaining");
   assert.equal(Number(match[1]), BATTLE_ORDER_CAP);
+});
+
+test("the client's rally clamp is the server's rally clamp", () => {
+  const source = luauSource("BattleConfig.luau");
+  const match = /BattleConfig\.RALLY_CLAMP\s*=\s*(\d+)/.exec(source);
+  assert.ok(match, "BattleConfig.RALLY_CLAMP not found - the client cannot pace its rally honestly");
+  assert.equal(Number(match[1]), BATTLE_RALLY_CLAMP);
 });

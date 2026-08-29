@@ -111,6 +111,18 @@ export const REFERENCE_MARCH_SPEED = 18;
 export const BATTLE_ORDER_CAP = 5;
 
 /**
+ * How fast a rally's engagement point may move, in order-space units per
+ * second. Roblox movement is client-authoritative, so the commander's
+ * position is a CLAIM; the world server accepts a rally step only if it is
+ * walkable (red team #2 — teleport spoofing rejected and logged).
+ * Derivation: WalkSpeed 16 studs/s × ORDER_SPACE 5000 over the field's
+ * ~180-stud order span ≈ 444 units/s, × 1.5 headroom for lag spikes and
+ * diagonal snapping, rounded. Mirrored as BattleConfig.RALLY_CLAMP
+ * (text-parity tested).
+ */
+export const BATTLE_RALLY_CLAMP = 700;
+
+/**
  * [CONFIRMED] An army marches at its SLOWEST unit. Speed is minutes per tile in
  * KingsAge, so the column is pinned by the maximum.
  *

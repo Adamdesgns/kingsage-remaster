@@ -81,6 +81,12 @@ BattleConfig.ORDER_SPACE = 5000
 -- round trip, and show "Orders left".
 BattleConfig.ORDER_CAP = 5
 
+-- How fast a rally's engagement point may move, in order-space units per
+-- second. Mirrors game-core's BATTLE_RALLY_CLAMP (text-parity tested).
+-- The world server enforces it; this copy lets the client pace itself so
+-- an honest walk never gets a step rejected.
+BattleConfig.RALLY_CLAMP = 700
+
 BattleConfig.ATTACKER_COLOR = Color3.fromRGB(160, 60, 60)
 BattleConfig.DEFENDER_COLOR = Color3.fromRGB(60, 90, 160)
 
