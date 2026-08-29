@@ -590,6 +590,23 @@ check("CommandService's battleOrder mirror reads BattleConfig.ORDER_CAP, not a h
 	return string.find(branch, "BattleConfig%.ORDER_CAP") ~= nil
 end)())
 
+-- ---- battleOpen carries the report's REAL version ----
+-- Commit 9467e02 deleted the `local reportVersion = ...` line while the
+-- payload still said `targetVillageVersion = reportVersion` - an undefined
+-- Luau global is nil, the key vanished from the payload, the world server
+-- read NaN, and EVERY client battleOpen was refused as stale intel forever.
+-- The compile gate cannot catch an undefined global; this reads the text.
+
+check("battleOpen defines reportVersion from the report before claiming it", (function()
+	local commandService = fs.readFile("roblox/src/server/CommandService.luau")
+	local branch = string.match(commandService, 'if request%.kind == "battleOpen".-' .. string.char(10) .. "\tend")
+	if not branch then
+		return false
+	end
+	return string.find(branch, "local reportVersion%s*=%s*math%.floor%(tonumber%(report%.targetVillageVersion%)") ~= nil
+		and string.find(branch, "targetVillageVersion = reportVersion") ~= nil
+end)())
+
 -- ---- attend on foot: overhead stays the default, the walk is one tap ----
 
 check("enterBattle still defaults to the overhead command view", (function()

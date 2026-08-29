@@ -297,6 +297,11 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 		if not report then
 			return nil, nil, "You hold no report on that village."
 		end
+		-- The report's version IS the claim the world server verifies intel
+		-- against. Commit 9467e02 deleted this local while the payload below
+		-- still referenced it; the nil made every battleOpen read as stale.
+		-- rules-check now pins this line to the payload's use of it.
+		local reportVersion = math.floor(tonumber(report.targetVillageVersion) or 0)
 		-- Staleness is the WORLD SERVER'S call, not ours. Its intelIsCurrent()
 		-- compares the report's observed garrison and wall against the
 		-- defender's real ones - resources ticking over there change nothing
