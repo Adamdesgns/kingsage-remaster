@@ -78,6 +78,7 @@ local state: {
 	resolvedApplied: boolean,
 	routSide: string?,
 	elapsed: number,
+	rallySquadId: string?,
 }? = nil
 
 local function seedNumber(seed: string): number
@@ -299,6 +300,18 @@ local function tick(dt: number)
 		return
 	end
 	scene.elapsed += dt
+
+	-- RALLY (slice 2): the ordered squad's engagement point follows the
+	-- commander's body while it stands on the field. Movie only — the world
+	-- server keeps its own walk-clamped record fed by the heartbeat, and
+	-- positions never touch the maths (slice-1 determinism gate).
+	if scene.rallySquadId then
+		local character = Players.LocalPlayer.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if root and root:IsA("BasePart") then
+			BattleScene.orderSquad(scene.rallySquadId, root.Position)
+		end
+	end
 
 	-- adaptive budget: measure, then cull. Never touches the outcome.
 	scene.frames += 1
@@ -637,6 +650,7 @@ function BattleScene.start(battle: any, village: any): boolean
 		resolvedApplied = false,
 		routSide = nil,
 		elapsed = 0,
+		rallySquadId = nil,
 	}
 	state.connection = RunService.Heartbeat:Connect(tick)
 
@@ -725,6 +739,16 @@ function BattleScene.orderSquad(squadId: string, worldPoint: Vector3): (number, 
 		end
 	end
 	return BattleConfig.toOrderSpace(worldPoint.X, worldPoint.Z, scene.center.X, scene.center.Z)
+end
+
+-- Mark a squad to fight toward wherever the commander stands; nil clears.
+-- Purely the movie's half of a rally — the order itself went through the
+-- normal command path and the server steers its own record.
+function BattleScene.rallySquad(squadId: string?)
+	local scene = state
+	if scene then
+		scene.rallySquadId = squadId
+	end
 end
 
 function BattleScene.squadLabel(squadId: string): string

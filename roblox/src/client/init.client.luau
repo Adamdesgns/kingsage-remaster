@@ -2097,7 +2097,7 @@ function buildBattlePanel()
 	end
 
 	if live and iAttack then
-		local width = 1 / 6
+		local width = if onFoot then 1 / 7 else 1 / 6
 		for _, squad in BattleConfig.SQUADS do
 			local chosen = squad.id == selectedSquad
 			barButton(squad.label, if chosen then squad.color else Color3.fromRGB(40, 40, 48), width, function()
@@ -2110,6 +2110,20 @@ function buildBattlePanel()
 		barButton(if onFoot then "Overhead" else "Walk the field", Color3.fromRGB(45, 62, 48), width, function()
 			setOnFoot(not onFoot)
 		end)
+		if onFoot then
+			-- RALLY: the strongest order in the game because it costs you your
+			-- body's position, not because of any hidden multiplier — it is a
+			-- carried order at standard weight whose point follows you.
+			barButton("Rally", Color3.fromRGB(120, 92, 40), width, function()
+				invokeQueue({
+					kind = "battleRally",
+					battleId = tostring(battle.id),
+					squad = selectedSquad,
+					atMs = battleAtMs(battle),
+				})
+				BattleScene.rallySquad(selectedSquad)
+			end)
+		end
 		barButton("Charge", Color3.fromRGB(115, 60, 40), width, function()
 			invokeQueue({ kind = "battleResolve", battleId = tostring(battle.id) })
 		end)

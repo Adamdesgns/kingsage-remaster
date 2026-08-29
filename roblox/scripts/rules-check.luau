@@ -669,6 +669,20 @@ check("battleRally re-registers instead of double-spending the order cap", (func
 	return string.find(branch, "WorldSession%.rallyFor") ~= nil
 end)())
 
+check("the rally button exists only where the commander does", (function()
+	local client = fs.readFile("roblox/src/client/init.client.luau")
+	-- The Rally barButton must be built inside the onFoot branch: rallying
+	-- from the overhead view would be a position claim with no body on the
+	-- field to back it.
+	-- Statement-level guard at panel indentation (the inline
+	-- `if onFoot then "Overhead"` label expression must not satisfy this).
+	local branch = string.match(client, string.char(10) .. "\t\tif onFoot then.-" .. string.char(10) .. "\t\tend")
+	if not branch then
+		return false
+	end
+	return string.find(branch, "battleRally") ~= nil
+end)())
+
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then
 	process.exit(1)
