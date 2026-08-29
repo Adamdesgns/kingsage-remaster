@@ -477,3 +477,26 @@ test("7. Determinism: two runs over identical DB state with identical now produc
     second.cleanup();
   }
 });
+
+test("8. Open seats are not the AI's to develop - fresh starts stay fresh", () => {
+  const now = new Date("2026-08-24T12:00:00.000Z");
+  const world = openWorld("open-seats", now);
+  try {
+    const frontier = world.store.db.prepare(
+      "SELECT id FROM local_kingdoms WHERE name LIKE 'Frontier March %'",
+    ).all() as Array<{ id: string }>;
+    assert.equal(frontier.length, 2, "the fixture still seeds two placeholder seats");
+    const frontierIds = new Set(frontier.map((row) => row.id));
+
+    const actions = runAiKingdomTick(world.store, world.worldId, now);
+    assert.ok(actions.length > 0, "the named kingdoms must still act or this test proves nothing");
+    for (const action of actions) {
+      assert.ok(
+        !frontierIds.has(String((action as { kingdomId?: string }).kingdomId ?? "")),
+        `the AI developed an open seat: ${JSON.stringify(action)}`,
+      );
+    }
+  } finally {
+    world.cleanup();
+  }
+});

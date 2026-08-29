@@ -403,6 +403,7 @@ export class SharedWorldStore {
     this.migrateBuildQueue();
     this.migrateHorses();
     this.migrateScoutRealmIntel();
+    this.migrateOpenSeats();
   }
 
   /**
@@ -499,6 +500,18 @@ export class SharedWorldStore {
       .run(11, this.now().toISOString());
   }
 
+  private migrateOpenSeats(): void {
+    const row = this.db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'local_kingdoms'",
+    ).get() as DbRow | undefined;
+    if (!row) return;
+    if (String(row.sql).includes("'open'")) return;
+    const migrationPath = fileURLToPath(new URL("../db/migrations/0012_open_seats.sql", import.meta.url));
+    this.db.exec(readFileSync(migrationPath, "utf8"));
+    this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)")
+      .run(12, this.now().toISOString());
+  }
+
   /**
    * Bring a village's herd up to date.
    *
@@ -568,14 +581,15 @@ export class SharedWorldStore {
           kingdom.worldId,
           initialName,
           kingdom.color,
-          // A freshly seeded world has no players in it, so every CAPITAL is an
-          // open seat regardless of what the fixture nominally calls it - the
-          // fixture's two "human" kingdoms are placeholders, not occupants.
-          // Freeholds are the one kind that must survive verbatim: findOpenSeat()
-          // claims 'ai' rows, so a Freehold stamped 'ai' would be handed to a
-          // player as their starting kingdom - seating them inside the very
-          // thing the game wants them to conquer.
-          kingdom.seatKind === "freehold" ? "freehold" : "ai",
+          // A freshly seeded world has no players in it. The fixture's two
+          // "human" kingdoms are placeholders, not occupants - they seed as
+          // 'open': fresh-start seats that findOpenSeat() hands out FIRST and
+          // that the AI tick never develops (migration 0012). The four named
+          // kingdoms seed as 'ai' and are claimable once the open seats run
+          // out. Freeholds must survive verbatim: one stamped 'ai' would be
+          // handed to a player as their starting kingdom - seating them
+          // inside the very thing the game wants them to conquer.
+          kingdom.seatKind === "freehold" ? "freehold" : index < 2 ? "open" : "ai",
           kingdom.capitalVillageId,
           JSON.stringify(kingdom.troopLevels),
           kingdom.warVictoryPoints,
@@ -663,8 +677,8 @@ export class SharedWorldStore {
     const seat = this.db.prepare(`
       SELECT id, world_id, capital_village_id
       FROM local_kingdoms
-      WHERE controller_player_id IS NULL AND seat_kind = 'ai'
-      ORDER BY id
+      WHERE controller_player_id IS NULL AND seat_kind IN ('open', 'ai')
+      ORDER BY CASE seat_kind WHEN 'open' THEN 0 ELSE 1 END, id
       LIMIT 1
     `).get() as DbRow | undefined;
     if (!seat) throw new StoreError("WORLD_FULL", "This alpha world has no open kingdom seats.", 409);

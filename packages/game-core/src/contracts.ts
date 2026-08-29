@@ -68,7 +68,10 @@ export type WorldStatus = "forming" | "active" | "won" | "archived" | "paused";
  * troops. Adding it to this union is what keeps a new player from being seated
  * INTO the thing they are supposed to take.
  */
-export type SeatKind = "human" | "ai" | "freehold";
+// 'open' = an unclaimed fresh-start seat: claimable first, and never the
+// AI's to develop. Named 'ai' kingdoms are claimable too once the open
+// seats run out - inheriting a developed realm rather than a fresh one.
+export type SeatKind = "human" | "ai" | "freehold" | "open";
 export type ChatChannelKind = "global" | "world" | "alliance";
 
 export type WorldState = {
