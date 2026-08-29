@@ -261,6 +261,9 @@ const DEFAULT_AUTO_RESOLVE_MS = 120_000;
 /** How long an accepted battle.open holds the realm off: presence earns a
  * hard +3 minutes and not a second more (red-team floor against stalling). */
 const ATTENDED_GRACE_MS = 3 * 60_000;
+// How long a second army waits at the walls before re-checking whether the
+// open battle ahead of it has settled (sequential sieges, audit finding 8.1).
+const SIEGE_RETRY_MS = 30_000;
 
 const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[];
 const TROOP_TYPES = TROOP_ORDER as readonly TroopType[];
@@ -1482,6 +1485,13 @@ export class SharedWorldStore {
       if (!isValidBattlePlan(plan)) {
         return this.reject(envelope.commandId, "INVALID_PLAN", "The attack plan contains an unknown order.", currentVersion);
       }
+      // Sequential sieges (audit finding 8.1): at most one open battle per
+      // village. Two concurrent sessions each froze the full garrison and the
+      // full stock - the defenders died once but fought twice, and the loot
+      // duplicated.
+      if (this.openBattleForVillage(String(marchRow.target_village_id))) {
+        return this.reject(envelope.commandId, "SIEGE_IN_PROGRESS", "Another army holds the field — wait for their battle to end.", currentVersion);
+      }
       const battleId = this.openBattleSession(envelope.worldId, String(command.payload.marchId), marchRow, player.kingdomId, plan);
       // Showing up buys time to command: one +3-minute extension past "now",
       // server-enforced (design 2026-08-23, red-team trimmed from 10 to 3).
@@ -1762,6 +1772,13 @@ export class SharedWorldStore {
   }
 
   /** The attack march joined to everything a battle needs from its target. */
+  /** The one-open-battle-per-village invariant lives here (finding 8.1). */
+  private openBattleForVillage(villageId: string): string | null {
+    const row = this.db.prepare("SELECT id FROM local_battle_sessions WHERE defender_village_id = ? AND status = 'open' LIMIT 1")
+      .get(villageId) as DbRow | undefined;
+    return row ? String(row.id) : null;
+  }
+
   private attackMarchRow(marchId: string, worldId: string, kingdomId: string): DbRow | undefined {
     return this.db.prepare(`
       SELECT m.*, v.state_version AS defender_version, v.kingdom_id AS defender_kingdom_id,
@@ -1830,6 +1847,16 @@ export class SharedWorldStore {
       if (!battleId) {
         const marchRow = this.attackMarchRow(marchId, worldId, kingdomId);
         if (!marchRow) continue;
+        // Sequential sieges: if another army's battle is open on this
+        // village, this one waits at the walls. Its deadline is pushed a
+        // short beat forward so the next materialize pass retries; the open
+        // battle's own deadline is bounded (one +3 min grace at most), so
+        // the wait cannot be farmed forever.
+        if (this.openBattleForVillage(String(marchRow.target_village_id))) {
+          this.db.prepare("UPDATE local_march_plans SET auto_resolve_at = ? WHERE march_id = ?")
+            .run(new Date(now.getTime() + SIEGE_RETRY_MS).toISOString(), marchId);
+          continue;
+        }
         battleId = this.openBattleSession(worldId, marchId, marchRow, kingdomId, plan);
         const worldVersion = this.incrementWorldVersion(worldId);
         published.push(this.insertEvent(worldId, worldVersion, "battle.started", { battle: this.readBattle(battleId) }));
