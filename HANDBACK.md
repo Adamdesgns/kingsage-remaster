@@ -1,56 +1,72 @@
-# HANDBACK — Slice 3: "The herd"
+# HANDBACK — Slice 4: "The living square"
 
-Branch: `feat/slice3-the-herd` (stacked on `feat/slice2-rally` on
-`feat/slice1-field-is-a-place`). Never committed to `main`. Written
-2026-08-29, same overnight session, Adam's standing word. Plan:
-`docs/superpowers/plans/2026-08-29-slice3-the-herd.md`. Slices 1 and 2
-have their own handbacks in their branches' history.
+Branch: `feat/slice4-living-square` (top of the stack:
+slice1 → slice2 → slice3 → this). Never committed to `main`. Written
+2026-08-29, end of the overnight session, Adam's standing word. Plan:
+`docs/superpowers/plans/2026-08-29-slice4-living-square.md`. Slices 1–3
+carry their own handbacks in their branches' history.
 
 ## Built
 
-- **`PaddockSpec.luau`** (shared, pure, Lune-audited — the
-  BattlefieldDressing discipline): a horse is exactly TEN anchored parts
-  (barrel, chest, hindquarters, raked neck, head, muzzle, two leg slabs,
-  tail, mane), coats from a four-entry bay/chestnut palette cycled by
-  index — no randomness anywhere in the module (rules-check greps for
-  `math.random`). `displayCount = ceil(herd/12)` clamped 0..8: **zero
-  shows zero** (the red team's exact fix), eleven real horses never read
-  as an empty paddock, garbage in ⇒ empty paddock out.
-- **`Paddock.luau`** (client, the BattleScene pattern): the owner's
-  client draws its own herd from its own snapshot — nothing replicates,
-  foreign settlements stay fog shells by construction, a phone pays only
-  for what its player owns. One `BulkMoveTo` per frame moves the whole
-  herd; deterministic per-index waypoint triangles inside the stable's
-  existing paddock strip; grazing pauses; tail flick; everything parked
-  beyond 120 studs (the villager LOD rule, applied a slice early).
-  Rebuilds only when the DISPLAYED count or village changes — a herd of
-  72 and a herd of 80 are both six horses, and six horses do not blink.
-- Rules-check grew to **55**: budget (8 × 10 = exactly 80 ≤ BUDGET,
-  mutation-checked — an 11th part fails the gate), the display-count
-  table from the design row, waypoint bounds for all eight indexes,
-  determinism grep, and renderer-only-draws-what-the-spec-counts.
+- **`VillagerSpec.luau`** (pure, Lune-audited): a 12-part layered-costume
+  frame in CharacterStyle's own wool-and-leather palette (values copied as
+  literals, the WorldStyle lock pattern) — kirtle, over-layer, apron,
+  collar, head, headwear, sleeves, legs, shoes, belt. Four archetypes
+  (goodwife, laborer, baker, fishmonger), each with the ≤3-part prop that
+  explains the walk (basket, timber bundle, bread board, fish crate).
+  60 parts total against the 150 design cap.
+- **One shared route loop on the street shoulders** (|x| 10–16), market
+  corner to the yards, quarter-phase offsets so four people never read as
+  a parade. Rules-check asserts every waypoint stays on the shoulder band
+  — a route edit that drifts into the road fails the gate.
+- **Mourning as a pure function**, proven by a scripted Lune scenario:
+  a real loss (floor 5 realm-of-power in one observed step) empties the
+  streets for an hour; no re-trigger inside the 30-min cooldown; an open
+  battle at MY village hides everyone regardless ("the baker's boy does
+  not stroll through a siege" is literally a rule name).
+- **`Villagers.luau`** (client, Paddock pattern): owner-only by
+  construction, zero replication, one BulkMoveTo per frame, corner
+  pauses, parked when the camera leaves the village.
+- **`MarketRowSpec.luau` + SettlementBuilder placement**: three trade
+  stalls (greengrocer, root-seller, fishmonger — different awning dyes
+  and goods), hanging-goods bar, baker's rack — 39 parts against the 120
+  budget, placed with its own assert. The existing 170-part architecture
+  gate correctly REFUSED the first build (market hit 171); row parts are
+  tagged and excluded from that count so both budgets keep meaning
+  something. The old two-box market stalls are superseded.
 
 ## Verified live in Studio (2026-08-29, human eyes)
 
-Stable Level 14, herd 72/72 ⇒ six horses on the grass between the
-building face and the existing rails, alongside the trough and hay bale.
-Two fixed-camera frames seconds apart show changed poses/positions —
-they amble, they do not teleport, and they stay inside the rails. One
-polish iteration was made after the first look: coats brightened ~40
-points (the first palette read as one black mass in the stable's shade)
-and grazing slots widened to 8-stud spacing (a horse is ~9 studs long;
-7-stud slots overlapped into a blob).
+- Villagers exist, spread along the loop, and MOVE (positions differ
+  across screenshots minutes apart); the laborer's timber bundle reads at
+  a glance.
+- The market row renders: three awninged stalls with produce, skirted
+  tables, crates — and a villager walked past the stalls on the shoulder
+  during the look, which is the whole slice in one frame.
 
-## Not built (deliberate — deferred by the red-team table)
+## Deferred to Adam (the slice's own gates)
 
-- Conversion ceremony, mounted battle silhouettes (await the cavalry
-  balance check), chickens, day/night.
+- **The 30-second kid watch test** ("what are they doing?" answerable per
+  villager) and the **tween-CPU phone test** need Adam and a real phone.
+  The build is ready for both; the slice is NOT closed until they pass.
+
+## Honest limits
+
+- Mourning direction needs two observations, so a fresh join mid-mourning
+  shows villagers until the next real loss. Server-side mourning state
+  would fix it at the cost of new server state — deliberately not built.
+- Battle-despawn and mourning are proven by the Lune scenario, not live
+  (I cannot be my own defender in this world, and the client cannot lower
+  its own realm power). The decision function is shared and pure; the
+  live path through it is three lines.
+- The route reads as "walking the green between street and lots" in wide
+  shots — the shoulders are grass. If Adam wants them ON the cobbles, the
+  band constants are one edit inside the gated bounds.
 
 ## Gates (run 2026-08-29, branch tip)
 
-- `npm run test:server` — 97/97 (unchanged; this slice is client+shared)
-- `npm run check:types` — clean
-- `npm run test:luau` — 26 files, **55 rules**, 7 sim checks, 0 failed
+- `npm run test:server` — 97/97 · `npm run check:types` — clean
+- `npm run test:luau` — 26 files, **63 rules**, 7 sim checks, 0 failed
 
 ## How to run
 
@@ -59,15 +75,6 @@ npm run test:luau
 powershell -ExecutionPolicy Bypass -File roblox\start-dev.ps1 -Fresh -Play
 ```
 
-Walk past the Stable. If the panel says HORSES 0, the grass is empty —
-that is the feature working, not failing.
-
-## Open doubts
-
-- The horses live in the stable's roof shadow at most times of day; the
-  brightened coats read, but Adam may want them a shade lighter still, or
-  the paddock strip nudged out of the shadow line. 30-second morning look.
-- Herd display changes only on displayed-count boundaries (by design). If
-  Adam recruits 12 cavalry in one sitting he will see one horse walk off
-  the grass at most — the "herd visibly thins" promise holds at the dozen
-  scale, not per animal.
+Walk out of the keep: the market street is dressed and four people are
+about their errands. Lose a real fight and the square goes quiet for an
+hour — that part, take the gate's word for until the morning look.
