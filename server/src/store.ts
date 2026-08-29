@@ -28,6 +28,7 @@ import {
   conquestWarVictoryPoints,
   distanceBetween,
 
+  BATTLE_ORDER_CAP,
   emptyArmy,
   isValidArmy,
   marchDurationSeconds,
@@ -1328,6 +1329,12 @@ export class SharedWorldStore {
         return this.reject(envelope.commandId, "BATTLE_CLOSED", "That battle is not accepting field orders.", currentVersion);
       }
       const { sequence, squad, x, y, atMs } = command.payload;
+      if (nextSequence > BATTLE_ORDER_CAP) {
+        // Presence buys capacity, and this is all of it. The refusal is its
+        // own code so the client can say "spent" rather than "wrong number".
+        return this.reject(envelope.commandId, "ORDER_CAP_REACHED",
+          `A battle accepts at most ${BATTLE_ORDER_CAP} field orders.`, currentVersion);
+      }
       if (sequence !== nextSequence || !["vanguard", "archers", "riders"].includes(squad)
         || !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > 5000 || y > 5000
         || !Number.isInteger(atMs) || atMs < 0 || atMs > 600_000) {

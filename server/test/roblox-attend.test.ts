@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { armyUnitCount, emptyArmy, type BattlePlan } from "../../packages/game-core/src/index.ts";
+import { armyUnitCount, BATTLE_ORDER_CAP, emptyArmy, type BattlePlan } from "../../packages/game-core/src/index.ts";
 import { createWorldHttpServer } from "../src/http.ts";
 import { SharedWorldStore } from "../src/store.ts";
 import { garrisonEveryVillage } from "./garrison.ts";
@@ -292,5 +292,34 @@ test("but a stale march is still refused, because that one really is stale", asy
     });
     assert.equal(refused.body.payload.code, "WORLD_VERSION_CONFLICT",
       "only live field orders are exempt - everything else still guards on the world version");
+  });
+});
+
+test("the sixth field order is refused - the cap is the server's, not the panel's", async () => {
+  await withServer(async (context) => {
+    const { march, report } = await armyAtTheWalls(context, "a9");
+    await context.command(ATTACKER_ID, "a9-open", (await context.state(ATTACKER_ID)).world.version, {
+      type: "battle.open",
+      payload: { marchId: march.id, targetVillageVersion: report.targetVillageVersion, plan: PLAN },
+    });
+    const battle = (await context.state(ATTACKER_ID)).battleSessions[0];
+
+    for (let sequence = 1; sequence <= BATTLE_ORDER_CAP; sequence += 1) {
+      const accepted = await context.command(ATTACKER_ID, `a9-order-${sequence}`, (await context.state(ATTACKER_ID)).world.version, {
+        type: "battle.order",
+        payload: { battleId: battle.id, sequence, squad: "vanguard", x: 2500, y: 2500, atMs: sequence * 100 },
+      });
+      assert.equal(accepted.body.type, "command.accepted", `order ${sequence} of ${BATTLE_ORDER_CAP} must land`);
+    }
+
+    const sixth = await context.command(ATTACKER_ID, "a9-order-over", (await context.state(ATTACKER_ID)).world.version, {
+      type: "battle.order",
+      payload: { battleId: battle.id, sequence: BATTLE_ORDER_CAP + 1, squad: "vanguard", x: 2500, y: 2500, atMs: 999 },
+    });
+    assert.equal(sixth.status, 409);
+    assert.equal(sixth.body.payload.code, "ORDER_CAP_REACHED");
+
+    // The count the outcome maths reads stays at the cap.
+    assert.equal((await context.state(ATTACKER_ID)).battleSessions[0].acceptedOrders, BATTLE_ORDER_CAP);
   });
 });
