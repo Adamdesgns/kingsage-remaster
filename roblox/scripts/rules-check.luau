@@ -579,6 +579,17 @@ check("dressing palette is locked to WorldStyle", (function(): boolean
 		and string.find(dressing, "92, 66, 44") ~= nil
 end)())
 
+-- ---- the order cap mirror: the client refuses order six with a sentence ----
+
+check("CommandService's battleOrder mirror reads BattleConfig.ORDER_CAP, not a hand-typed number", (function()
+	local commandService = fs.readFile("roblox/src/server/CommandService.luau")
+	local branch = string.match(commandService, 'if request%.kind == "battleOrder".-\n\tend')
+	if not branch then
+		return false
+	end
+	return string.find(branch, "BattleConfig%.ORDER_CAP") ~= nil
+end)())
+
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then
 	process.exit(1)

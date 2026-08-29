@@ -336,6 +336,11 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 			return nil, nil, "No such squad."
 		end
 		local sequence = nextSequence(battleId, battle)
+		if sequence > BattleConfig.ORDER_CAP then
+			-- Mirror of the world server's ORDER_CAP_REACHED refusal: same
+			-- number (parity-tested), friendlier failure - no round trip.
+			return nil, nil, string.format("A battle accepts at most %d field orders.", BattleConfig.ORDER_CAP)
+		end
 		local x = math.clamp(math.floor(tonumber(request.x) or 0), 0, BattleConfig.ORDER_SPACE)
 		local y = math.clamp(math.floor(tonumber(request.y) or 0), 0, BattleConfig.ORDER_SPACE)
 		local atMs = math.clamp(math.floor(tonumber(request.atMs) or 0), 0, 600000)
