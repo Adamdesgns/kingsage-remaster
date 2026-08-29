@@ -9,16 +9,49 @@ local Config = require(ReplicatedStorage:WaitForChild("WorldShared"):WaitForChil
 
 local ApiClient = {}
 
-local function secretKey(): string?
+local function readSecrets(): { [string]: any }?
 	local module = script.Parent:FindFirstChild("SecretConfig")
 	if not module then
 		return nil
 	end
 	local ok, secrets = pcall(require, module)
-	if ok and typeof(secrets) == "table" and typeof((secrets :: any).KEY) == "string" then
-		return (secrets :: any).KEY
+	if ok and typeof(secrets) == "table" then
+		return secrets :: any
 	end
 	return nil
+end
+
+local function secretKey(): string?
+	local secrets = readSecrets()
+	if secrets and typeof(secrets.KEY) == "string" then
+		return secrets.KEY
+	end
+	return nil
+end
+
+-- The world server's address. Config.API_BASE is the dev default
+-- (127.0.0.1, Studio-only); a published place points at the hosted world by
+-- putting BASE_URL in the same gitignored SecretConfig that carries the key,
+-- so hosting is a config change, not a source edit (audit finding 11.1).
+local function baseUrl(): string
+	local secrets = readSecrets()
+	if secrets and typeof(secrets.BASE_URL) == "string" and #secrets.BASE_URL > 0 then
+		return secrets.BASE_URL
+	end
+	return Config.API_BASE
+end
+
+-- A missing secret used to be a SILENT infinite hang: no HTTP status, so the
+-- session retry loop never gave up and players sat on "The realm is waking…"
+-- forever with only the Output knowing why (audit finding 8.6). Warn loudly,
+-- once a minute, so a fresh clone diagnoses itself.
+local warnedNoSecret = 0
+local function warnNoSecret()
+	if os.clock() - warnedNoSecret > 60 then
+		warnedNoSecret = os.clock()
+		warn("[ApiClient] SecretConfig.luau is missing or has no KEY - the world is unreachable. "
+			.. "Copy SecretConfig.example.luau to SecretConfig.luau and fill in the key.")
+	end
 end
 
 -- Full form: (answered, status, decodedBody | reasonString).
@@ -30,6 +63,7 @@ end
 function ApiClient.postFull(path: string, body: { [string]: any }): (boolean, number?, any)
 	local key = secretKey()
 	if not key then
+		warnNoSecret()
 		return false, nil, "NO_SECRET"
 	end
 	local payload = HttpService:JSONEncode(body)
@@ -37,7 +71,7 @@ function ApiClient.postFull(path: string, body: { [string]: any }): (boolean, nu
 	for attempt = 1, 3 do
 		local ok, response = pcall(function()
 			return HttpService:RequestAsync({
-				Url = Config.API_BASE .. path,
+				Url = baseUrl() .. path,
 				Method = "POST",
 				Headers = { ["Content-Type"] = "application/json", ["x-kingsage-key"] = key },
 				Body = payload,

@@ -930,6 +930,21 @@ check("recall only offers itself for a march this snapshot calls outbound", (fun
 	return string.find(commandSource, 'tostring%(march%.status%) == "outbound"') ~= nil
 end)())
 
+check("the world's address is resolved in exactly one place, secret-overridable", (function(): boolean
+	-- baseUrl() = SecretConfig.BASE_URL or Config.API_BASE. A second literal
+	-- URL in ApiClient would let a published place talk dev and vice versa.
+	local api = codeOnly(fs.readFile("roblox/src/server/ApiClient.luau"))
+	local _, urlUses = api:gsub("baseUrl%(%) %.%. path", "")
+	return string.find(api, "secrets%.BASE_URL") ~= nil
+		and urlUses == 1
+		and string.find(api, "Config%.API_BASE %.%. path") == nil
+end)())
+
+check("a missing secret announces itself instead of hanging silently", (function(): boolean
+	local api = codeOnly(fs.readFile("roblox/src/server/ApiClient.luau"))
+	return string.find(api, "warnNoSecret%(%)") ~= nil
+end)())
+
 check("the herald renders the realm's notifications", (function(): boolean
 	-- Every completion / conquest / fallen-Count message was written to the
 	-- database and shown to nobody (audit matrix M).

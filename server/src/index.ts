@@ -8,6 +8,11 @@ const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const databasePath = resolve(process.env.KINGSAGE_DATABASE_PATH ?? joinDefaultDatabase(serverRoot));
 const staticRoot = resolve(process.env.KINGSAGE_STATIC_ROOT ?? `${serverRoot}/../mobile-rebuild/dist/client`);
 const port = Number(process.env.PORT ?? 4174);
+// Where to listen. Loopback by default - the safe dev posture - but hosting
+// must be a CONFIG change, not a source edit (audit finding 11.1). On a VPS
+// set KINGSAGE_BIND=0.0.0.0 behind a TLS reverse proxy (see
+// docs/ops/vps-runbook.md); never expose the bare HTTP port to the internet.
+const bindHost = process.env.KINGSAGE_BIND ?? "127.0.0.1";
 // How long an arrived attack waits at the walls for its commander before the
 // server fights it without them. Overridable so a demo recording does not have
 // to sit through the production wait; unset means the store's own default.
@@ -54,8 +59,8 @@ mkdirSync(dirname(databasePath), { recursive: true });
 const store = new SharedWorldStore(databasePath, { autoResolveMs, devSeedNobles, devSeedArmy, devSeedBuildingLevel });
 const app = createWorldHttpServer({ store, staticRoot, robloxKey: process.env.KINGSAGE_ROBLOX_KEY });
 
-app.server.listen(port, "127.0.0.1", () => {
-  console.log(`KingSage shared world listening at http://127.0.0.1:${port}/?world=shared`);
+app.server.listen(port, bindHost, () => {
+  console.log(`KingSage shared world listening at http://${bindHost}:${port}/?world=shared`);
   console.log(`Persistent local database: ${databasePath}`);
 });
 
