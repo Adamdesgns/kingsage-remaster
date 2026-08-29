@@ -80,7 +80,10 @@ if ($Fresh -and $listening) {
 }
 
 if (-not $listening) {
-    $bootCmd = "`$env:PORT='4178'; `$env:KINGSAGE_ROBLOX_KEY='dev-secret-local-0001'; `$env:KINGSAGE_AUTO_RESOLVE_MS='25000'; `$env:KINGSAGE_DEV_SEED_NOBLES='5'; `$env:KINGSAGE_DEV_SEED_ARMY='axe:120,scout:3'; `$env:KINGSAGE_DEV_SEED_LEVEL='14'; $dbLine Set-Location '$repo'; npm run start:world"
+    # KINGSAGE_AI_TICK_MS: the AI kingdoms were built, tested and never
+    # enabled anywhere (audit 2026-08-29) - every dev world sat dead. 45s is
+    # a family-scale cadence; unset it to get the old still world back.
+    $bootCmd = "`$env:PORT='4178'; `$env:KINGSAGE_ROBLOX_KEY='dev-secret-local-0001'; `$env:KINGSAGE_AUTO_RESOLVE_MS='25000'; `$env:KINGSAGE_AI_TICK_MS='45000'; `$env:KINGSAGE_DEV_SEED_NOBLES='5'; `$env:KINGSAGE_DEV_SEED_ARMY='axe:120,scout:3'; `$env:KINGSAGE_DEV_SEED_LEVEL='14'; $dbLine Set-Location '$repo'; npm run start:world"
     Start-Process powershell -ArgumentList "-NoExit", "-Command", $bootCmd
     # Do not claim success until the port actually answers - the old script said
     # "world server started" unconditionally, which hid a launch failure.
