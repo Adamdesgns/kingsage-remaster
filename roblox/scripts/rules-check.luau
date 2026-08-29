@@ -590,6 +590,37 @@ check("CommandService's battleOrder mirror reads BattleConfig.ORDER_CAP, not a h
 	return string.find(branch, "BattleConfig%.ORDER_CAP") ~= nil
 end)())
 
+-- ---- attend on foot: overhead stays the default, the walk is one tap ----
+
+check("enterBattle still defaults to the overhead command view", (function()
+	local client = fs.readFile("roblox/src/client/init.client.luau")
+	local body = string.match(client, "function enterBattle.-" .. string.char(10) .. "end")
+	if not body then
+		return false
+	end
+	-- The Scriptable overhead camera must be set unconditionally in entry, and
+	-- entry must never start a battle on foot (red team: the shoulder camera is
+	-- the worst view to learn squad orders in).
+	return string.find(body, "Enum%.CameraType%.Scriptable") ~= nil
+		and string.find(body, "setOnFoot%(true%)") == nil
+end)())
+
+check("the walk-the-field toggle teleports through BattleScene.footAnchor, not a hand-typed offset", (function()
+	local client = fs.readFile("roblox/src/client/init.client.luau")
+	return string.find(client, "BattleScene%.footAnchor%(%)") ~= nil
+end)())
+
+check("footAnchor stands on the attacker baseline of the shared field geometry", (function()
+	local scene = fs.readFile("roblox/src/client/BattleScene.luau")
+	local body = string.match(scene, "function BattleScene%.footAnchor.-" .. string.char(10) .. "end")
+	if not body then
+		return false
+	end
+	-- The attacker forms up at center + FIELD_DEPTH/2 (facing pi); the anchor
+	-- must be derived from the same shared constant, a step behind the line.
+	return string.find(body, "BattleConfig%.FIELD_DEPTH / 2") ~= nil
+end)())
+
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then
 	process.exit(1)

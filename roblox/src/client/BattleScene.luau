@@ -513,6 +513,18 @@ function BattleScene.center(): Vector3
 	return state and state.center or Vector3.zero
 end
 
+-- Where an attending commander's boots land: a step behind the attacker line.
+-- The attacker forms up at center + FIELD_DEPTH/2 facing the wall (-Z), so
+-- this stands you at your own army's baseline looking over their shoulders.
+-- Three studs up so the drop onto the field slab is always safe.
+function BattleScene.footAnchor(): Vector3
+	local scene = state
+	if not scene then
+		return Vector3.zero
+	end
+	return scene.center + Vector3.new(0, 3, BattleConfig.FIELD_DEPTH / 2 + 10)
+end
+
 function BattleScene.renderedCount(): number
 	return state and state.rendered or 0
 end

@@ -1851,6 +1851,10 @@ local battleViewId: string? = nil
 local battlePanel: Frame? = nil
 local selectedSquad: string = BattleConfig.SQUADS[1].id
 local orderInput: RBXScriptConnection? = nil
+-- Attend-on-foot (slice 1): presentation only. The view NEVER gates a lever —
+-- cap and orders are identical on foot and overhead (red-team rule 3).
+local onFoot = false
+local preBattleCFrame: CFrame? = nil
 
 -- A battle of mine that is still being fought.
 local function openBattle(): any
@@ -1894,9 +1898,45 @@ local function exitBattle()
 		battlePanel:Destroy()
 		battlePanel = nil
 	end
+	-- Walking the field moved the real character; put them back where they
+	-- stood before the battle so leaving is the existing exit path, not a
+	-- stranding on a battlefield that is about to be torn down.
+	if preBattleCFrame then
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if root and root:IsA("BasePart") then
+			root.CFrame = preBattleCFrame
+		end
+		preBattleCFrame = nil
+	end
+	onFoot = false
 	BattleScene.stop()
 	camera.CameraType = Enum.CameraType.Custom
 	refreshHudModeVisibility()
+end
+
+-- WALK THE FIELD <-> OVERHEAD. One tap each way; overhead is always the entry
+-- default (the red team: the shoulder camera is the worst view to learn squad
+-- orders in, so the first battle - every battle - opens overhead).
+local function setOnFoot(wanted: boolean)
+	if not inBattleView then
+		return
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if wanted and root and root:IsA("BasePart") then
+		onFoot = true
+		preBattleCFrame = preBattleCFrame or root.CFrame
+		-- Face the fight: stand at the attacker baseline looking at the wall.
+		root.CFrame = CFrame.lookAt(BattleScene.footAnchor(), BattleScene.center())
+		camera.CameraType = Enum.CameraType.Custom
+	else
+		onFoot = false
+		local center = BattleScene.center()
+		camera.CameraType = Enum.CameraType.Scriptable
+		camera.CFrame = CFrame.lookAt(center + Vector3.new(0, 118, 128), center)
+	end
+	buildBattlePanel()
 end
 
 -- Where on the field did they tap? The ray is intersected with the ground
@@ -1944,6 +1984,8 @@ function enterBattle(battle: any): boolean
 	refreshHudModeVisibility()
 	battleViewId = tostring(battle.id)
 	selectedSquad = BattleConfig.SQUADS[1].id
+	onFoot = false
+	preBattleCFrame = nil
 
 	local center = BattleScene.center()
 	camera.CameraType = Enum.CameraType.Scriptable
@@ -2008,11 +2050,12 @@ function buildBattlePanel()
 	local orders = math.floor(tonumber(battle.acceptedOrders) or 0)
 	if live then
 		heading.Text = string.format(
-			"%s — %s · %d orders carried (+%d%%) · %d on the field",
+			"%s — %s · %d orders carried (+%d%%) · %d left · %d on the field",
 			if iAttack then "Your assault on" else "Defence of",
 			villageLabel(tostring(battle.defenderVillageId)),
 			orders,
 			math.min(orders * 2, 12),
+			math.max(0, BattleConfig.ORDER_CAP - orders),
 			BattleScene.renderedCount()
 		)
 	else
@@ -2054,17 +2097,23 @@ function buildBattlePanel()
 	end
 
 	if live and iAttack then
+		local width = 1 / 6
 		for _, squad in BattleConfig.SQUADS do
 			local chosen = squad.id == selectedSquad
-			barButton(squad.label, if chosen then squad.color else Color3.fromRGB(40, 40, 48), 0.2, function()
+			barButton(squad.label, if chosen then squad.color else Color3.fromRGB(40, 40, 48), width, function()
 				selectedSquad = squad.id
 				buildBattlePanel()
 			end)
 		end
-		barButton("Charge", Color3.fromRGB(115, 60, 40), 0.2, function()
+		-- One tap between the command view and your own boots. Presentation
+		-- only: the same taps give the same orders from either view.
+		barButton(if onFoot then "Overhead" else "Walk the field", Color3.fromRGB(45, 62, 48), width, function()
+			setOnFoot(not onFoot)
+		end)
+		barButton("Charge", Color3.fromRGB(115, 60, 40), width, function()
 			invokeQueue({ kind = "battleResolve", battleId = tostring(battle.id) })
 		end)
-		barButton("Fall back", Color3.fromRGB(60, 50, 45), 0.2, function()
+		barButton("Fall back", Color3.fromRGB(60, 50, 45), width, function()
 			invokeQueue({ kind = "battleRetreat", battleId = tostring(battle.id), atMs = battleAtMs(battle) })
 		end)
 	end
