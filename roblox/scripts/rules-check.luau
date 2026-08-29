@@ -890,6 +890,53 @@ check("SettlementBuilder dresses the market street from MarketRowSpec, audited",
 		and string.find(builder, "MarketRowSpec%.BUDGET") ~= nil
 end)())
 
+-- ---- Phase A client wiring (2026-08-29): full recruitment, research,
+-- recall and the herald. Each rule fails if the behavior is deleted.
+
+local clientSource = codeOnly(fs.readFile("roblox/src/client/init.client.luau"))
+local commandSource = codeOnly(fs.readFile("roblox/src/server/CommandService.luau"))
+
+check("the recruit clamp mirrors the world server's 1..100 bound", (function(): boolean
+	-- The store refuses quantities over 100; a bigger Roblox clamp would let
+	-- orders be silently shrunk server-side instead of honestly here.
+	return string.find(commandSource, "math%.clamp%(math%.floor%(tonumber%(request%.quantity%) or 0%), 1, 100%)") ~= nil
+end)())
+
+check("the village tab recruits from the server's troopCatalog, not a preset", (function(): boolean
+	-- The three presets left 8 of 11 troops unrecruitable. The catalog is the
+	-- server's own cost sheet; a Luau mirror of economy.ts is the drift bug.
+	return string.find(clientSource, "troopCatalog") ~= nil
+		and string.find(clientSource, 'kind = "recruit", villageId = villageId, troop = troop, quantity = quantity') ~= nil
+end)())
+
+check("smithy research is reachable: the client sends it and the service maps it", (function(): boolean
+	return string.find(clientSource, '"research"') ~= nil
+		and string.find(commandSource, '"kingdom%.research%.queue"') ~= nil
+end)())
+
+check("research climbs one rung, read from the kingdom's own level", (function(): boolean
+	-- The target level is currentLevel + 1 from OUR snapshot; a client-chosen
+	-- target would let it skip rungs the server then has to refuse.
+	return string.find(commandSource, "targetLevel = currentLevel %+ 1") ~= nil
+end)())
+
+check("recall exists, is armed by a second tap, and maps to march.cancel", (function(): boolean
+	return string.find(clientSource, '"marchCancel"') ~= nil
+		and string.find(clientSource, "armedRecallId") ~= nil
+		and string.find(commandSource, '"march%.cancel"') ~= nil
+end)())
+
+check("recall only offers itself for a march this snapshot calls outbound", (function(): boolean
+	return string.find(commandSource, 'tostring%(march%.status%) == "outbound"') ~= nil
+end)())
+
+check("the herald renders the realm's notifications", (function(): boolean
+	-- Every completion / conquest / fallen-Count message was written to the
+	-- database and shown to nobody (audit matrix M).
+	return string.find(clientSource, "THE HERALD") ~= nil
+		and string.find(clientSource, "snapshot%.notifications") ~= nil
+end)())
+
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then
 	process.exit(1)

@@ -41,6 +41,14 @@ local BATTLE_KINDS: { [string]: boolean } = {
 	battleRetreat = true,
 }
 
+-- Kinds that act on something other than a village, so the villageId
+-- ownership gate does not apply. marchCancel proves ownership from OUR
+-- snapshot's march list (buildCommand), and the world server re-checks
+-- with FORBIDDEN - the same two-layer shape battles use.
+local NON_VILLAGE_KINDS: { [string]: boolean } = {
+	marchCancel = true,
+}
+
 local CommandService = {}
 
 type QueueRequest = {
@@ -192,10 +200,57 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 			return nil, nil, "No such troop."
 		end
 		local troop = request.troop :: string
-		local quantity = math.clamp(math.floor(tonumber(request.quantity) or 0), 1, 500)
+		-- 100 mirrors the world server's own order bound (store: 1..100). A
+		-- clamp above it would silently shrink orders server-side instead of
+		-- honestly here.
+		local quantity = math.clamp(math.floor(tonumber(request.quantity) or 0), 1, 100)
 		return { type = "village.recruit.queue", payload = { villageId = villageId, troop = troop, quantity = quantity } },
 			"recruit:" .. villageId .. ":" .. troop .. ":" .. quantity,
 			nil
+	end
+
+	if request.kind == "research" then
+		-- kingdom.research.queue was fully implemented server-side and had NO
+		-- path from the game (audit: DISCONNECTED). The target level is the
+		-- kingdom's current level plus one, read from OUR snapshot - the
+		-- client cannot skip rungs.
+		if not isKnownTroop(request.troop) then
+			return nil, nil, "No such troop."
+		end
+		local troop = request.troop :: string
+		local currentLevel = 1
+		for _, entry in ipairs(snapshot.troopCatalog or {}) do
+			if tostring(entry.troop) == troop then
+				currentLevel = math.floor(tonumber(entry.researchLevel) or 1)
+				break
+			end
+		end
+		if currentLevel >= 10 then
+			return nil, nil, "That art is already mastered."
+		end
+		return {
+			type = "kingdom.research.queue",
+			payload = { villageId = villageId, troop = troop, targetLevel = currentLevel + 1 },
+		}, string.format("research:%s:%s:%d", villageId, troop, currentLevel + 1), nil
+	end
+
+	if request.kind == "marchCancel" then
+		if typeof(request.marchId) ~= "string" then
+			return nil, nil, "No march to recall."
+		end
+		local marchId = request.marchId :: string
+		local mine = false
+		for _, march in ipairs(snapshot.marches or {}) do
+			if tostring(march.id) == marchId and tostring(march.status) == "outbound" then
+				mine = true
+				break
+			end
+		end
+		if not mine then
+			return nil, nil, "They can see the walls — there is no turning back now."
+		end
+		return { type = "march.cancel", payload = { marchId = marchId } },
+			"marchCancel:" .. marchId, nil
 	end
 
 	if request.kind == "scout" then
@@ -420,7 +475,7 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 	-- scouting and attacking included: the target may be foreign, the muster
 	-- ground never is. Battle commands act on a battle instead, and the world
 	-- server checks that the battle belongs to this kingdom.
-	if not BATTLE_KINDS[request.kind] then
+	if not BATTLE_KINDS[request.kind] and not NON_VILLAGE_KINDS[request.kind] then
 		if typeof(request.villageId) ~= "string" then
 			return { ok = false, message = "That order made no sense." }
 		end

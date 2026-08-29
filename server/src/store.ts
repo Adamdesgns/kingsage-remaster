@@ -138,6 +138,23 @@ export type WorldChatMessage = {
   sentAt: string;
 };
 
+/**
+ * Server-authoritative troop display data. The Roblox client renders costs,
+ * prerequisites and research steps from THIS, never from a Luau mirror of
+ * economy.ts - mirrored copies drifting is this repo's classic bug, and
+ * numbers on buttons are exactly the kind of copy that drifts silently.
+ */
+export type TroopCatalogEntry = {
+  troop: TroopType;
+  cost: ResourceStock;
+  population: number;
+  barracksLevel: number;
+  requires: Partial<Record<BuildingType, number>>;
+  baseSeconds: number;
+  researchLevel: number;
+  nextResearch: { targetLevel: number; cost: ResourceStock } | null;
+};
+
 export type SharedWorldSnapshot = {
   snapshotVersion: number;
   serverTime: string;
@@ -145,6 +162,7 @@ export type SharedWorldSnapshot = {
   kingdom: KingdomState;
   arena: PlayerArenaStanding;
   world: WorldState;
+  troopCatalog: TroopCatalogEntry[];
   villageEconomy: VillageEconomy[];
   constructionJobs: ConstructionJob[];
   recruitmentJobs: RecruitmentJob[];
@@ -950,6 +968,22 @@ export class SharedWorldStore {
         tier: arenaTier(kingdom.warVictoryPoints),
       },
       world,
+      troopCatalog: TROOP_ORDER.map((troop) => {
+        const definition = TROOPS[troop];
+        const researchLevel = Number(kingdom.troopLevels[troop] ?? 1);
+        return {
+          troop,
+          cost: definition.cost,
+          population: definition.population,
+          barracksLevel: definition.barracksLevel,
+          requires: definition.requires ?? {},
+          baseSeconds: definition.baseSeconds,
+          researchLevel,
+          nextResearch: researchLevel < 10
+            ? { targetLevel: researchLevel + 1, cost: troopResearchCost(troop, researchLevel + 1) }
+            : null,
+        };
+      }),
       villageEconomy: fullWorld.villages.filter((village) => village.kingdomId === player.kingdomId).map((village) => this.readVillageEconomy(village)),
       constructionJobs: jobs,
       recruitmentJobs: this.readRecruitmentJobs(worldId).filter((job) => fullWorld.villages.some((village) => village.id === job.villageId && village.kingdomId === player.kingdomId)),

@@ -1141,6 +1141,31 @@ local function countdownRow(parent: Instance, order: number, text: string, compl
 	return label
 end
 
+-- One batch size for every recruit row, cycled by a single header button.
+-- File scope on purpose: the panel rebuilds every heartbeat and the player's
+-- chosen batch must survive the rebuild.
+local RECRUIT_BATCHES = { 1, 5, 25 }
+local recruitBatchIndex = 1
+
+-- What stands in the way of recruiting `entry` from this village, or nil.
+-- The LEVELS come from the village's own (unfogged) snapshot and the
+-- REQUIREMENTS come from the server's troopCatalog - no Luau mirror of
+-- economy.ts anywhere; the world server still has the final word.
+local function recruitProblem(entry: any, village: any): string?
+	local levels = village.buildings or {}
+	local barracksNeed = math.floor(tonumber(entry.barracksLevel) or 1)
+	if math.floor(tonumber(levels.barracks) or 0) < barracksNeed then
+		return string.format("Needs %s Lv %d", Buildings.displayName("barracks"), barracksNeed)
+	end
+	for building, required in pairs(entry.requires or {}) do
+		local need = math.floor(tonumber(required) or 0)
+		if math.floor(tonumber(levels[building]) or 0) < need then
+			return string.format("Needs %s Lv %d", Buildings.displayName(tostring(building)), need)
+		end
+	end
+	return nil
+end
+
 local function buildVillageTab(scroll: ScrollingFrame, village: any, villageId: string)
 	-- The herd, shown whenever there is a Stable.
 	--
@@ -1165,27 +1190,79 @@ local function buildVillageTab(scroll: ScrollingFrame, village: any, villageId: 
 			end)
 	end
 
-	local recruitRow = Instance.new("Frame")
-	recruitRow.Size = UDim2.new(1, -8, 0, 36)
-	recruitRow.BackgroundColor3 = Color3.fromRGB(40, 30, 30)
-	recruitRow.LayoutOrder = #Buildings.ORDER + 1
-	recruitRow.Parent = scroll
-	local recruitButton = Instance.new("TextButton")
-	recruitButton.Size = UDim2.fromScale(1, 1)
-	recruitButton.BackgroundTransparency = 1
-	recruitButton.TextColor3 = Color3.new(1, 1, 1)
-	recruitButton.Font = Enum.Font.GothamBold
-	recruitButton.TextScaled = true
-	recruitButton.Text = Buildings.RECRUIT_PRESET.label
-	recruitButton.Parent = recruitRow
-	recruitButton.Activated:Connect(function()
-		invokeQueue({
-			kind = "recruit",
-			villageId = villageId,
-			troop = Buildings.RECRUIT_PRESET.troop,
-			quantity = Buildings.RECRUIT_PRESET.quantity,
-		})
-	end)
+	-- --- recruitment: the FULL roster, costed by the server's own catalog.
+	-- The three hardcoded presets this replaces left 8 of 11 troops
+	-- unrecruitable from the game (audit matrix E).
+	local order = #Buildings.ORDER + 1
+	local function nextRow(): number
+		order += 1
+		return order
+	end
+	local catalog = (latest.snapshot and latest.snapshot.troopCatalog) or {}
+	sectionHeader(scroll, nextRow(), "RECRUIT AT THE BARRACKS")
+	if #catalog == 0 then
+		noteRow(scroll, nextRow(), "The realm has not answered with its muster rolls yet.")
+	else
+		local batch = RECRUIT_BATCHES[recruitBatchIndex]
+		actionRow(scroll, nextRow(), string.format("Batch size: x%d", batch), "Change",
+			Color3.fromRGB(56, 56, 72), function()
+				recruitBatchIndex = (recruitBatchIndex % #RECRUIT_BATCHES) + 1
+				buildTablePanel()
+			end)
+		for _, entry in ipairs(catalog) do
+			local troop = tostring(entry.troop)
+			local cost = entry.cost or {}
+			local have = math.floor(tonumber(village.army and village.army[troop]) or 0)
+			-- Counts are the conquest piece: one at a time is the only honest
+			-- button, whatever the batch says (Buildings.CONQUEST_ONLY).
+			local quantity = if Buildings.CONQUEST_ONLY[troop] then 1 else batch
+			local problem = recruitProblem(entry, village)
+			local label = string.format(
+				"%s (%d)  %d/%d/%d · %d pop",
+				Buildings.troopName(troop), have,
+				math.floor(tonumber(cost.wood) or 0) * quantity,
+				math.floor(tonumber(cost.stone) or 0) * quantity,
+				math.floor(tonumber(cost.iron) or 0) * quantity,
+				math.floor(tonumber(entry.population) or 0) * quantity
+			)
+			if problem then
+				noteRow(scroll, nextRow(), string.format("%s — %s", Buildings.troopName(troop), problem))
+			else
+				actionRow(scroll, nextRow(), label, string.format("x%d", quantity),
+					Color3.fromRGB(72, 92, 72), function()
+						invokeQueue({ kind = "recruit", villageId = villageId, troop = troop, quantity = quantity })
+					end)
+			end
+		end
+	end
+
+	-- --- smithy research: the server path existed with no interface at all
+	-- (audit: DISCONNECTED). Visible once a Smithy stands.
+	local smithyLevel = math.floor(tonumber(village.buildings and village.buildings.smithy) or 0)
+	if smithyLevel > 0 and #catalog > 0 then
+		sectionHeader(scroll, nextRow(), "SMITHY RESEARCH")
+		noteRow(scroll, nextRow(), "Kingdom-wide: every settlement's troops fight at the researched level.")
+		for _, entry in ipairs(catalog) do
+			local troop = tostring(entry.troop)
+			local level = math.floor(tonumber(entry.researchLevel) or 1)
+			local nextStep = entry.nextResearch
+			if nextStep then
+				local cost = nextStep.cost or {}
+				actionRow(scroll, nextRow(), string.format(
+					"%s Lv %d  →  %d/%d/%d",
+					Buildings.troopName(troop), level,
+					math.floor(tonumber(cost.wood) or 0),
+					math.floor(tonumber(cost.stone) or 0),
+					math.floor(tonumber(cost.iron) or 0)
+				), string.format("Study %d", level + 1),
+					Color3.fromRGB(72, 72, 100), function()
+						invokeQueue({ kind = "research", villageId = villageId, troop = troop })
+					end)
+			else
+				noteRow(scroll, nextRow(), string.format("%s — mastered (Lv %d)", Buildings.troopName(troop), level))
+			end
+		end
+	end
 end
 
 -- Every troop the report actually saw, in the canonical order. Zero counts are
@@ -1353,6 +1430,10 @@ local function buildMapTab(scroll: ScrollingFrame, village: any, villageId: stri
 			if isFreehold then "FREEHOLD - takeable" else kingdomNameFor(tostring(other.kingdomId))))
 	end
 end
+
+-- Two-tap recall arming, file scope so it survives the heartbeat rebuild.
+local armedRecallId: string? = nil
+local armedRecallAt = 0
 
 local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: string)
 	local snapshot = latest.snapshot
@@ -1535,6 +1616,25 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 				then string.format("%s returning from %s", what, where)
 				else string.format("%s → %s", what, where)
 			countdownRow(scroll, nextOrder(), heading, TimeUtil.isoToEpoch(march.arrivesAt))
+			if status == "outbound" then
+				-- Recall is two taps (arm, confirm) - the cost of a stray tap
+				-- is a doubled road, which is real on a 900-second Count march.
+				local marchId = tostring(march.id)
+				local armed = armedRecallId == marchId and (os.clock() - armedRecallAt) < 6
+				actionRow(scroll, nextOrder(),
+					if armed then "The column halts, awaiting your word." else "",
+					if armed then "RECALL - sure?" else "Recall",
+					if armed then Color3.fromRGB(120, 60, 40) else Color3.fromRGB(70, 55, 45), function()
+						if armedRecallId == marchId and (os.clock() - armedRecallAt) < 6 then
+							armedRecallId = nil
+							invokeQueue({ kind = "marchCancel", marchId = marchId })
+						else
+							armedRecallId = marchId
+							armedRecallAt = os.clock()
+							buildTablePanel()
+						end
+					end)
+			end
 		elseif status == "awaiting_battle" then
 			moving += 1
 			local where = villageLabel(tostring(march.targetVillageId))
@@ -1679,6 +1779,21 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 					if iAttacked then "you" else "them")
 				else ageText(battle.resolvedAt)
 		)
+	end
+
+	-- --- the herald: the realm's notifications, finally shown to the player
+	-- who earned them. Every "X reached level N" / "Your Count fell" line was
+	-- written to the database and never rendered anywhere (audit matrix M).
+	sectionHeader(scroll, nextOrder(), "THE HERALD")
+	local notices = (snapshot and snapshot.notifications) or {}
+	if #notices == 0 then
+		noteRow(scroll, nextOrder(), "Nothing to report. The realm will speak when something happens.")
+	end
+	for index, notice in ipairs(notices) do
+		if index > 8 then
+			break
+		end
+		noteRow(scroll, nextOrder(), string.format("%s  ·  %s", tostring(notice.message), ageText(notice.createdAt)), 34)
 	end
 end
 

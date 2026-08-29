@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { GAME_CONTRACT_VERSION } from "../../packages/game-core/src/contracts.ts";
+import { TROOP_ORDER, TROOPS } from "../../packages/game-core/src/economy.ts";
 import { createWorldHttpServer } from "../src/http.ts";
 import { SharedWorldStore } from "../src/store.ts";
 
@@ -91,6 +92,28 @@ test("session founds once, state returns the founded village, duplicate command 
     if (jobs) {
       const timberJobs = jobs.filter((job: any) => job.building === "timber" && job.villageId === village.id);
       assert.equal(timberJobs.length, 1);
+    }
+  });
+});
+
+test("the snapshot carries the troop catalog - costs and research come from the server, never a Luau mirror", async () => {
+  await withServer(KEY, async (base) => {
+    await post(base, "/api/roblox/session", { robloxUserId: 61, displayName: "Cataloguer" }, KEY);
+    const state = await (await post(base, "/api/roblox/state", { robloxUserIds: [61] }, KEY)).json() as { states: Record<string, any> };
+    const snapshot = state.states["61"];
+    const catalog = snapshot.troopCatalog;
+    assert.ok(Array.isArray(catalog), "troopCatalog present");
+    assert.equal(catalog.length, TROOP_ORDER.length, "one entry per troop, in canonical order");
+    for (let index = 0; index < TROOP_ORDER.length; index += 1) {
+      assert.equal(catalog[index].troop, TROOP_ORDER[index]);
+      assert.deepEqual(catalog[index].cost, TROOPS[TROOP_ORDER[index]].cost, `${TROOP_ORDER[index]} cost is game-core's cost`);
+      assert.equal(catalog[index].population, TROOPS[TROOP_ORDER[index]].population);
+      assert.equal(catalog[index].barracksLevel, TROOPS[TROOP_ORDER[index]].barracksLevel);
+      assert.equal(catalog[index].researchLevel, snapshot.kingdom.troopLevels[TROOP_ORDER[index]], "research level mirrors the kingdom");
+      if (catalog[index].researchLevel < 10) {
+        assert.ok(catalog[index].nextResearch, `${TROOP_ORDER[index]} offers a next research step`);
+        assert.equal(catalog[index].nextResearch.targetLevel, catalog[index].researchLevel + 1);
+      }
     }
   });
 });
