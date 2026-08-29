@@ -29,6 +29,7 @@ import {
   distanceBetween,
 
   BATTLE_ORDER_CAP,
+  BATTLE_RALLY_CLAMP,
   emptyArmy,
   isValidArmy,
   marchDurationSeconds,
@@ -345,6 +346,8 @@ export class SharedWorldStore {
   readonly marchDurationMs?: number;
   readonly returnDurationMs?: number;
   readonly autoResolveMs: number;
+  /** rally pace clocks, keyed battleId:sequence - memory only, see applyRallyUpdate */
+  private rallyClocks = new Map<string, { x: number; y: number; atMs: number }>();
   private readonly devSeedNobles: number;
   /** DEV ONLY. An offensive army so a drill can fight without training first. */
   private readonly devSeedArmy: Partial<Army> | undefined;
@@ -755,6 +758,55 @@ export class SharedWorldStore {
 
     this.publish(published);
     return { player: { id: playerId, username, kingdomId }, created: true };
+  }
+
+  /**
+   * A rally step from the batched state pull. The commander's position is a
+   * client claim (Roblox movement is client-authoritative), so a step lands
+   * only if it is WALKABLE: within BATTLE_RALLY_CLAMP order-units/second of
+   * the last accepted position. A teleport-sized move is rejected and
+   * logged - that log line is the spoof audit the red team asked for.
+   *
+   * The pace clock lives in memory on purpose (no schema change): a server
+   * restart forgets the clock, never the position - the first step after a
+   * restart is judged from the stored row at walking pace from "now", which
+   * fails safe toward rejecting a jump.
+   *
+   * Anything stale or malformed is IGNORED, never an error: a rally arriving
+   * after its battle resolved is the normal end of every rally.
+   */
+  applyRallyUpdate(entry: unknown): void {
+    if (typeof entry !== "object" || entry === null) return;
+    const claim = entry as { robloxUserId?: unknown; battleId?: unknown; sequence?: unknown; x?: unknown; y?: unknown };
+    const robloxUserId = Math.trunc(Number(claim.robloxUserId));
+    const battleId = String(claim.battleId ?? "");
+    const sequence = Math.trunc(Number(claim.sequence));
+    const x = Math.trunc(Number(claim.x));
+    const y = Math.trunc(Number(claim.y));
+    if (!Number.isFinite(robloxUserId) || !battleId || !Number.isInteger(sequence) || sequence < 1) return;
+    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x > 5000 || y > 5000) return;
+    const player = this.peekRobloxPlayer(robloxUserId);
+    if (!player) return;
+    const battle = this.db.prepare("SELECT status, attacker_kingdom_id FROM local_battle_sessions WHERE id = ?")
+      .get(battleId) as DbRow | undefined;
+    if (!battle || String(battle.status) !== "open" || String(battle.attacker_kingdom_id) !== player.kingdomId) return;
+    const row = this.db.prepare("SELECT x, y FROM local_battle_orders WHERE battle_id = ? AND sequence = ?")
+      .get(battleId, sequence) as DbRow | undefined;
+    if (!row) return;
+
+    const key = `${battleId}:${sequence}`;
+    const nowMs = this.now().getTime();
+    const last = this.rallyClocks.get(key) ?? { x: Number(row.x), y: Number(row.y), atMs: nowMs };
+    const deltaSeconds = Math.max((nowMs - last.atMs) / 1000, 0.05);
+    const allowed = BATTLE_RALLY_CLAMP * deltaSeconds;
+    const moved = Math.hypot(x - last.x, y - last.y);
+    if (moved > allowed) {
+      console.warn(`[rally] rejected teleport-sized move for ${player.kingdomId} on ${key}: ${Math.round(moved)} units in ${deltaSeconds.toFixed(2)}s (allowed ${Math.round(allowed)})`);
+      return;
+    }
+    this.db.prepare("UPDATE local_battle_orders SET x = ?, y = ? WHERE battle_id = ? AND sequence = ?")
+      .run(x, y, battleId, sequence);
+    this.rallyClocks.set(key, { x, y, atMs: nowMs });
   }
 
   peekRobloxPlayer(robloxUserId: number): SessionPlayer | null {

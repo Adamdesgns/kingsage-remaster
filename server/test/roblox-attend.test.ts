@@ -27,6 +27,7 @@ type Ctx = {
   advance: (ms: number) => void;
   session: (id: number, name: string) => Promise<any>;
   state: (id: number) => Promise<any>;
+  stateWith: (body: unknown) => Promise<any>;
   command: (id: number, commandId: string, version: number, command: unknown) => Promise<{ status: number; body: any }>;
 };
 
@@ -59,6 +60,7 @@ async function withServer(run: (context: Ctx) => Promise<void>, autoResolveMs = 
         const payload = await (await post("/api/roblox/state", { robloxUserIds: [robloxUserId] })).json();
         return payload.states[String(robloxUserId)];
       },
+      stateWith: async (body) => (await post("/api/roblox/state", body)).json(),
       command: async (robloxUserId, commandId, expectedWorldVersion, command) => {
         const response = await post("/api/roblox/commands", { robloxUserId, commandId, expectedWorldVersion, command });
         return { status: response.status, body: await response.json() };
@@ -345,4 +347,72 @@ test("opening the battle buys +3 minutes before the realm resolves it", async ()
     assert.equal(battle.status, "resolved", "the extension is a grace, not an exemption");
     assert.ok(battle.outcome, "resolved by the realm with the orders that were actually given");
   }, SHORT_RESOLVE);
+});
+
+test("a rally position walks - it does not teleport", async () => {
+  await withServer(async (context) => {
+    const { march, report } = await armyAtTheWalls(context, "a11");
+    await context.command(ATTACKER_ID, "a11-open", (await context.state(ATTACKER_ID)).world.version, {
+      type: "battle.open",
+      payload: { marchId: march.id, targetVillageVersion: report.targetVillageVersion, plan: PLAN },
+    });
+    const battle = (await context.state(ATTACKER_ID)).battleSessions[0];
+    const placed = await context.command(ATTACKER_ID, "a11-rally", (await context.state(ATTACKER_ID)).world.version, {
+      type: "battle.order",
+      payload: { battleId: battle.id, sequence: 1, squad: "vanguard", x: 2500, y: 2500, atMs: 500 },
+    });
+    assert.equal(placed.body.type, "command.accepted");
+
+    const row = () => (context.store as any).db
+      .prepare("SELECT x, y FROM local_battle_orders WHERE battle_id = ? AND sequence = 1").get(battle.id);
+
+    // First sample seeds the clock permissively; a small step lands.
+    context.advance(1_000);
+    await context.stateWith({ robloxUserIds: [ATTACKER_ID], rallies: [
+      { robloxUserId: ATTACKER_ID, battleId: battle.id, sequence: 1, x: 2530, y: 2500 },
+    ] });
+    assert.equal(row().x, 2530, "a walkable step moves the rally");
+
+    // A teleport-sized jump 0.1s later is rejected and the row holds.
+    context.advance(100);
+    await context.stateWith({ robloxUserIds: [ATTACKER_ID], rallies: [
+      { robloxUserId: ATTACKER_ID, battleId: battle.id, sequence: 1, x: 4990, y: 200 },
+    ] });
+    assert.equal(row().x, 2530, "a teleport-sized move must not land");
+    assert.equal(row().y, 2500);
+
+    // Walking pace after a real second is honoured again.
+    context.advance(1_000);
+    await context.stateWith({ robloxUserIds: [ATTACKER_ID], rallies: [
+      { robloxUserId: ATTACKER_ID, battleId: battle.id, sequence: 1, x: 2900, y: 2600 },
+    ] });
+    assert.equal(row().x, 2900, "an honest walk keeps following");
+  });
+});
+
+test("rally updates die with the battle", async () => {
+  await withServer(async (context) => {
+    const { march, report } = await armyAtTheWalls(context, "a12");
+    await context.command(ATTACKER_ID, "a12-open", (await context.state(ATTACKER_ID)).world.version, {
+      type: "battle.open",
+      payload: { marchId: march.id, targetVillageVersion: report.targetVillageVersion, plan: PLAN },
+    });
+    const battle = (await context.state(ATTACKER_ID)).battleSessions[0];
+    await context.command(ATTACKER_ID, "a12-rally", (await context.state(ATTACKER_ID)).world.version, {
+      type: "battle.order",
+      payload: { battleId: battle.id, sequence: 1, squad: "vanguard", x: 2500, y: 2500, atMs: 500 },
+    });
+    await context.command(ATTACKER_ID, "a12-resolve", (await context.state(ATTACKER_ID)).world.version, {
+      type: "battle.resolve",
+      payload: { battleId: battle.id },
+    });
+    context.advance(1_000);
+    const response = await context.stateWith({ robloxUserIds: [ATTACKER_ID], rallies: [
+      { robloxUserId: ATTACKER_ID, battleId: battle.id, sequence: 1, x: 2600, y: 2500 },
+    ] });
+    assert.ok(response.states, "a stale rally is ignored, never an error");
+    const row = (context.store as any).db
+      .prepare("SELECT x, y FROM local_battle_orders WHERE battle_id = ? AND sequence = 1").get(battle.id);
+    assert.equal(row.x, 2500, "a resolved battle's record is history, not a puppet");
+  });
 });

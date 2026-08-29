@@ -232,6 +232,19 @@ export function createWorldHttpServer(options: ServerOptions): {
         const body = await readJson(request);
         const ids = Array.isArray(body.robloxUserIds) ? (body.robloxUserIds as unknown[]).slice(0, 200) : [];
         store.materializeDueJobs();
+        // Rally positions ride the SAME pull (red team #6: zero new request
+        // budget). Each entry is a claim; the store walk-clamps it and a
+        // stale or bogus one is ignored, never an error - one bad rally must
+        // not poison the whole heartbeat.
+        if (Array.isArray(body.rallies)) {
+          for (const entry of (body.rallies as unknown[]).slice(0, 200)) {
+            try {
+              store.applyRallyUpdate(entry);
+            } catch (error) {
+              console.error("roblox/state: rally update failed", error);
+            }
+          }
+        }
         const states: Record<string, unknown> = {};
         for (const raw of ids) {
           const robloxUserId = Math.trunc(Number(raw));
