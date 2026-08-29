@@ -965,6 +965,16 @@ export class SharedWorldStore {
   }
 
   applyCommand(player: SessionPlayer, envelope: CommandEnvelope): CommandResult {
+    // Defence in depth behind the HTTP-layer shape check: an empty commandId
+    // must never reach the inbox, where every later "" would replay the first
+    // one as a silent success. Not storeRejected - a garbage id cannot be a
+    // primary key.
+    if (typeof envelope.commandId !== "string" || envelope.commandId.length < 1 || envelope.commandId.length > 128) {
+      return this.reject("", "INVALID_COMMAND", "commandId must be a non-empty string of at most 128 characters.", this.currentWorldVersion(String(envelope.worldId ?? "")));
+    }
+    if (!envelope.command || typeof envelope.command !== "object" || typeof (envelope.command as { type?: unknown }).type !== "string") {
+      return this.reject(envelope.commandId, "INVALID_COMMAND", "command must be an object with a string type.", this.currentWorldVersion(String(envelope.worldId ?? "")));
+    }
     const duplicate = this.db.prepare("SELECT player_id, result_json FROM local_command_inbox WHERE command_id = ?")
       .get(envelope.commandId) as DbRow | undefined;
     if (duplicate) {
@@ -1018,6 +1028,11 @@ export class SharedWorldStore {
       }
 
       if (envelope.command.type === "chat.send") {
+        if (typeof envelope.command.payload?.body !== "string") {
+          result = this.reject(envelope.commandId, "INVALID_COMMAND", "World chat messages must contain 1–280 characters.", currentVersion);
+          this.insertCommand(player, envelope, result);
+          return;
+        }
         const body = envelope.command.payload.body.trim().replace(/\s+/g, " ");
         if (envelope.command.payload.channelId !== `world:${envelope.worldId}` || body.length < 1 || body.length > 280) {
           result = this.reject(envelope.commandId, "INVALID_COMMAND", "World chat messages must contain 1–280 characters.", currentVersion);

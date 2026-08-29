@@ -76,6 +76,21 @@ function clearSessionCookie(): string {
   return "kingsage_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0";
 }
 
+// A command envelope with no id, or no typed command, must die at the door
+// with a 400. Before this guard, a missing commandId bound undefined into a
+// prepared statement (500), and an empty one silently replayed the first ""
+// command forever - failure that reads as success, this repo's named nemesis.
+function requireCommandShape(body: JsonObject): void {
+  const commandId = body.commandId;
+  if (typeof commandId !== "string" || commandId.length < 1 || commandId.length > 128) {
+    throw new StoreError("INVALID_CONTRACT", "commandId must be a non-empty string of at most 128 characters.", 400);
+  }
+  const command = body.command;
+  if (!command || typeof command !== "object" || Array.isArray(command) || typeof (command as JsonObject).type !== "string") {
+    throw new StoreError("INVALID_CONTRACT", "command must be an object with a string type.", 400);
+  }
+}
+
 function requireRobloxKey(request: IncomingMessage, robloxKey: string | undefined): void {
   if (!robloxKey) throw new StoreError("ROBLOX_DISABLED", "Roblox API is not configured.", 503);
   const presented = Buffer.from(String(request.headers["x-kingsage-key"] ?? ""));
@@ -207,7 +222,9 @@ export function createWorldHttpServer(options: ServerOptions): {
 
       if (request.method === "POST" && path === "/api/world/commands") {
         const player = authenticate(request, store);
-        const envelope = await readJson(request) as unknown as CommandEnvelope;
+        const body = await readJson(request);
+        requireCommandShape(body);
+        const envelope = body as unknown as CommandEnvelope;
         const result = store.applyCommand(player, envelope);
         json(response, result.type === "command.accepted" ? 200 : 409, result);
         return;
@@ -265,6 +282,7 @@ export function createWorldHttpServer(options: ServerOptions): {
 
       if (request.method === "POST" && path === "/api/roblox/commands") {
         const body = await readJson(request);
+        requireCommandShape(body);
         const linked = store.peekRobloxPlayer(Number(body.robloxUserId));
         if (!linked) throw new StoreError("UNKNOWN_ROBLOX_USER", "Call /api/roblox/session first.", 404);
         const envelope = makeCommandEnvelope({

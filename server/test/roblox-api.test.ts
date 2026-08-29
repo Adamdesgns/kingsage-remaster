@@ -95,6 +95,75 @@ test("session founds once, state returns the founded village, duplicate command 
   });
 });
 
+test("an empty commandId is refused - and two empty-id commands never replay each other", async () => {
+  await withServer(KEY, async (base) => {
+    await post(base, "/api/roblox/session", { robloxUserId: 55, displayName: "Empty" }, KEY);
+    const state = await (await post(base, "/api/roblox/state", { robloxUserIds: [55] }, KEY)).json() as { states: Record<string, any> };
+    const snapshot = state.states["55"];
+    const village = snapshot.world.villages.find((entry: any) => entry.kingdomId === snapshot.kingdom.id);
+
+    const first = await post(base, "/api/roblox/commands", {
+      robloxUserId: 55,
+      expectedWorldVersion: snapshot.world.version,
+      command: { type: "village.build.queue", payload: { villageId: village.id, building: "timber" } },
+    }, KEY);
+    // No commandId at all: refused outright, never executed.
+    assert.equal(first.status, 400, await first.clone().text());
+
+    const second = await post(base, "/api/roblox/commands", {
+      robloxUserId: 55,
+      commandId: "",
+      expectedWorldVersion: snapshot.world.version,
+      command: { type: "village.build.queue", payload: { villageId: village.id, building: "quarry" } },
+    }, KEY);
+    // Explicit empty string: same refusal - NOT a silent replay of some earlier "" command.
+    assert.equal(second.status, 400, await second.clone().text());
+
+    const after = await (await post(base, "/api/roblox/state", { robloxUserIds: [55] }, KEY)).json() as { states: Record<string, any> };
+    assert.equal((after.states["55"].constructionJobs ?? []).length, 0, "neither garbage command may queue anything");
+  });
+});
+
+test("a malformed envelope on the web command route is a 400, never a 500", async () => {
+  await withServer(KEY, async (base) => {
+    const register = await post(base, "/api/auth/register", { username: "webshape", password: "longenough1", kingdomName: "Shape Realm" });
+    assert.equal(register.status, 201, await register.clone().text());
+    const cookie = register.headers.get("set-cookie") ?? "";
+    const session = cookie.split(";")[0];
+
+    const empty = await fetch(`${base}/api/world/commands`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: session },
+      body: JSON.stringify({}),
+    });
+    assert.equal(empty.status, 400, await empty.clone().text());
+
+    const noType = await fetch(`${base}/api/world/commands`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: session },
+      body: JSON.stringify({ commandId: "cmd-shape-1", command: { payload: {} } }),
+    });
+    assert.equal(noType.status, 400, await noType.clone().text());
+  });
+});
+
+test("a chat message that is not a string is refused, not a crash", async () => {
+  await withServer(KEY, async (base) => {
+    await post(base, "/api/roblox/session", { robloxUserId: 56, displayName: "Chatty" }, KEY);
+    const state = await (await post(base, "/api/roblox/state", { robloxUserIds: [56] }, KEY)).json() as { states: Record<string, any> };
+    const snapshot = state.states["56"];
+    const response = await post(base, "/api/roblox/commands", {
+      robloxUserId: 56,
+      commandId: "cmd-chat-number",
+      expectedWorldVersion: snapshot.world.version,
+      command: { type: "chat.send", payload: { channelId: `world:${snapshot.world.id}`, body: 12345 } },
+    }, KEY);
+    assert.ok(response.status === 409 || response.status === 400, `expected a refusal, got ${response.status}`);
+    const body = await response.json() as { type?: string; error?: { code: string } };
+    assert.notEqual((body as any).error?.code, "INTERNAL_ERROR", "must not be a 500-class crash");
+  });
+});
+
 test("unknown roblox user on /commands is a 404, not a silent found", async () => {
   await withServer(KEY, async (base) => {
     const response = await post(base, "/api/roblox/commands", {
