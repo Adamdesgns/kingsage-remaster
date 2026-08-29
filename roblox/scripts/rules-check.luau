@@ -754,6 +754,105 @@ check("the paddock renderer draws only what PaddockSpec counts", (function()
 		and string.find(paddock, "Instance%.new%(\"Part\"%)") == nil
 end)())
 
+-- ---- the living square (slice 4): people at the commander's quality bar ----
+
+local villagerOk, VillagerSpec = pcall(loadModule, "roblox/src/shared/VillagerSpec.luau")
+
+check("VillagerSpec loads pure under Lune", villagerOk)
+
+check("four villagers spend 60 parts against the 150 cap, twelve frame + three prop each", (function()
+	if not villagerOk then
+		return false
+	end
+	local total = 0
+	for _, archetype in VillagerSpec.ARCHETYPES do
+		local frame = VillagerSpec.frameSpecs(archetype)
+		local prop = VillagerSpec.propSpecs(archetype)
+		if #frame ~= 12 or #prop > 3 or #prop < 1 then
+			return false
+		end
+		total += #frame + #prop
+	end
+	return #VillagerSpec.ARCHETYPES == 4 and total <= 60 and total <= VillagerSpec.BUDGET
+end)())
+
+check("every villager walks the street shoulder, never the middle of the road", (function()
+	if not villagerOk then
+		return false
+	end
+	local source = fs.readFile("roblox/src/shared/VillagerSpec.luau")
+	if string.find(source, "math%.random") then
+		return false
+	end
+	for index = 1, 4 do
+		local route = VillagerSpec.route(index)
+		if #route < 6 then
+			return false
+		end
+		for _, point in route do
+			local lane = math.abs(point.x)
+			if lane < 10 or lane > 16 or point.z < -50 or point.z > 140 then
+				return false
+			end
+		end
+	end
+	return true
+end)())
+
+check("mourning needs a real loss, holds an hour, and cannot be farmed inside the cooldown", (function()
+	if not villagerOk then
+		return false
+	end
+	local state = VillagerSpec.newMourningState(100)
+	-- A 4-point drop is grief, not mourning (floor is 5).
+	state = VillagerSpec.updateMourning(state, 96, 1000)
+	if VillagerSpec.shouldHide(state, false, 1000) then
+		return false
+	end
+	-- A 5-point drop mourns for an hour.
+	state = VillagerSpec.updateMourning(state, 91, 2000)
+	if not VillagerSpec.shouldHide(state, false, 2000) then
+		return false
+	end
+	if not VillagerSpec.shouldHide(state, false, 2000 + 3599) then
+		return false
+	end
+	if VillagerSpec.shouldHide(state, false, 2000 + 3601) then
+		return false
+	end
+	-- Another drop INSIDE the cooldown does not re-trigger...
+	state = VillagerSpec.updateMourning(state, 80, 2000 + 3700)
+	if VillagerSpec.shouldHide(state, false, 2000 + 3700) then
+		return false
+	end
+	-- ...but one after the cooldown window does.
+	state = VillagerSpec.updateMourning(state, 70, 2000 + 3600 + 1801)
+	if not VillagerSpec.shouldHide(state, false, 2000 + 3600 + 1801) then
+		return false
+	end
+	return true
+end)())
+
+check("the baker's boy does not stroll through a siege", (function()
+	if not villagerOk then
+		return false
+	end
+	-- An open battle at home hides everyone regardless of mourning state.
+	local calm = VillagerSpec.newMourningState(100)
+	return VillagerSpec.shouldHide(calm, true, 5000) == true
+end)())
+
+check("the villager renderer draws only what VillagerSpec counts", (function()
+	local ok, villagers = pcall(fs.readFile, "roblox/src/client/Villagers.luau")
+	if not ok then
+		return false
+	end
+	return string.find(villagers, "VillagerSpec%.frameSpecs") ~= nil
+		and string.find(villagers, "VillagerSpec%.shouldHide") ~= nil
+		and string.find(villagers, "defenderVillageId") ~= nil
+		and string.find(villagers, "Instance%.new%(\"Part\"%)") == nil
+end)())
+
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then
 	process.exit(1)
