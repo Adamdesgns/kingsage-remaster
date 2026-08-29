@@ -44,6 +44,7 @@ local TimeUtil = require(shared:WaitForChild("TimeUtil"))
 -- and everything beside it a child of that script.
 local BattleScene = require(script:WaitForChild("BattleScene"))
 local Celebration = require(script:WaitForChild("Celebration"))
+local Paddock = require(script:WaitForChild("Paddock"))
 
 local remotes = ReplicatedStorage:WaitForChild("WorldRemotes")
 local stateSync = remotes:WaitForChild("StateSync") :: RemoteEvent
@@ -2606,6 +2607,8 @@ stateSync.OnClientEvent:Connect(function(payload: { snapshot: any?, status: stri
 	if latest.snapshot then
 		announceNewReports(latest.snapshot)
 		refreshHud()
+		-- The herd on the grass follows the snapshot's herd in the stable.
+		Paddock.update(latest.snapshot)
 	end
 end)
 

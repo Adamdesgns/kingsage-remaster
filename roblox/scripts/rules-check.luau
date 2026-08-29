@@ -683,6 +683,77 @@ check("the rally button exists only where the commander does", (function()
 	return string.find(branch, "battleRally") ~= nil
 end)())
 
+-- ---- the herd (slice 3): the paddock counts what the stable holds ----
+
+local paddockOk, PaddockSpec = pcall(loadModule, "roblox/src/shared/PaddockSpec.luau")
+
+check("PaddockSpec loads pure under Lune", paddockOk)
+
+check("eight horses spend exactly the 80-part budget and not a part more", (function()
+	if not paddockOk then
+		return false
+	end
+	local total = 0
+	for index = 1, PaddockSpec.MAX_DISPLAY do
+		local parts = PaddockSpec.horseSpecs(index)
+		if #parts ~= PaddockSpec.HORSE_PARTS then
+			return false
+		end
+		total += #parts
+	end
+	return total == 80 and total <= PaddockSpec.BUDGET
+end)())
+
+check("zero horses shows zero - and the display scales exactly as the design table says", (function()
+	if not paddockOk then
+		return false
+	end
+	local cases: { { number } } = { { 0, 0 }, { 1, 1 }, { 11, 1 }, { 12, 1 }, { 13, 2 }, { 72, 6 }, { 96, 8 }, { 10000, 8 } }
+	for _, case in cases do
+		if PaddockSpec.displayCount(case[1]) ~= case[2] then
+			return false
+		end
+	end
+	-- Garbage in, empty paddock out - never an error.
+	return PaddockSpec.displayCount(0 / 0) == 0 and PaddockSpec.displayCount(-5) == 0
+end)())
+
+check("every horse grazes inside the paddock strip, deterministically", (function()
+	if not paddockOk then
+		return false
+	end
+	local source = fs.readFile("roblox/src/shared/PaddockSpec.luau")
+	if string.find(source, "math%.random") then
+		return false
+	end
+	for index = 1, PaddockSpec.MAX_DISPLAY do
+		local points = PaddockSpec.waypoints(index)
+		if #points < 3 then
+			return false
+		end
+		for _, point in points do
+			-- The strip in front of the stable, inside the existing rails.
+			if point.x < -14 or point.x > 14 or point.z < 14.5 or point.z > 20.5 then
+				return false
+			end
+		end
+	end
+	return true
+end)())
+
+check("the paddock renderer draws only what PaddockSpec counts", (function()
+	local ok, paddock = pcall(fs.readFile, "roblox/src/client/Paddock.luau")
+	if not ok then
+		return false
+	end
+	-- Every part the client places must come from the shared spec, and the
+	-- runtime audit must be present, or Lune is counting a different herd
+	-- than Studio draws.
+	return string.find(paddock, "PaddockSpec%.horseSpecs") ~= nil
+		and string.find(paddock, "PaddockSpec%.BUDGET") ~= nil
+		and string.find(paddock, "Instance%.new%(\"Part\"%)") == nil
+end)())
+
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then
 	process.exit(1)
