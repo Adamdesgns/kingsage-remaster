@@ -1089,7 +1089,7 @@ export class SharedWorldStore {
     if (envelope.worldId !== this.worldIdForKingdom(player.kingdomId)) {
       return this.storeRejected(player, envelope, "FORBIDDEN", "The player does not belong to that world.");
     }
-    if (!["village.build.queue", "village.recruit.queue", "kingdom.research.queue", "march.launch", "battle.open", "battle.order", "battle.retreat", "battle.resolve", "chat.send"].includes(envelope.command.type)) {
+    if (!["village.build.queue", "village.recruit.queue", "kingdom.research.queue", "march.launch", "march.cancel", "battle.open", "battle.order", "battle.retreat", "battle.resolve", "chat.send"].includes(envelope.command.type)) {
       return this.storeRejected(player, envelope, "INVALID_COMMAND", "This world command is not active yet.");
     }
 
@@ -1163,7 +1163,7 @@ export class SharedWorldStore {
         return;
       }
 
-      if (["march.launch", "battle.open", "battle.order", "battle.retreat", "battle.resolve"].includes(envelope.command.type)) {
+      if (["march.launch", "march.cancel", "battle.open", "battle.order", "battle.retreat", "battle.resolve"].includes(envelope.command.type)) {
         result = this.applyWarCommand(player, envelope, currentVersion, published);
         this.insertCommand(player, envelope, result);
         return;
@@ -1465,6 +1465,30 @@ export class SharedWorldStore {
         currentVersion,
         published,
       );
+    }
+
+    if (command.type === "march.cancel") {
+      const row = this.db.prepare("SELECT * FROM local_marches WHERE id = ? AND world_id = ?")
+        .get(String(command.payload.marchId), envelope.worldId) as DbRow | undefined;
+      if (!row || String(row.kingdom_id) !== player.kingdomId) {
+        return this.reject(envelope.commandId, "FORBIDDEN", "That march does not answer to you.", currentVersion);
+      }
+      if (String(row.status) !== "outbound") {
+        return this.reject(envelope.commandId, "MARCH_COMMITTED", "They can see the walls — there is no turning back now.", currentVersion);
+      }
+      // Turn for home from where the column stands: the walk back costs
+      // exactly what the walk out has cost so far. The march is still
+      // outbound inside this transaction, so elapsed < the full duration.
+      const cancelledAt = this.now();
+      const elapsedMs = Math.max(0, cancelledAt.getTime() - new Date(String(row.departed_at)).getTime());
+      this.db.prepare("UPDATE local_marches SET status = 'returning', departed_at = ?, arrives_at = ? WHERE id = ?")
+        .run(cancelledAt.toISOString(), new Date(cancelledAt.getTime() + elapsedMs).toISOString(), String(row.id));
+      const march = this.readMarch(String(row.id))!;
+      const worldVersion = this.incrementWorldVersion(envelope.worldId);
+      published.push(this.insertEvent(envelope.worldId, worldVersion, "march.changed", { march, village: this.readVillage(String(row.from_village_id)) }));
+      this.insertNotification(envelope.worldId, player.kingdomId, "march",
+        `${armyUnitCount(parseJson(String(row.army_json)))} troops turned for home.`, cancelledAt.toISOString());
+      return { type: "command.accepted", payload: { commandId: envelope.commandId, worldVersion, march } };
     }
 
     if (command.type === "battle.open") {

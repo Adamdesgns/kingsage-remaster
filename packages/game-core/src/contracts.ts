@@ -229,6 +229,10 @@ export type GameCommand =
   | { type: "village.recruit.queue"; payload: { villageId: VillageId; troop: TroopType; quantity: number } }
   | { type: "kingdom.research.queue"; payload: { villageId: VillageId; troop: TroopType; targetLevel: number } }
   | { type: "march.launch"; payload: { fromVillageId: VillageId; targetVillageId: VillageId; kind: Exclude<MarchKind, "return">; army: Army; plan?: BattlePlan } }
+  // Recall an OUTBOUND march you own: it turns for home from where it
+  // stands, and the walk back costs what the walk out cost so far. An army
+  // that has reached the walls is committed (MARCH_COMMITTED).
+  | { type: "march.cancel"; payload: { marchId: MarchId } }
   | { type: "battle.open"; payload: { marchId: MarchId; targetVillageVersion: number; plan: BattlePlan } }
   | { type: "battle.order"; payload: { battleId: BattleId; sequence: number; squad: CommandSquadId; x: number; y: number; atMs: number } }
   // atMs is legacy wire compatibility only: the server derives retreat
