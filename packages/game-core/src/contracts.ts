@@ -165,6 +165,11 @@ export type ScoutReportState = {
   observedArmy: Army;
   observedResources: ResourceStock;
   observedBuildings: BuildingLevels;
+  /** Realm of Power as the scout saw it - the only honest source now that
+   * snapshots fog it for foreign villages. */
+  observedRealmOfPower: number;
+  /** Derived from observedBuildings at read time; never stored. */
+  observedRealmOfPowerMax: number;
   layout: Record<string, { x: number; y: number }>;
   createdAt: string;
 };

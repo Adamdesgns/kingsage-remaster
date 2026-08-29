@@ -399,6 +399,7 @@ export class SharedWorldStore {
     this.migrateRealmOfPower();
     this.migrateBuildQueue();
     this.migrateHorses();
+    this.migrateScoutRealmIntel();
   }
 
   /**
@@ -484,6 +485,15 @@ export class SharedWorldStore {
     this.db.exec(readFileSync(migrationPath, "utf8"));
     this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)")
       .run(10, this.now().toISOString());
+  }
+
+  private migrateScoutRealmIntel(): void {
+    const columns = this.db.prepare("PRAGMA table_info(local_scout_reports)").all() as DbRow[];
+    if (columns.some((column) => String(column.name) === "observed_realm_of_power")) return;
+    const migrationPath = fileURLToPath(new URL("../db/migrations/0011_scout_realm_intel.sql", import.meta.url));
+    this.db.exec(readFileSync(migrationPath, "utf8"));
+    this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)")
+      .run(11, this.now().toISOString());
   }
 
   /**
@@ -879,12 +889,7 @@ export class SharedWorldStore {
     if (!kingdom) throw new StoreError("KINGDOM_NOT_FOUND", "The player's kingdom is missing from its world.", 404);
     const world: WorldState = {
       ...fullWorld,
-      villages: fullWorld.villages.map((village) => village.kingdomId === player.kingdomId ? village : {
-        ...village,
-        resources: { wood: 0, stone: 0, iron: 0 },
-        buildings: Object.fromEntries(BUILDING_TYPES.map((building) => [building, 0])) as BuildingLevels,
-        army: emptyArmy(),
-      }),
+      villages: fullWorld.villages.map((village) => this.fogVillageForKingdom(village, player.kingdomId)),
     };
     const jobs = (this.db.prepare(`
       SELECT id, village_id, building, target_level, started_at, completes_at
@@ -2263,18 +2268,24 @@ export class SharedWorldStore {
           observedArmy: parseJson(target.army_json),
           observedResources: parseJson(target.resources_json),
           observedBuildings: parseJson(target.buildings_json),
+          observedRealmOfPower: this.regeneratedRealmOfPower(
+            target,
+            Math.max(1, settlementPoints(parseJson<BuildingLevels>(target.buildings_json))),
+            new Date(String(row.arrives_at)),
+          ),
+          observedRealmOfPowerMax: Math.max(1, settlementPoints(parseJson<BuildingLevels>(target.buildings_json))),
           layout: parseJson(target.layout_json),
           createdAt: String(row.arrives_at),
         };
         this.db.prepare(`
           INSERT INTO local_scout_reports(
             id, march_id, world_id, kingdom_id, target_village_id, target_village_version, target_village_name,
-            target_kingdom_name, observed_army_json, observed_resources_json, observed_buildings_json, layout_json, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            target_kingdom_name, observed_army_json, observed_resources_json, observed_buildings_json, observed_realm_of_power, layout_json, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           report.id, report.marchId, report.worldId, report.kingdomId, report.targetVillageId, report.targetVillageVersion,
           report.targetVillageName, report.targetKingdomName, JSON.stringify(report.observedArmy), JSON.stringify(report.observedResources),
-          JSON.stringify(report.observedBuildings), JSON.stringify(report.layout), report.createdAt,
+          JSON.stringify(report.observedBuildings), report.observedRealmOfPower, JSON.stringify(report.layout), report.createdAt,
         );
         const from = this.db.prepare("SELECT x, y FROM local_villages WHERE id = ?").get(String(row.from_village_id)) as DbRow;
         const distance = distanceBetween({ x: Number(from.x), y: Number(from.y) }, { x: Number(target.x), y: Number(target.y) });
@@ -2421,6 +2432,10 @@ export class SharedWorldStore {
       observedArmy: parseJson(row.observed_army_json),
       observedResources: parseJson(row.observed_resources_json),
       observedBuildings: parseJson(row.observed_buildings_json),
+      observedRealmOfPower: Number(row.observed_realm_of_power ?? 0),
+      // Derived, not stored: the maximum is a pure function of what the
+      // scout saw standing.
+      observedRealmOfPowerMax: Math.max(1, settlementPoints(parseJson<BuildingLevels>(row.observed_buildings_json))),
       layout: parseJson(row.layout_json),
       createdAt: String(row.created_at),
     };
@@ -2543,6 +2558,26 @@ export class SharedWorldStore {
       warVictoryPoints: Number(row.war_victory_points),
       villagesConquered: Number(row.villages_conquered),
       alive: Boolean(row.alive),
+    };
+  }
+
+  /**
+   * The ONE fog rule. Everything a rival could act on is zeroed: resources,
+   * buildings, garrison, realm power (conquest progress) and the herd. A
+   * scout report is the only honest way past this - audit 2026-08-29
+   * findings 8.2/8.3 both came from paths that skipped it.
+   */
+  private fogVillageForKingdom(village: VillageState, kingdomId: string): VillageState {
+    if (village.kingdomId === kingdomId) return village;
+    return {
+      ...village,
+      resources: { wood: 0, stone: 0, iron: 0 },
+      buildings: Object.fromEntries(BUILDING_TYPES.map((building) => [building, 0])) as BuildingLevels,
+      army: emptyArmy(),
+      realmOfPower: 0,
+      realmOfPowerMax: 0,
+      horses: 0,
+      horsesMax: 0,
     };
   }
 

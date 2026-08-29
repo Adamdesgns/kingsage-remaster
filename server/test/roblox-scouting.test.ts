@@ -129,6 +129,40 @@ test("foreign villages arrive fogged, and only a scout report lifts it", async (
   });
 });
 
+test("fog covers realm power and the herd - and a scout report carries them instead", async () => {
+  await withServer(async (context) => {
+    const identity = await context.session();
+    const opening = await context.state();
+    const foreign = opening.world.villages.filter((v: any) => v.kingdomId !== identity.kingdomId);
+    assert.ok(foreign.length > 0);
+    for (const village of foreign) {
+      assert.equal(village.realmOfPower, 0, `${village.name}: realm power must be fogged`);
+      assert.equal(village.realmOfPowerMax, 0, `${village.name}: realm power maximum must be fogged`);
+      assert.equal(village.horses, 0, `${village.name}: the herd must be fogged`);
+      assert.equal(village.horsesMax, 0, `${village.name}: herd capacity must be fogged`);
+    }
+
+    const home = opening.world.villages.find((v: any) => v.kingdomId === identity.kingdomId);
+    const target = foreign[0];
+    await context.command("fog-rop-scout", opening.world.version, {
+      type: "march.launch",
+      payload: { fromVillageId: home.id, targetVillageId: target.id, kind: "scout", army: { ...emptyArmy(), scout: 1 } },
+    });
+    context.clock.advance(1_200);
+
+    const scouted = await context.state();
+    const report = scouted.scoutReports.find((r: any) => r.targetVillageId === target.id);
+    assert.ok(report, "scout report present");
+    assert.ok(Number(report.observedRealmOfPower) > 0, "the report carries the observed realm power");
+    assert.ok(Number(report.observedRealmOfPowerMax) > 0, "and the observed maximum");
+
+    // The report never un-fogs the world itself.
+    const still = scouted.world.villages.find((v: any) => v.id === target.id);
+    assert.equal(still.realmOfPower, 0);
+    assert.equal(still.horses, 0);
+  });
+});
+
 test("a replayed scout commandId does not send a second wave", async () => {
   await withServer(async ({ session, state, command }) => {
     await session();
