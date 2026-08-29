@@ -377,12 +377,13 @@ local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: str
 		if not battle or tostring(battle.status) ~= "open" then
 			return nil, nil, "That battle is already decided."
 		end
+		-- No atMs: the world server derives exposure from the battle's own
+		-- opened_at. A client-supplied clock bought survivors (audit 8.4).
 		return {
 			type = "battle.retreat",
 			payload = {
 				battleId = battleId,
 				sequence = nextSequence(battleId, battle),
-				atMs = math.clamp(math.floor(tonumber(request.atMs) or 0), 0, 600000),
 			},
 		}, "battleRetreat:" .. battleId, nil
 	end

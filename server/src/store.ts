@@ -1432,12 +1432,17 @@ export class SharedWorldStore {
       const row = this.battleResolutionRow(command.payload.battleId, envelope.worldId, player.kingdomId);
       if (!row || String(row.status) !== "open") return this.reject(envelope.commandId, "BATTLE_CLOSED", "That battle can no longer retreat.", currentVersion);
       const acceptedOrders = Number(row.order_count);
-      if (command.payload.sequence !== acceptedOrders + 1 || !Number.isInteger(command.payload.atMs) || command.payload.atMs < 0 || command.payload.atMs > 600_000) {
+      if (command.payload.sequence !== acceptedOrders + 1) {
         return this.reject(envelope.commandId, "INVALID_ORDER", `The retreat must use sequence ${acceptedOrders + 1}.`, currentVersion);
       }
+      // Exposure time is the battle's OWN clock, never the client's claim.
+      // Audit 2026-08-29 finding 8.4: a client sending atMs=0 bought an 88%
+      // survival rate where honest exposure pays as low as 50%. The payload
+      // field is kept for wire compatibility and ignored.
+      const retreatAtMs = Math.max(0, Math.min(600_000, this.now().getTime() - new Date(String(row.opened_at)).getTime()));
       const attacker = parseJson<Army>(row.attacker_army_json);
       const defender = parseJson<Army>(row.defender_army_json);
-      const survivors = retreatSurvivors(attacker, command.payload.atMs, acceptedOrders, String(row.seed));
+      const survivors = retreatSurvivors(attacker, retreatAtMs, acceptedOrders, String(row.seed));
       const outcome = {
         winner: "defender" as const,
         attackerSurvivors: survivors,

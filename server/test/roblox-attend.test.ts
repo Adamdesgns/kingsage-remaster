@@ -197,6 +197,34 @@ test("falling back saves survivors and costs the defender nothing", async () => 
   });
 });
 
+test("retreat exposure is the battle's own clock - a client cannot buy survivors with atMs 0", async () => {
+  await withServer(async (context) => {
+    const { march, report } = await armyAtTheWalls(context, "a9");
+    await context.command(ATTACKER_ID, "a9-open", (await context.state(ATTACKER_ID)).world.version, {
+      type: "battle.open",
+      payload: { marchId: march.id, targetVillageVersion: report.targetVillageVersion, plan: PLAN },
+    });
+    const battle = (await context.state(ATTACKER_ID)).battleSessions[0];
+
+    // Two minutes of real fighting pass (inside the +3 min attend grace).
+    context.advance(120_000);
+
+    const pulled = await context.command(ATTACKER_ID, "a9-retreat", (await context.state(ATTACKER_ID)).world.version, {
+      type: "battle.retreat",
+      payload: { battleId: battle.id, sequence: 1, atMs: 0 },
+    });
+    assert.equal(pulled.body.type, "command.accepted", JSON.stringify(pulled.body));
+
+    const settled = (await context.state(ATTACKER_ID)).battleSessions[0];
+    const survived = armyUnitCount(settled.outcome.attackerSurvivors);
+    const sent = armyUnitCount(settled.attackerArmy);
+    // Server-derived exposure: 120s into a battle caps the survival rate at
+    // its 0.5 floor. The claimed atMs of 0 would have kept 88%.
+    assert.ok(survived <= Math.ceil(sent * 0.55), `two minutes of exposure must cost troops: ${survived}/${sent} survived`);
+    assert.ok(survived < Math.floor(sent * 0.88), "the atMs=0 discount must not be honoured");
+  });
+});
+
 test("a defender who merely earned resources does not invalidate your intel", async () => {
   // state_version bumps on every resource tick (accrueVillage). Enforcing
   // version equality would make attending impossible in a world where time

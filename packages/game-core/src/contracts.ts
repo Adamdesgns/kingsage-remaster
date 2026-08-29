@@ -226,7 +226,9 @@ export type GameCommand =
   | { type: "march.launch"; payload: { fromVillageId: VillageId; targetVillageId: VillageId; kind: Exclude<MarchKind, "return">; army: Army; plan?: BattlePlan } }
   | { type: "battle.open"; payload: { marchId: MarchId; targetVillageVersion: number; plan: BattlePlan } }
   | { type: "battle.order"; payload: { battleId: BattleId; sequence: number; squad: CommandSquadId; x: number; y: number; atMs: number } }
-  | { type: "battle.retreat"; payload: { battleId: BattleId; sequence: number; atMs: number } }
+  // atMs is legacy wire compatibility only: the server derives retreat
+  // exposure from the battle's own opened_at and ignores any client value.
+  | { type: "battle.retreat"; payload: { battleId: BattleId; sequence: number; atMs?: number } }
   | { type: "battle.resolve"; payload: { battleId: BattleId } }
   | { type: "alliance.create"; payload: { name: string } }
   | { type: "alliance.join"; payload: { allianceId: AllianceId } }
