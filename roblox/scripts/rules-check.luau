@@ -638,6 +638,37 @@ check("footAnchor stands on the attacker baseline of the shared field geometry",
 	return string.find(body, "BattleConfig%.FIELD_DEPTH / 2") ~= nil
 end)())
 
+-- ---- rally (slice 2): one mapping, one request budget, no double-spend ----
+
+check("the rally heartbeat rides the existing state pull - request budget unchanged", (function()
+	local session = fs.readFile("roblox/src/server/WorldSession.luau")
+	-- Exactly the two pulls that existed before slice 2 (refetch + heartbeat),
+	-- and the rallies payload travels inside one of them, not in a third call.
+	local count = 0
+	for _ in string.gmatch(session, 'ApiClient%.post%("/api/roblox/state"') do
+		count += 1
+	end
+	return count == 2 and string.find(session, "rallies") ~= nil
+end)())
+
+check("client and server map the field through one shared toOrderSpace", (function()
+	local battleConfig = fs.readFile("roblox/src/shared/BattleConfig.luau")
+	local scene = fs.readFile("roblox/src/client/BattleScene.luau")
+	local session = fs.readFile("roblox/src/server/WorldSession.luau")
+	return string.find(battleConfig, "function BattleConfig%.toOrderSpace") ~= nil
+		and string.find(scene, "BattleConfig%.toOrderSpace") ~= nil
+		and string.find(session, "BattleConfig%.toOrderSpace") ~= nil
+end)())
+
+check("battleRally re-registers instead of double-spending the order cap", (function()
+	local commandService = fs.readFile("roblox/src/server/CommandService.luau")
+	local branch = string.match(commandService, 'request%.kind == "battleRally".-' .. string.char(10) .. "\tend")
+	if not branch then
+		return false
+	end
+	return string.find(branch, "WorldSession%.rallyFor") ~= nil
+end)())
+
 print(string.format("---- %d rules checked, %d failed ----", checks, failures))
 if failures > 0 then
 	process.exit(1)

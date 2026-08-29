@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local shared = ReplicatedStorage:WaitForChild("WorldShared")
 local Config = require(shared:WaitForChild("Config"))
+local BattleConfig = require(shared:WaitForChild("BattleConfig"))
 local TimeUtil = require(shared:WaitForChild("TimeUtil"))
 local ApiClient = require(script.Parent:WaitForChild("ApiClient"))
 
@@ -56,6 +57,110 @@ end
 
 function WorldSession.getStatus(): string
 	return status
+end
+
+-- ---- rally tracking (slice 2) ----
+-- One active rally per player. The REGISTRATION lives here because this is
+-- where the heartbeat runs; the ORDER it steers was issued through the
+-- normal command path and counts against the cap like any other. The
+-- position source is the player's replicated character - the server reads
+-- it itself, so there is no extra client channel to spoof (the world
+-- server's walk clamp still judges every step).
+type Rally = { battleId: string, sequence: number, squad: string }
+local rallies: { [Player]: Rally } = {}
+
+function WorldSession.registerRally(player: Player, battleId: string, sequence: number, squad: string)
+	rallies[player] = { battleId = battleId, sequence = sequence, squad = squad }
+end
+
+-- The already-registered sequence for this battle+squad, or nil. Lets a
+-- rejoining commander resume steering the SAME order instead of spending
+-- another one from the cap.
+function WorldSession.rallyFor(player: Player, battleId: string, squad: string): number?
+	local entry = rallies[player]
+	if entry and entry.battleId == battleId and entry.squad == squad then
+		return entry.sequence
+	end
+	return nil
+end
+
+-- Where the commander stands on a battle's field, in order space - or nil
+-- when they are not standing anywhere that battle can see (no character,
+-- battle unknown/closed, defender village missing). Field geometry matches
+-- BattleScene.start exactly; the mapping is the shared BattleConfig one.
+function WorldSession.fieldPointFor(player: Player, battleId: string): (number?, number?)
+	local snapshot = snapshots[player]
+	if not snapshot then
+		return nil, nil
+	end
+	local battle = nil
+	for _, candidate in ((snapshot.battleSessions :: any) or {}) do
+		if tostring(candidate.id) == battleId then
+			battle = candidate
+			break
+		end
+	end
+	if not battle or tostring(battle.status) ~= "open" then
+		return nil, nil
+	end
+	local village = nil
+	for _, candidate in ((snapshot.world and snapshot.world.villages :: any) or {}) do
+		if tostring(candidate.id) == tostring(battle.defenderVillageId) then
+			village = candidate
+			break
+		end
+	end
+	if not village then
+		return nil, nil
+	end
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not root or not root:IsA("BasePart") then
+		return nil, nil
+	end
+	local centerX = (tonumber(village.x) or 0) * Config.TILE_STUDS
+	local centerZ = (tonumber(village.y) or 0) * Config.TILE_STUDS + Config.WALL_HALF + BattleConfig.FIELD_DEPTH / 2 + 12
+	return BattleConfig.toOrderSpace(root.Position.X, root.Position.Z, centerX, centerZ)
+end
+
+-- The rallies payload for one heartbeat, and the moment every finished
+-- rally is let go: a battle that is no longer open ends its rally, a
+-- missing character (left field, died, disconnecting) just freezes it -
+-- the last accepted position stands on the world server untouched.
+local function collectRallies(): { { [string]: any } }
+	local payload = {}
+	for player, entry in rallies do
+		local identity = identities[player]
+		if not identity then
+			rallies[player] = nil
+			continue
+		end
+		local snapshot = snapshots[player]
+		local battleStillOpen = false
+		if snapshot then
+			for _, candidate in ((snapshot.battleSessions :: any) or {}) do
+				if tostring(candidate.id) == entry.battleId and tostring(candidate.status) == "open" then
+					battleStillOpen = true
+					break
+				end
+			end
+		end
+		if not battleStillOpen then
+			rallies[player] = nil
+			continue
+		end
+		local x, y = WorldSession.fieldPointFor(player, entry.battleId)
+		if x and y then
+			table.insert(payload, {
+				robloxUserId = identity.robloxUserId,
+				battleId = entry.battleId,
+				sequence = entry.sequence,
+				x = x,
+				y = y,
+			})
+		end
+	end
+	return payload
 end
 
 function WorldSession.getState(player: Player): any
@@ -181,9 +286,12 @@ end
 
 Players.PlayerRemoving:Connect(function(player)
 	-- Nothing to save, by design (spec §7): the world server holds everything.
+	-- The rally registration dies with the presence; the ORDER stands on the
+	-- world server at its last accepted position (disconnect = freeze).
 	identities[player] = nil
 	snapshots[player] = nil
 	sessionErrors[player] = nil
+	rallies[player] = nil
 end)
 
 -- The ONE heartbeat for the whole server (chunked only past 50 players).
@@ -198,9 +306,17 @@ task.spawn(function()
 			continue
 		end
 		local failed = false
+		-- Rally positions ride THIS pull (red team #6: zero new request
+		-- budget). Sent with the first chunk only - the world server routes
+		-- each entry by its own battleId, not by which chunk carried it.
+		local rallyPayload = collectRallies()
 		for start = 1, #ids, STATE_CHUNK do
 			local chunk = table.move(ids, start, math.min(start + STATE_CHUNK - 1, #ids), 1, {})
-			local ok, body = ApiClient.post("/api/roblox/state", { robloxUserIds = chunk })
+			local body_payload: { [string]: any } = { robloxUserIds = chunk }
+			if start == 1 and #rallyPayload > 0 then
+				body_payload.rallies = rallyPayload
+			end
+			local ok, body = ApiClient.post("/api/roblox/state", body_payload)
 			if ok then
 				applyStates(body)
 			else

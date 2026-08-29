@@ -724,9 +724,7 @@ function BattleScene.orderSquad(squadId: string, worldPoint: Vector3): (number, 
 			block.target = Vector3.new(clampedX + offset * 0.35, 0, clampedZ)
 		end
 	end
-	local x = math.floor((clampedX - (scene.center.X - halfWidth)) / (halfWidth * 2) * BattleConfig.ORDER_SPACE)
-	local y = math.floor((clampedZ - (scene.center.Z - halfDepth)) / (halfDepth * 2) * BattleConfig.ORDER_SPACE)
-	return math.clamp(x, 0, BattleConfig.ORDER_SPACE), math.clamp(y, 0, BattleConfig.ORDER_SPACE)
+	return BattleConfig.toOrderSpace(worldPoint.X, worldPoint.Z, scene.center.X, scene.center.Z)
 end
 
 function BattleScene.squadLabel(squadId: string): string

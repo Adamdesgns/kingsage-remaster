@@ -87,6 +87,21 @@ BattleConfig.ORDER_CAP = 5
 -- an honest walk never gets a step rejected.
 BattleConfig.RALLY_CLAMP = 700
 
+-- Map a world-space point on the battlefield into the 0..ORDER_SPACE grid
+-- the world server validates. ONE mapping shared by the client scene
+-- (tap-to-order) and the Roblox server's rally heartbeat — two copies of
+-- this maths is how a squad would march somewhere the commander never
+-- stood. Pure numbers in, pure numbers out, so Lune can run it.
+function BattleConfig.toOrderSpace(worldX: number, worldZ: number, centerX: number, centerZ: number): (number, number)
+	local halfWidth = BattleConfig.FIELD_WIDTH / 2 + 30
+	local halfDepth = BattleConfig.FIELD_DEPTH / 2 + 30
+	local clampedX = math.clamp(worldX, centerX - halfWidth, centerX + halfWidth)
+	local clampedZ = math.clamp(worldZ, centerZ - halfDepth, centerZ + halfDepth)
+	local x = math.floor((clampedX - (centerX - halfWidth)) / (halfWidth * 2) * BattleConfig.ORDER_SPACE)
+	local y = math.floor((clampedZ - (centerZ - halfDepth)) / (halfDepth * 2) * BattleConfig.ORDER_SPACE)
+	return math.clamp(x, 0, BattleConfig.ORDER_SPACE), math.clamp(y, 0, BattleConfig.ORDER_SPACE)
+end
+
 BattleConfig.ATTACKER_COLOR = Color3.fromRGB(160, 60, 60)
 BattleConfig.DEFENDER_COLOR = Color3.fromRGB(60, 90, 160)
 

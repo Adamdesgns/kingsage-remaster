@@ -36,6 +36,7 @@ local REPEAT_SECONDS = 2
 local BATTLE_KINDS: { [string]: boolean } = {
 	battleOpen = true,
 	battleOrder = true,
+	battleRally = true,
 	battleResolve = true,
 	battleRetreat = true,
 }
@@ -434,6 +435,35 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 			return { ok = false, message = "That is not your village." }
 		end
 	end
+	-- RALLY (slice 2): a carried order whose engagement point follows the
+	-- commander. Re-tapping resumes the EXISTING order (rejoin path, no cap
+	-- spend); a first tap becomes a normal battleOrder at the commander's
+	-- current field position, then registers for heartbeat tracking below.
+	local rallySquad: string? = nil
+	if request.kind == "battleRally" then
+		if typeof(request.battleId) ~= "string" or typeof(request.squad) ~= "string" then
+			return { ok = false, message = "That order made no sense." }
+		end
+		local battleId = request.battleId :: string
+		local squad = request.squad :: string
+		if WorldSession.rallyFor(player, battleId, squad) then
+			return { ok = true, message = string.format("Rallying %s to your position.", squad) }
+		end
+		local fieldX, fieldY = WorldSession.fieldPointFor(player, battleId)
+		if not fieldX or not fieldY then
+			return { ok = false, message = "Stand on the field to rally a squad." }
+		end
+		rallySquad = squad
+		request = {
+			kind = "battleOrder",
+			battleId = battleId,
+			squad = squad,
+			x = fieldX,
+			y = fieldY,
+			atMs = request.atMs,
+		} :: QueueRequest
+	end
+
 	local command, fingerprint, refusal = buildCommand(request, snapshot, identity.kingdomId)
 	-- reassigned by the INVALID_ORDER correction below
 	if refusal then
@@ -475,6 +505,11 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 			end
 			if command.payload and command.payload.sequence and typeof(request.battleId) == "string" then
 				orderSequence[request.battleId] = command.payload.sequence
+				if rallySquad then
+					-- The order landed; from here the heartbeat steers it.
+					WorldSession.registerRally(player, request.battleId :: string, command.payload.sequence, rallySquad)
+					success = string.format("Rallying %s to your position.", rallySquad)
+				end
 			end
 			result = { ok = true, message = success }
 			break
