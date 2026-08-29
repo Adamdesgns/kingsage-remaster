@@ -2,3 +2,11 @@ node_modules/
 
 # Unrelated nested git repo from 2026-08-15. Not part of this project.
 .clip-site/
+
+# Throwaway world-capture databases (dev drills; server/server is a
+# path-quirk artifact of KINGSAGE_DATABASE_PATH resolving relative to
+# server/). Swept into a commit once by a careless add -A - never again.
+server/server/
+server/data/*.sqlite
+server/data/*.sqlite-shm
+server/data/*.sqlite-wal
