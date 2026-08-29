@@ -1,4 +1,18 @@
-# KingsAge Reforged
+# Kingsmarch (working title)
+
+> **THE GAME IS THE ROBLOX GAME.** The active product is a persistent
+> medieval war world: an authoritative Node world server (`server/`),
+> shared deterministic rules (`packages/game-core/`), and a Roblox place
+> that is a window onto it (`roblox/`). Start at
+> [`docs/AI-TEAM-BRIEFING.md`](docs/AI-TEAM-BRIEFING.md); the honest state
+> of every system is
+> [`docs/audits/kingsage-functionality-audit.md`](docs/audits/kingsage-functionality-audit.md).
+>
+> Everything below this box describes the **archived web prototype**
+> (`index.html`, `mobile-rebuild/`) — frozen by locked decision #1
+> ("Roblox is the only client"), kept as design reference.
+
+# KingsAge Reforged (archived web prototype)
 
 A mobile-first, single-file prototype of **KingsAge** — a Tribal Wars / Travian-style
 kingdom-builder and conquest game. This is a **Phase 0 feel-test**: everything runs in

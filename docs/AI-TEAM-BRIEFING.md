@@ -42,13 +42,14 @@ do not reopen locked decisions.
    your name, e.g. `feat/ai-kingdoms-grok`). **Never commit to `main`**
    — `main` integration is Claude's job, after review, on Adam's word.
 2. **Gates before any "done" claim:**
-   - `npm run test:server` — currently **80 pass / 1 fail**; the 1 is
-     `roblox-luau-contract.test.ts`, a known-stale fixture predating Realm
-     of Power. Not yours to fix; not yours to break. Bar: still 80/81 plus
-     all YOUR tests passing.
+   - `npm run test:server` — must pass **clean, zero failures** (114 tests
+     as of 2026-08-29 and growing; the old "80/81 with a known-stale Luau
+     contract fixture" note is DEAD — that test was repaired and merged on
+     `feat/test-debt-robob`. If it fails now, that is a real regression).
+   - `npm run test:core` — clean (92+).
    - `npm run check:types` — must stay clean.
    - `npm run test:luau` — needs Lune; mandatory if you touched `roblox/`;
-     if you skip it, say so.
+     if you skip it, say so. 72 rules as of 2026-08-29.
 3. **Honest reporting.** This project's dominant recorded failure mode is
    code that reports success while doing nothing (a world with no floor
    shipped this way). Every claimed behavior needs a test that fails when
@@ -70,18 +71,22 @@ do not reopen locked decisions.
 9. **Hand back honestly.** Finish with a `HANDBACK.md` on your branch:
    built / not built / deviations with reasons / how to run / open doubts.
 
-## Current state (2026-08-23)
+## Current state (2026-08-29)
 
 - Feature-complete vs the approved spec; full game loop (scout → attack →
   battle → two-wave Realm-of-Power conquest) proven live in a Studio audit
-  today. Visual identity pass shipped. Kids' private-realm allowlist is in
-  `Config.ALLOWED_PLAYERS`.
+  2026-08-23; battle-horses slices 1–4 merged 2026-08-29. Kids'
+  private-realm allowlist is in `Config.ALLOWED_PLAYERS`.
+- **Full functionality audit 2026-08-29:**
+  `docs/audits/kingsage-functionality-audit.md` — the honest map of what
+  works, what's stubbed, and what's missing. Read it before claiming any
+  system exists or doesn't.
 - Server runs locally on port 4178 (`roblox/start-dev.ps1` is the
-  one-double-click dev loop). Published Roblox servers cannot reach
-  127.0.0.1 — public hosting is deliberately deferred.
-- Active design doc: `docs/design/2026-08-23-battle-horses-living-city.md`
-  (red-teamed; slice plan pending Adam's approval).
-- Active external handoff: `docs/HANDOFF-2026-08-23-ai-kingdoms-grok.md`.
+  one-double-click dev loop, **AI kingdoms ON at a 45s tick**). Published
+  Roblox servers cannot reach 127.0.0.1 — hosting is Phase B (VPS chosen
+  by Adam 2026-08-29; runbook at `docs/ops/vps-runbook.md`); bind and
+  base URL are config (`KINGSAGE_BIND`, SecretConfig `BASE_URL`).
+- Active plan: `docs/superpowers/plans/2026-08-29-fully-functional-phase-a.md`.
 
 ## Who's who
 
