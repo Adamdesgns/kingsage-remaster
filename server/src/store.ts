@@ -257,6 +257,10 @@ type StoreOptions = {
  */
 const DEFAULT_AUTO_RESOLVE_MS = 120_000;
 
+/** How long an accepted battle.open holds the realm off: presence earns a
+ * hard +3 minutes and not a second more (red-team floor against stalling). */
+const ATTENDED_GRACE_MS = 3 * 60_000;
+
 const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[];
 const TROOP_TYPES = TROOP_ORDER as readonly TroopType[];
 
@@ -1315,6 +1319,14 @@ export class SharedWorldStore {
         return this.reject(envelope.commandId, "INVALID_PLAN", "The attack plan contains an unknown order.", currentVersion);
       }
       const battleId = this.openBattleSession(envelope.worldId, String(command.payload.marchId), marchRow, player.kingdomId, plan);
+      // Showing up buys time to command: one +3-minute extension past "now",
+      // server-enforced (design 2026-08-23, red-team trimmed from 10 to 3).
+      // battle.open is accepted at most once per march, so this cannot be
+      // farmed, and MAX keeps an already-later deadline untouched. ISO-8601
+      // strings compare lexicographically, which is what SQLite MAX does here.
+      const graceUntil = new Date(this.now().getTime() + ATTENDED_GRACE_MS).toISOString();
+      this.db.prepare("UPDATE local_march_plans SET auto_resolve_at = MAX(auto_resolve_at, ?) WHERE march_id = ?")
+        .run(graceUntil, String(command.payload.marchId));
       const worldVersion = this.incrementWorldVersion(envelope.worldId);
       const battle = this.readBattle(battleId)!;
       published.push(this.insertEvent(envelope.worldId, worldVersion, "battle.started", { battle }));

@@ -323,3 +323,26 @@ test("the sixth field order is refused - the cap is the server's, not the panel'
     assert.equal((await context.state(ATTACKER_ID)).battleSessions[0].acceptedOrders, BATTLE_ORDER_CAP);
   });
 });
+
+test("opening the battle buys +3 minutes before the realm resolves it", async () => {
+  const SHORT_RESOLVE = 5_000;
+  await withServer(async (context) => {
+    const { march, report } = await armyAtTheWalls(context, "a10");
+    const opened = await context.command(ATTACKER_ID, "a10-open", (await context.state(ATTACKER_ID)).world.version, {
+      type: "battle.open",
+      payload: { marchId: march.id, targetVillageVersion: report.targetVillageVersion, plan: PLAN },
+    });
+    assert.equal(opened.body.type, "command.accepted");
+
+    // The ORIGINAL deadline passes while the commander stands on the field.
+    context.advance(SHORT_RESOLVE + 500);
+    let battle = (await context.state(ATTACKER_ID)).battleSessions[0];
+    assert.equal(battle.status, "open", "attendance bought time - the realm must not resolve under a present commander");
+
+    // The +3 minutes run out. The realm takes over exactly as if nobody came.
+    context.advance(3 * 60_000);
+    battle = (await context.state(ATTACKER_ID)).battleSessions[0];
+    assert.equal(battle.status, "resolved", "the extension is a grace, not an exemption");
+    assert.ok(battle.outcome, "resolved by the realm with the orders that were actually given");
+  }, SHORT_RESOLVE);
+});
