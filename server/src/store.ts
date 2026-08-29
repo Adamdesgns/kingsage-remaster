@@ -797,7 +797,11 @@ export class SharedWorldStore {
     const key = `${battleId}:${sequence}`;
     const nowMs = this.now().getTime();
     const last = this.rallyClocks.get(key) ?? { x: Number(row.x), y: Number(row.y), atMs: nowMs };
-    const deltaSeconds = Math.max((nowMs - last.atMs) / 1000, 0.05);
+    // Bankable time is capped: at the 10s heartbeat cadence an uncapped
+    // delta would allow the whole field in one step, making the clamp
+    // decorative. Three seconds of walking is the most any single sample
+    // may claim, however long it waited.
+    const deltaSeconds = Math.min(Math.max((nowMs - last.atMs) / 1000, 0.05), 3);
     const allowed = BATTLE_RALLY_CLAMP * deltaSeconds;
     const moved = Math.hypot(x - last.x, y - last.y);
     if (moved > allowed) {

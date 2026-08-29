@@ -387,6 +387,15 @@ test("a rally position walks - it does not teleport", async () => {
       { robloxUserId: ATTACKER_ID, battleId: battle.id, sequence: 1, x: 2900, y: 2600 },
     ] });
     assert.equal(row().x, 2900, "an honest walk keeps following");
+
+    // Waiting a long time between samples must not bank a teleport: at the
+    // 10s heartbeat cadence, unlimited delta x clamp = the whole field. The
+    // allowance is capped at ~3 banked seconds of walking.
+    context.advance(30_000);
+    await context.stateWith({ robloxUserIds: [ATTACKER_ID], rallies: [
+      { robloxUserId: ATTACKER_ID, battleId: battle.id, sequence: 1, x: 200, y: 4900 },
+    ] });
+    assert.equal(row().x, 2900, "a long wait does not buy a cross-field jump");
   });
 });
 
