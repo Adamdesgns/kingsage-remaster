@@ -3,6 +3,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { extname, join, normalize, resolve } from "node:path";
 import { scheduleAiKingdomTick } from "./ai.ts";
+import { createRateLimiter, type RateLimiter } from "./rate-limit.ts";
 import { SharedWorldStore, StoreError, type SessionPlayer } from "./store.ts";
 import { GAME_CONTRACT_VERSION, makeCommandEnvelope, type CommandEnvelope, type GameCommand } from "../../packages/game-core/src/contracts.ts";
 
@@ -11,6 +12,11 @@ type ServerOptions = {
   staticRoot?: string;
   materializeIntervalMs?: number;
   robloxKey?: string;
+  /** Per-address door for register/login (default 5/min). Injectable for tests. */
+  authRateLimit?: RateLimiter;
+  /** Per-player door for /api/roblox/commands (default 30/min). The state
+   * heartbeat is deliberately never limited. */
+  commandRateLimit?: RateLimiter;
 };
 
 type JsonObject = Record<string, unknown>;
@@ -127,6 +133,8 @@ export function createWorldHttpServer(options: ServerOptions): {
   aiTickScheduled: boolean;
 } {
   const { store, staticRoot } = options;
+  const authRateLimit = options.authRateLimit ?? createRateLimiter({ limit: 5, windowMs: 60_000 });
+  const commandRateLimit = options.commandRateLimit ?? createRateLimiter({ limit: 30, windowMs: 60_000 });
   const materializeTimer = setInterval(() => store.materializeDueJobs(), options.materializeIntervalMs ?? 500);
   materializeTimer.unref();
   const aiTickTimer = scheduleAiKingdomTick(store);
@@ -146,6 +154,15 @@ export function createWorldHttpServer(options: ServerOptions): {
       if (request.method === "GET" && path === "/api/health") {
         json(response, 200, { ok: true, service: "kingsage-world", contractVersion: 1 });
         return;
+      }
+
+      // One per-address door for both credential routes: registration burns
+      // world seats, and login runs event-loop-blocking scrypt.
+      if (request.method === "POST" && (path === "/api/auth/register" || path === "/api/auth/login")) {
+        const address = request.socket.remoteAddress ?? "unknown";
+        if (!authRateLimit.allow(`auth:${address}`)) {
+          throw new StoreError("RATE_LIMITED", "Too many attempts — try again in a minute.", 429);
+        }
       }
 
       if (request.method === "POST" && path === "/api/auth/register") {
@@ -286,6 +303,22 @@ export function createWorldHttpServer(options: ServerOptions): {
       if (request.method === "POST" && path === "/api/roblox/commands") {
         const body = await readJson(request);
         requireCommandShape(body);
+        // Per-player command door. Refused in the command.rejected shape the
+        // Roblox layer already knows how to show a player; every accepted
+        // command also costs a refetch, so an unthrottled spammer could
+        // starve the whole place's shared HttpService budget.
+        if (!commandRateLimit.allow(`cmd:${Math.trunc(Number(body.robloxUserId))}`)) {
+          json(response, 429, {
+            type: "command.rejected",
+            payload: {
+              commandId: String(body.commandId),
+              code: "RATE_LIMITED",
+              message: "The realm needs a breath — try again in a moment.",
+              currentWorldVersion: 0,
+            },
+          });
+          return;
+        }
         const linked = store.peekRobloxPlayer(Number(body.robloxUserId));
         if (!linked) throw new StoreError("UNKNOWN_ROBLOX_USER", "Call /api/roblox/session first.", 404);
         const envelope = makeCommandEnvelope({
