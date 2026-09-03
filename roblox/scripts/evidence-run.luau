@@ -322,8 +322,8 @@ local spawnAnchors = workspace:FindFirstChild("SettlementSpawns")
 check("level-free Workspace spawn anchors cover present players",
 	spawnAnchors ~= nil and #spawnAnchors:GetChildren() >= #Players:GetPlayers(),
 	spawnAnchors and tostring(#spawnAnchors:GetChildren()) or "missing")
-check("one command war table per present player", warTableCount == #Players:GetPlayers(),
-	string.format("%d tables / %d players", warTableCount, #Players:GetPlayers()))
+check("one command war table per owned DETAIL settlement", warTableCount == fullCount,
+	string.format("%d tables / %d owned DETAIL settlements", warTableCount, fullCount))
 for _, player in Players:GetPlayers() do
 	check(player.Name .. ": at least one DETAIL owned settlement", (fullByOwner[player.UserId] or 0) >= 1,
 		tostring(fullByOwner[player.UserId] or 0))

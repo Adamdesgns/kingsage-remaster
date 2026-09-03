@@ -35,10 +35,22 @@ if ($environment -ne 'development' -or '**/SecretConfig.luau' -notin $projectDat
     throw 'Refusing development build: target must declare development and exclude SecretConfig.luau.'
 }
 Push-Location $repo
+$buildErrorActionPreference = $ErrorActionPreference
 try {
+	# Native invocation failures (missing executable, access denied) may leave
+	# LASTEXITCODE unset or stale. Make those errors terminal before reporting
+	# success, and still check the exit code when Rojo actually runs.
+	$ErrorActionPreference = 'Stop'
     rojo build $project -o $placeFile
-    if ($LASTEXITCODE -ne 0) { throw 'Development place build failed.' }
-} finally { Pop-Location }
+    if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Development place build failed.' }
+} catch {
+	# Convert a native invocation error into an explicit script failure before
+	# finally restores the caller's preference (otherwise execution can resume).
+	throw "Development place build failed: $($_.Exception.Message)"
+} finally {
+	$ErrorActionPreference = $buildErrorActionPreference
+	Pop-Location
+}
 Write-Host "Development place built: local world only; production credentials excluded."
 if ($BuildOnly) { return }
 

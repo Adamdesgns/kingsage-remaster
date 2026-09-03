@@ -42,3 +42,7 @@ Open sieges block new defender spending/departures while preserving paid work an
 The new UI is source/runtime-stub verified, **not yet visually accepted in Studio or on a real phone**. Full-game/two-client play remains the next gate. Default/demo builds are local-only; production must use `live.project.json` after separate release approval.
 
 No world capacity/lifecycle, alliances or trade scope was added. Main and the live world remain unchanged.
+
+## Studio checkpoint — 2026-09-03
+
+Adam authorized the local playtest, then stopped for tomorrow. The isolated server answers health and the exact development place successfully joined and rendered its town/resource HUD in Studio. No war-table, two-client or phone acceptance pass is claimed. Server/Studio were left running at the stop. Two playtest-tool fixes prevent false build success and count secondary-holding war tables correctly. See [the resume checkpoint](docs/verification/2026-09-03-studio-playtest-checkpoint.md).
