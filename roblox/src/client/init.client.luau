@@ -376,10 +376,13 @@ local function myVillage(villageId: string?): any
 	local snapshot = latest.snapshot
 	if villageId and snapshot and snapshot.world then
 		for _, village in snapshot.world.villages do
-			if village.id == villageId then
+			if village.id == villageId and village.kingdomId == myKingdomId() then
 				return village
 			end
 		end
+		-- An open table must never silently rebind to a foreign or different
+		-- village after conquest. Its private model will be revoked separately.
+		return nil
 	end
 	return myCapital()
 end
@@ -1045,6 +1048,10 @@ end
 local function sectionHeader(parent: Instance, order: number, text: string): TextLabel
 	local header = makeLabel(parent, "Header")
 	header.Size = UDim2.new(1, -8, 0, 26)
+	header.AutomaticSize = Enum.AutomaticSize.Y
+	header.TextScaled = false
+	header.TextSize = 16
+	header.TextWrapped = true
 	header.LayoutOrder = order
 	header.TextXAlignment = Enum.TextXAlignment.Left
 	header.TextTransparency = 0
@@ -1055,6 +1062,7 @@ end
 local function noteRow(parent: Instance, order: number, text: string, height: number?): TextLabel
 	local note = makeLabel(parent, "Note")
 	note.Size = UDim2.new(1, -8, 0, height or 26)
+	note.AutomaticSize = Enum.AutomaticSize.Y
 	note.LayoutOrder = order
 	note.TextXAlignment = Enum.TextXAlignment.Left
 	note.TextTransparency = 0.15
@@ -1065,29 +1073,57 @@ local function noteRow(parent: Instance, order: number, text: string, height: nu
 	return note
 end
 
--- A row with a label on the left and an action button on the right.
-local function actionRow(parent: Instance, order: number, text: string, buttonText: string, color: Color3, onClick: () -> ()): Frame
-	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, -8, 0, 36)
-	row.BackgroundColor3 = Color3.fromRGB(38, 38, 52)
-	row.BackgroundTransparency = 0.05
-	row.LayoutOrder = order
-	row.Parent = parent
+-- Text owns its full line; controls sit below it. The old 60/35 split gave
+-- costs less than 200px even on desktop and painted long labels over buttons.
+local function stackedCard(parent: Instance, order: number, color: Color3): Frame
+	local card = Instance.new("Frame")
+	card.Size = UDim2.new(1, -8, 0, 0)
+	card.AutomaticSize = Enum.AutomaticSize.Y
+	card.BackgroundColor3 = color
+	card.BackgroundTransparency = 0.05
+	card.LayoutOrder = order
+	card.Parent = parent
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 8)
+	padding.PaddingRight = UDim.new(0, 8)
+	padding.PaddingTop = UDim.new(0, 8)
+	padding.PaddingBottom = UDim.new(0, 8)
+	padding.Parent = card
+	local layout = Instance.new("UIListLayout")
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = card
+	return card
+end
 
-	local nameLabel = makeLabel(row, "Name")
-	nameLabel.Size = UDim2.new(0.6, 0, 1, 0)
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-	nameLabel.TextScaled = false
-	nameLabel.TextSize = 14
-	nameLabel.Text = "  " .. text
+local function wrappedLabel(parent: Instance, name: string, text: string): TextLabel
+	local label = makeLabel(parent, name)
+	label.Size = UDim2.new(1, 0, 0, 0)
+	label.AutomaticSize = Enum.AutomaticSize.Y
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextYAlignment = Enum.TextYAlignment.Top
+	label.TextScaled = false
+	label.TextSize = 14
+	label.TextWrapped = true
+	label.Text = text
+	return label
+end
+
+local function actionRow(parent: Instance, order: number, text: string, buttonText: string, color: Color3, onClick: () -> ()): Frame
+	local row = stackedCard(parent, order, Color3.fromRGB(38, 38, 52))
+	if text ~= "" then
+		wrappedLabel(row, "Name", text).LayoutOrder = 1
+	end
 
 	local button = Instance.new("TextButton")
-	button.Size = UDim2.new(0.35, 0, 0.85, 0)
-	button.Position = UDim2.new(0.63, 0, 0.075, 0)
+	button.Size = UDim2.new(1, 0, 0, 44)
+	button.LayoutOrder = 2
 	button.BackgroundColor3 = color
 	button.TextColor3 = Color3.new(1, 1, 1)
 	button.Font = Enum.Font.GothamBold
-	button.TextScaled = true
+	button.TextScaled = false
+	button.TextSize = 14
+	button.TextWrapped = true
 	button.Text = buttonText
 	button.Parent = row
 	button.Activated:Connect(onClick)
@@ -1096,33 +1132,29 @@ end
 
 type RowAction = { label: string, color: Color3, onClick: () -> () }
 
--- A row carrying two buttons: label on the left, both actions on the right.
+-- The target name can wrap freely without taking space from Scout / Attack.
 local function dualActionRow(parent: Instance, order: number, text: string, left: RowAction, right: RowAction): Frame
-	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, -8, 0, 40)
-	row.BackgroundColor3 = Color3.fromRGB(38, 38, 52)
-	row.BackgroundTransparency = 0.05
-	row.LayoutOrder = order
-	row.Parent = parent
-
-	local nameLabel = makeLabel(row, "Name")
-	nameLabel.Size = UDim2.new(0.52, 0, 1, 0)
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-	nameLabel.TextScaled = false
-	nameLabel.TextSize = 13
-	nameLabel.TextWrapped = true
-	nameLabel.Text = "  " .. text
+	local row = stackedCard(parent, order, Color3.fromRGB(38, 38, 52))
+	wrappedLabel(row, "Name", text).LayoutOrder = 1
+	local actions = Instance.new("Frame")
+	actions.Name = "Actions"
+	actions.Size = UDim2.new(1, 0, 0, 44)
+	actions.BackgroundTransparency = 1
+	actions.LayoutOrder = 2
+	actions.Parent = row
 
 	for index, action in { left, right } do
 		local button = Instance.new("TextButton")
-		button.Size = UDim2.new(0.21, 0, 0.8, 0)
-		button.Position = UDim2.new(0.545 + (index - 1) * 0.225, 0, 0.1, 0)
+		button.Size = UDim2.new(0.5, -3, 1, 0)
+		button.Position = UDim2.new((index - 1) * 0.5, (index - 1) * 3, 0, 0)
 		button.BackgroundColor3 = action.color
 		button.TextColor3 = Color3.new(1, 1, 1)
 		button.Font = Enum.Font.GothamBold
-		button.TextScaled = true
+		button.TextScaled = false
+		button.TextSize = 14
+		button.TextWrapped = true
 		button.Text = action.label
-		button.Parent = row
+		button.Parent = actions
 		button.Activated:Connect(action.onClick)
 	end
 	return row
@@ -1132,10 +1164,12 @@ end
 local function countdownRow(parent: Instance, order: number, text: string, completesAt: number?): TextLabel
 	local label = makeLabel(parent, "Countdown")
 	label.Size = UDim2.new(1, -8, 0, 28)
+	label.AutomaticSize = Enum.AutomaticSize.Y
 	label.LayoutOrder = order
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.TextScaled = false
 	label.TextSize = 14
+	label.TextWrapped = true
 	label.Text = "  " .. text
 	table.insert(panelRows, { label = label, baseText = text, completesAt = completesAt, lastShown = nil })
 	return label
@@ -1146,6 +1180,21 @@ end
 -- chosen batch must survive the rebuild.
 local RECRUIT_BATCHES = { 1, 5, 25 }
 local recruitBatchIndex = 1
+
+local function recruitCostText(entry: any, quantity: number): string
+	local conversion = entry.conversion
+	if conversion then
+		return string.format("%s × %d · Horses × %d",
+			Buildings.troopName(tostring(conversion.from)),
+			math.floor(tonumber(conversion.soldiersPerUnit) or 0) * quantity,
+			math.floor(tonumber(conversion.horsesPerUnit) or 0) * quantity)
+	end
+	local cost = entry.cost or {}
+	return string.format("Wood %d · Stone %d · Iron %d",
+		math.floor(tonumber(cost.wood) or 0) * quantity,
+		math.floor(tonumber(cost.stone) or 0) * quantity,
+		math.floor(tonumber(cost.iron) or 0) * quantity)
+end
 
 -- What stands in the way of recruiting `entry` from this village, or nil.
 -- The LEVELS come from the village's own (unfogged) snapshot and the
@@ -1211,18 +1260,15 @@ local function buildVillageTab(scroll: ScrollingFrame, village: any, villageId: 
 			end)
 		for _, entry in ipairs(catalog) do
 			local troop = tostring(entry.troop)
-			local cost = entry.cost or {}
 			local have = math.floor(tonumber(village.army and village.army[troop]) or 0)
 			-- Counts are the conquest piece: one at a time is the only honest
 			-- button, whatever the batch says (Buildings.CONQUEST_ONLY).
 			local quantity = if Buildings.CONQUEST_ONLY[troop] then 1 else batch
 			local problem = recruitProblem(entry, village)
 			local label = string.format(
-				"%s (%d)  %d/%d/%d · %d pop",
+				"%s · %d here\n%s\n%d population in this order",
 				Buildings.troopName(troop), have,
-				math.floor(tonumber(cost.wood) or 0) * quantity,
-				math.floor(tonumber(cost.stone) or 0) * quantity,
-				math.floor(tonumber(cost.iron) or 0) * quantity,
+				recruitCostText(entry, quantity),
 				math.floor(tonumber(entry.population) or 0) * quantity
 			)
 			if problem then
@@ -1249,7 +1295,7 @@ local function buildVillageTab(scroll: ScrollingFrame, village: any, villageId: 
 			if nextStep then
 				local cost = nextStep.cost or {}
 				actionRow(scroll, nextRow(), string.format(
-					"%s Lv %d  →  %d/%d/%d",
+					"%s Lv %d\nWood %d · Stone %d · Iron %d",
 					Buildings.troopName(troop), level,
 					math.floor(tonumber(cost.wood) or 0),
 					math.floor(tonumber(cost.stone) or 0),
@@ -1359,10 +1405,14 @@ local function buildMapTab(scroll: ScrollingFrame, village: any, villageId: stri
 	local holder = Instance.new("Frame")
 	holder.Name = "MapCanvas"
 	holder.LayoutOrder = nextOrder()
-	holder.Size = UDim2.new(0, MAP_CANVAS, 0, MAP_CANVAS)
+	holder.Size = UDim2.new(1, -8, 0, MAP_CANVAS)
 	holder.BackgroundColor3 = Color3.fromRGB(24, 30, 24)
 	holder.BorderSizePixel = 0
 	holder.Parent = scroll
+	local square = Instance.new("UIAspectRatioConstraint")
+	square.AspectRatio = 1
+	square.DominantAxis = Enum.DominantAxis.Width
+	square.Parent = holder
 
 	-- A faint grid, so distance on the map reads as distance rather than as
 	-- decoration. One line every ten tiles.
@@ -1434,6 +1484,15 @@ end
 -- Two-tap recall arming, file scope so it survives the heartbeat rebuild.
 local armedRecallId: string? = nil
 local armedRecallAt = 0
+
+local function scoutPowerText(report: any): string
+	local power = tonumber(report.observedRealmOfPower)
+	local maximum = tonumber(report.observedRealmOfPowerMax)
+	if not power or not maximum or maximum <= 0 then
+		return "Realm of Power: not recorded in this report"
+	end
+	return string.format("Realm of Power: %d / %d (observed)", math.floor(power), math.floor(maximum))
+end
 
 local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: string)
 	local snapshot = latest.snapshot
@@ -1672,24 +1731,13 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 		if index > 5 then
 			break
 		end
-		local card = Instance.new("Frame")
-		card.Size = UDim2.new(1, -8, 0, 124)
-		card.BackgroundColor3 = Color3.fromRGB(26, 30, 26)
+		local card = stackedCard(scroll, nextOrder(), Color3.fromRGB(26, 30, 26))
 		card.BackgroundTransparency = 0.15
-		card.LayoutOrder = nextOrder()
-		card.Parent = scroll
 
-		local body = makeLabel(card, "Body")
-		body.Size = UDim2.new(1, -12, 1, -8)
-		body.Position = UDim2.new(0, 8, 0, 4)
-		body.TextXAlignment = Enum.TextXAlignment.Left
-		body.TextYAlignment = Enum.TextYAlignment.Top
-		body.TextScaled = false
-		body.TextSize = 14
-		body.TextWrapped = true
+		local body = wrappedLabel(card, "Body", "")
 		local observed = report.observedBuildings or {}
 		body.Text = string.format(
-			"%s  (%s)\n%s\nWood %d · Stone %d · Iron %d\nRampart Lv %d · Headquarters Lv %d\nseen %s",
+			"%s  (%s)\n%s\nWood %d · Stone %d · Iron %d\nRampart Lv %d · Headquarters Lv %d\n%s\nseen %s",
 			tostring(report.targetVillageName),
 			tostring(report.targetKingdomName),
 			armySummary(report.observedArmy),
@@ -1698,6 +1746,7 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 			math.floor(tonumber(report.observedResources and report.observedResources.iron) or 0),
 			math.floor(tonumber(observed.wall) or 0),
 			math.floor(tonumber(observed.hq) or 0),
+			scoutPowerText(report),
 			ageText(report.createdAt)
 		)
 	end
@@ -1733,37 +1782,28 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 			yieldedCount += math.floor(tonumber(outcome.yielded and outcome.yielded[troop]) or 0)
 		end
 
-		local card = Instance.new("Frame")
-		card.Size = UDim2.new(1, -8, 0, 146)
-		card.BackgroundColor3 = if battleVerdict(battle, kingdomId) == "Victory"
+		local card = stackedCard(scroll, nextOrder(), if battleVerdict(battle, kingdomId) == "Victory"
 			then Color3.fromRGB(26, 34, 26)
-			else Color3.fromRGB(38, 26, 26)
+			else Color3.fromRGB(38, 26, 26))
 		card.BackgroundTransparency = 0.15
-		card.LayoutOrder = nextOrder()
-		card.Parent = scroll
 
 		-- The same scene, from the same seed, as the one that played live.
 		local watch = Instance.new("TextButton")
-		watch.Size = UDim2.new(1, -16, 0, 26)
-		watch.Position = UDim2.new(0, 8, 1, -30)
+		watch.Size = UDim2.new(1, 0, 0, 44)
+		watch.LayoutOrder = 2
 		watch.BackgroundColor3 = Color3.fromRGB(50, 50, 62)
 		watch.TextColor3 = Color3.new(1, 1, 1)
 		watch.Font = Enum.Font.GothamBold
-		watch.TextScaled = true
+		watch.TextScaled = false
+		watch.TextSize = 14
 		watch.Text = "Watch it play out"
 		watch.Parent = card
 		watch.Activated:Connect(function()
 			enterBattle(battle)
 		end)
 
-		local body = makeLabel(card, "Body")
-		body.Size = UDim2.new(1, -12, 1, -40)
-		body.Position = UDim2.new(0, 8, 0, 4)
-		body.TextXAlignment = Enum.TextXAlignment.Left
-		body.TextYAlignment = Enum.TextYAlignment.Top
-		body.TextScaled = false
-		body.TextSize = 14
-		body.TextWrapped = true
+		local body = wrappedLabel(card, "Body", "")
+		body.LayoutOrder = 1
 		body.Text = string.format(
 			"%s — %s %s\nYour losses: %s\nTheir losses: %s\n%s%s",
 			battleVerdict(battle, kingdomId),
@@ -1813,6 +1853,9 @@ function buildTablePanel()
 	table.clear(panelRows)
 	local village = myVillage(tableInfo and tableInfo.villageId)
 	if not village then
+		if inTableView then
+			exitTableView()
+		end
 		return
 	end
 	local villageId = tostring(village.id)
@@ -1842,14 +1885,14 @@ function buildTablePanel()
 	-- tab bar
 	local tabs = Instance.new("Frame")
 	tabs.Name = "Tabs"
-	tabs.Size = UDim2.new(1, 0, 0, 36)
+	tabs.Size = UDim2.new(1, 0, 0, 52)
 	tabs.BackgroundTransparency = 1
 	tabs.Parent = panel
 	local function makeTab(name: string, label: string, xScale: number)
 		local button = Instance.new("TextButton")
 		button.Name = name
-		button.Size = UDim2.new(1 / 3, -6, 1, -6)
-		button.Position = UDim2.new(xScale, 4, 0, 3)
+		button.Size = UDim2.new(1 / 3, -6, 1, -8)
+		button.Position = UDim2.new(xScale, 4, 0, 4)
 		button.BackgroundColor3 = if activeTab == name then Color3.fromRGB(55, 65, 90) else Color3.fromRGB(28, 28, 36)
 		button.TextColor3 = Color3.new(1, 1, 1)
 		button.Font = Enum.Font.GothamBold
@@ -1870,8 +1913,8 @@ function buildTablePanel()
 
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "Body"
-	scroll.Size = UDim2.new(1, 0, 1, -92)
-	scroll.Position = UDim2.new(0, 0, 0, 40)
+	scroll.Size = UDim2.new(1, 0, 1, -108)
+	scroll.Position = UDim2.new(0, 0, 0, 56)
 	scroll.CanvasSize = UDim2.new()
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.BackgroundTransparency = 1
@@ -1899,8 +1942,8 @@ function buildTablePanel()
 	end
 
 	local leave = Instance.new("TextButton")
-	leave.Size = UDim2.new(1, -8, 0, 40)
-	leave.Position = UDim2.new(0, 4, 1, -44)
+	leave.Size = UDim2.new(1, -8, 0, 44)
+	leave.Position = UDim2.new(0, 4, 1, -48)
 	leave.BackgroundColor3 = Color3.fromRGB(70, 40, 30)
 	leave.TextColor3 = Color3.new(1, 1, 1)
 	leave.Font = Enum.Font.GothamBold

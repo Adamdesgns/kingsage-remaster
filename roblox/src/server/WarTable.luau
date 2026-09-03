@@ -22,9 +22,8 @@ local HERALDIC_GOLD = Color3.fromRGB(194, 143, 48)
 local CANDLE_WAX = Color3.fromRGB(226, 197, 135)
 local LAMP_GLOW = Color3.fromRGB(255, 184, 104)
 
-local function ensureTable(player: Player)
-	local settlement = SettlementBuilder.getSettlement(player)
-	if not settlement or settlement:FindFirstChild("WarTable") then
+local function ensureTable(player: Player, settlement: Model)
+	if settlement:FindFirstChild("WarTable") then
 		return
 	end
 
@@ -207,11 +206,19 @@ local function ensureTable(player: Player)
 	SettlementBuilder.syncPlayer(player, if villageId ~= nil then tostring(villageId) else nil)
 end
 
+local function ensureTables(player: Player)
+	-- Every holding needs the same full controls. These remain private source
+	-- models; ensureTable publishes each completed table only to its owner.
+	for _, settlement in SettlementBuilder.getSettlements(player) do
+		ensureTable(player, settlement)
+	end
+end
+
 WorldSession.StateChanged.Event:Connect(function(player: Player)
 	-- Deferred so this never depends on BindableEvent handler ordering:
 	-- SettlementBuilder's own StateChanged handler runs first regardless,
 	-- and the settlement exists by the time we look for it.
-	task.defer(ensureTable, player)
+	task.defer(ensureTables, player)
 end)
 
 return WarTable

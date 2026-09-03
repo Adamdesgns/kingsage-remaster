@@ -22,15 +22,29 @@ Roblox server → HTTP → world server (spec: `../docs/superpowers/specs/2026-0
    world. Without it, conquest needs 3-5 Noblemen at 900s and ~2800/3000/3500
    each, which no play session can sit through.
    Ports 4174/4177 may host older long-running processes — leave them alone; this work uses 4178.
-2. **Give Roblox the secret:** copy `src/server/SecretConfig.example.luau` to
-   `src/server/SecretConfig.luau` (gitignored) and set the same key.
+2. **Use the development target:** `default.project.json` and
+   `demo.project.json` exclude `SecretConfig.luau`, use the local dev key,
+   and refuse HTTP outside Studio. No credential copying or swapping is needed.
+   `powershell -File roblox/start-dev.ps1 -BuildOnly -Play` builds the normal
+   development place without launching Studio or touching running servers.
 3. **Serve the project:** `rojo serve roblox` (from repo root; same Rojo used by
    Blockshore — see `C:\Users\steam\Projects\apps\blockshore\roblox\README.md`).
 4. **In Studio:** open the dev place, connect the Rojo plugin, Accept sync.
    Game Settings → Security → **Allow HTTP Requests** must be ON.
-5. **F5 to play.** Studio's HttpService may call `http://127.0.0.1:4178`;
-   published Roblox servers cannot — a public place needs the VPS deploy
-   (outside slice one).
+5. **F5 to play.** Development speaks only to `http://127.0.0.1:4178`.
+   The hosted game uses the separate `live.project.json` and its gitignored
+   production configuration. Production targets refuse HTTP in Studio, so
+   testing cannot silently spend the real kingdom's resources.
+
+## Hosted build
+
+After separate release approval, build `rojo build roblox/live.project.json -o roblox/WorldGame-live.rbxlx`
+from the checkout that holds the production `SecretConfig.luau`. It requires
+the real server key and a bare HTTPS origin, such as `https://world.example.com`
+(no trailing slash/path). Publish that target privately. Never publish the
+development/demo target as the live game. See `../docs/ops/vps-runbook.md`.
+
+The build attributes use Rojo's [documented Attributes property](https://rojo.space/docs/v7/properties/#attributes).
 
 ## Testing rules (hard-won, from Blockshore)
 
@@ -48,12 +62,14 @@ Roblox server → HTTP → world server (spec: `../docs/superpowers/specs/2026-0
   on this PC. That was wrong — the session that checked had a stale PATH. Lune
   0.10.5 is installed via winget and is on the user PATH; a shell opened before
   it was added will not see it, which is what caused the false conclusion.
-  - `npm run check:luau` — compiles all 21 Luau files with the real compiler.
+  - `npm run check:luau` — compiles every source, demo and test Luau file with the real compiler.
   - `npm run check:luau-rules` — **RUNS** the pure shared Luau and asserts the
     rules both the Roblox server and the war table depend on: what musters on
     an attack, the army table that ships to the world server, the recruit
     presets, the attack-plan axes. It is mutation-checked.
-  - `npm run test:luau` runs both.
+  - `npm run test:luau` runs syntax, shared rules, the troop simulation,
+    actual transport connection scenarios and settlement/UI helper scenarios.
+    These do not replace a Studio/phone rendering check.
 
   This matters more than it sounds. The Node suites drive the world server's
   HTTP routes and never execute a line of Luau — which is exactly how an empty
@@ -63,6 +79,7 @@ Roblox server → HTTP → world server (spec: `../docs/superpowers/specs/2026-0
 ## Layout
 
 - `default.project.json` — Rojo tree (server/client/shared, streaming enabled)
+- `live.project.json` — production-only tree, configured HTTPS world, no demo
 - `src/server/` — ApiClient (only HTTP speaker), WorldSession (join + 10s
   batched heartbeat), SettlementBuilder (region renderer: own villages full,
   foreign ones fog silhouettes), CommandService (idempotent build / recruit /
@@ -75,7 +92,8 @@ Roblox server → HTTP → world server (spec: `../docs/superpowers/specs/2026-0
   network nothing, and every client seeds its randomness from the battle's own
   seed so everyone sees the same fight with no syncing
 - `src/shared/BattleConfig.luau` — every number the scene renders by, including
-  the ADAPTIVE budget that stands in for the phone measurement nobody has taken
+  the adaptive budget; the historical phone measurement is recorded in
+  `../docs/superpowers/spike-200-troops.md`
 - `spike.project.json` + `spike/` — standalone 200-troop performance spike
 
 ## The battle rule

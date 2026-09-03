@@ -10,10 +10,10 @@ import { SharedWorldStore } from "../src/store.ts";
 
 const KEY = "test-secret-key-0123456789abcdef";
 
-async function withServer(robloxKey: string | undefined, run: (base: string, store: SharedWorldStore) => Promise<void>) {
+async function withServer(robloxKey: string | undefined, run: (base: string, store: SharedWorldStore) => Promise<void>, legacyWebEnabled = false) {
   const directory = mkdtempSync(join(tmpdir(), "kingsage-roblox-api-"));
   const store = new SharedWorldStore(join(directory, "world.sqlite"));
-  const app = createWorldHttpServer({ store, robloxKey });
+  const app = createWorldHttpServer({ store, robloxKey, legacyWebEnabled });
   await new Promise<void>((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   const address = app.server.address() as { port: number };
   try {
@@ -106,7 +106,8 @@ test("the snapshot carries the troop catalog - costs and research come from the 
     assert.equal(catalog.length, TROOP_ORDER.length, "one entry per troop, in canonical order");
     for (let index = 0; index < TROOP_ORDER.length; index += 1) {
       assert.equal(catalog[index].troop, TROOP_ORDER[index]);
-      assert.deepEqual(catalog[index].cost, TROOPS[TROOP_ORDER[index]].cost, `${TROOP_ORDER[index]} cost is game-core's cost`);
+      const conversion = catalog[index].conversion;
+      assert.deepEqual(catalog[index].cost, conversion ? { wood: 0, stone: 0, iron: 0 } : TROOPS[TROOP_ORDER[index]].cost, `${TROOP_ORDER[index]} cost is the actual recruitment cost`);
       assert.equal(catalog[index].population, TROOPS[TROOP_ORDER[index]].population);
       assert.equal(catalog[index].barracksLevel, TROOPS[TROOP_ORDER[index]].barracksLevel);
       assert.equal(catalog[index].researchLevel, snapshot.kingdom.troopLevels[TROOP_ORDER[index]], "research level mirrors the kingdom");
@@ -167,7 +168,7 @@ test("a malformed envelope on the web command route is a 400, never a 500", asyn
       body: JSON.stringify({ commandId: "cmd-shape-1", command: { payload: {} } }),
     });
     assert.equal(noType.status, 400, await noType.clone().text());
-  });
+  }, true);
 });
 
 test("a chat message that is not a string is refused, not a crash", async () => {

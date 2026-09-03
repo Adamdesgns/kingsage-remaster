@@ -26,7 +26,7 @@ test("the bucket refuses past its limit and refills as the clock moves", () => {
 });
 
 async function withServer(
-  options: { authRateLimit?: ReturnType<typeof createRateLimiter>; commandRateLimit?: ReturnType<typeof createRateLimiter> },
+  options: { authRateLimit?: ReturnType<typeof createRateLimiter>; commandRateLimit?: ReturnType<typeof createRateLimiter>; legacyWebEnabled?: boolean },
   run: (base: string) => Promise<void>,
 ) {
   const directory = mkdtempSync(join(tmpdir(), "kingsage-ratelimit-"));
@@ -52,7 +52,7 @@ const post = (base: string, path: string, body: unknown, key?: string) => fetch(
 test("registration is throttled per address before it can drain the world's seats", async () => {
   let at = 0;
   const authRateLimit = createRateLimiter({ limit: 3, windowMs: 60_000, now: () => at });
-  await withServer({ authRateLimit }, async (base) => {
+  await withServer({ authRateLimit, legacyWebEnabled: true }, async (base) => {
     for (let index = 0; index < 3; index += 1) {
       const response = await post(base, "/api/auth/register", {
         username: `throttle_${index}`, password: "longenough1", kingdomName: `Throttle ${index}`,

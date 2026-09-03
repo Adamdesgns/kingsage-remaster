@@ -1780,15 +1780,20 @@ function SettlementBuilder.onState(player: Player, snapshot: any, kingdomId: str
 	playerVillageIds[player] = owned
 end
 
-function SettlementBuilder.getSettlement(player: Player): Model?
+function SettlementBuilder.getSettlements(player: Player): { Model }
+	local settlements: { Model } = {}
 	for _, villageId in playerVillageIds[player] or {} do
 		local entry = rendered[villageId]
 		local detail = entry and entry.detail or nil
 		if detail and detail.ownerUserId == player.UserId then
-			return detail.model
+			table.insert(settlements, detail.model)
 		end
 	end
-	return nil
+	return settlements
+end
+
+function SettlementBuilder.getSettlement(player: Player): Model?
+	return SettlementBuilder.getSettlements(player)[1]
 end
 
 -- Part factory shared with anything that builds inside a settlement (the war

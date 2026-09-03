@@ -1,5 +1,5 @@
 {
-  "name": "WorldGameDemo",
+  "name": "Kingsmarch",
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
@@ -15,7 +15,7 @@
         "$properties": {
           "Attributes": {
             "WorldEnvironment": {
-              "String": "development"
+              "String": "production"
             }
           }
         }
@@ -27,9 +27,6 @@
         "$className": "StarterPlayerScripts",
         "WorldClient": {
           "$path": "src/client"
-        },
-        "WorldDemo": {
-          "$path": "demo"
         }
       }
     },
@@ -71,8 +68,5 @@
         "ShadowSoftness": 0.35
       }
     }
-  },
-  "globIgnorePaths": [
-    "**/SecretConfig.luau"
-  ]
+  }
 }

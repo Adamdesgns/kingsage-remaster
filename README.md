@@ -5,8 +5,11 @@
 > shared deterministic rules (`packages/game-core/`), and a Roblox place
 > that is a window onto it (`roblox/`). Start at
 > [`docs/AI-TEAM-BRIEFING.md`](docs/AI-TEAM-BRIEFING.md); the honest state
-> of every system is
-> [`docs/audits/kingsage-functionality-audit.md`](docs/audits/kingsage-functionality-audit.md).
+> of the September audit fixes is in
+> [`HANDBACK.md`](HANDBACK.md), with verification and the remaining live checks
+> in [`docs/verification/2026-09-03-audit-fixes.md`](docs/verification/2026-09-03-audit-fixes.md).
+> The older [`functionality audit`](docs/audits/kingsage-functionality-audit.md)
+> is a historical baseline, not the current release state.
 >
 > Everything below this box describes the **archived web prototype**
 > (`index.html`, `mobile-rebuild/`) — frozen by locked decision #1

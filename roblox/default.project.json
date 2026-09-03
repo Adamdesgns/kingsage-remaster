@@ -11,7 +11,14 @@
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "WorldServer": {
-        "$path": "src/server"
+        "$path": "src/server",
+        "$properties": {
+          "Attributes": {
+            "WorldEnvironment": {
+              "String": "development"
+            }
+          }
+        }
       }
     },
     "StarterPlayer": {
@@ -61,5 +68,8 @@
         "ShadowSoftness": 0.35
       }
     }
-  }
+  },
+  "globIgnorePaths": [
+    "**/SecretConfig.luau"
+  ]
 }

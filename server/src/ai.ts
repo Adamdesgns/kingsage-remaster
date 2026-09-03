@@ -1,6 +1,7 @@
 import {
   BUILDING_ORDER,
   BUILDINGS,
+  TROOPS,
   UNPLANNED_ATTACK_PLAN,
   armyPower,
   baseDefence,
@@ -138,6 +139,12 @@ function actForVillage(
   village: VillageRow,
   now: Date,
 ): AiVillageAction | undefined {
+  if (village.army.scout < 1 && scoutTargetVillageId(store, village, now)) {
+    // A fresh kingdom has no spies or Stable. Reserve its next action and
+    // resources for reconnaissance instead of spending forever on farms.
+    // Every prerequisite and the spy still use the ordinary paid job paths.
+    return prepareScout(store, worldId, village);
+  }
   const built = tryBuild(store, worldId, village);
   if (built) return built;
   const recruited = tryRecruit(store, worldId, village);
@@ -214,6 +221,35 @@ function tryRecruit(store: SharedWorldStore, worldId: string, village: VillageRo
   return { type: "recruit", kingdomId: village.kingdomId, villageId: village.id, troop: AI_DEFENSIVE_INFANTRY, quantity };
 }
 
+/** Follow the shared prerequisite tree, one upgrade at a time. */
+function nextRequiredUpgrade(
+  buildings: BuildingLevels,
+  requirements: Partial<Record<BuildingType, number>>,
+): BuildingType | undefined {
+  for (const building of BUILDING_ORDER) {
+    if ((buildings[building] ?? 0) >= (requirements[building] ?? 0)) continue;
+    return nextRequiredUpgrade(buildings, BUILDINGS[building].prerequisite ?? {}) ?? building;
+  }
+  return undefined;
+}
+
+function prepareScout(store: SharedWorldStore, worldId: string, village: VillageRow): AiVillageAction | undefined {
+  const scout = TROOPS.scout;
+  const building = nextRequiredUpgrade(village.buildings, {
+    ...scout.requires,
+    barracks: scout.barracksLevel,
+  });
+  if (building) {
+    if (pendingBuildCount(store, village.id) > 0 || !canStartUpgrade(village.buildings, village.resources, building)) return undefined;
+    if (!accepted(store.queueVillageBuild(worldId, village.id, building))) return undefined;
+    return { type: "build", kingdomId: village.kingdomId, villageId: village.id, building };
+  }
+  // The shared recruitment path also refuses an occupied queue, so repeated
+  // ticks while this one spy trains cannot buy more spies or spend twice.
+  if (!accepted(store.queueVillageRecruit(worldId, village.id, "scout", 1))) return undefined;
+  return { type: "recruit", kingdomId: village.kingdomId, villageId: village.id, troop: "scout", quantity: 1 };
+}
+
 function incomingAttacks(store: SharedWorldStore, kingdomId: string, now: Date): IncomingAttack[] {
   const cutoff = now.getTime();
   const fromMarches = (store.db.prepare(`
@@ -273,6 +309,18 @@ function nearestVillageId(
   return best?.id;
 }
 
+function scoutTargetVillageId(
+  store: SharedWorldStore,
+  village: VillageRow,
+  now: Date,
+): string | undefined {
+  const attacks = incomingAttacks(store, village.kingdomId, now);
+  if (attacks.length === 0) return undefined;
+  const latest = attacks[0];
+  if (latest.atMs <= lastScoutAtMs(store, village.kingdomId)) return undefined;
+  return nearestVillageId(store, latest.attackerKingdomId, village);
+}
+
 function tryScout(
   store: SharedWorldStore,
   worldId: string,
@@ -280,11 +328,7 @@ function tryScout(
   now: Date,
 ): AiVillageAction | undefined {
   if (village.army.scout < 1) return undefined;
-  const attacks = incomingAttacks(store, village.kingdomId, now);
-  if (attacks.length === 0) return undefined;
-  const latest = attacks[0];
-  if (latest.atMs <= lastScoutAtMs(store, village.kingdomId)) return undefined;
-  const targetVillageId = nearestVillageId(store, latest.attackerKingdomId, village);
+  const targetVillageId = scoutTargetVillageId(store, village, now);
   if (!targetVillageId) return undefined;
   const army = { ...emptyArmy(), scout: 1 };
   if (!accepted(store.launchVillageMarch(worldId, village.kingdomId, {

@@ -17,7 +17,9 @@
     "check:luau": "lune run roblox/scripts/syntax-check.luau",
     "check:luau-rules": "lune run roblox/scripts/rules-check.luau",
     "check:spike-sim": "lune run roblox/scripts/spike-sim-check.luau",
-    "test:luau": "npm run check:luau && npm run check:luau-rules && npm run check:spike-sim",
+    "check:connections": "lune run roblox/scripts/connection-check.luau",
+    "check:client-audit": "lune run roblox/scripts/client-audit-check.luau",
+    "test:luau": "npm run check:luau && npm run check:luau-rules && npm run check:spike-sim && npm run check:connections && npm run check:client-audit",
     "check:gate-d": "node scripts/check-gate-d.mjs",
     "test:gate-d": "npm run test:gate-c && npm run check:gate-d"
   },

@@ -2,10 +2,11 @@
 -- The value must equal KINGSAGE_ROBLOX_KEY on the world server.
 -- NEVER commit the real key.
 --
--- BASE_URL is optional: leave it out in Studio (Config.API_BASE's local dev
--- server is used) and set it for a published place pointing at the hosted
--- world, e.g. "https://kingsmarch.example.com". See docs/ops/vps-runbook.md.
+-- Only live.project.json loads this file, in a published Roblox server.
+-- BASE_URL is required and must be the HTTPS origin (no trailing slash).
+-- Development/demo builds exclude SecretConfig and use the local dev key.
+-- See docs/ops/vps-runbook.md.
 return {
 	KEY = "PUT-THE-SHARED-SECRET-HERE",
-	-- BASE_URL = "https://your-hosted-world.example.com",
+	BASE_URL = "https://your-hosted-world.example.com",
 }

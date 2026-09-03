@@ -16,12 +16,31 @@ param(
     # you for the controls - you cannot look around or walk, because the script
     # keeps steering you back. Fine for a hands-free capture, useless for
     # actually playing. Use -Play to drive it yourself.
-    [switch]$Play
+    [switch]$Play,
+    # Build the isolated development place without starting servers or Studio.
+    [switch]$BuildOnly
 )
 
 # One-double-click dev loop: world server + demo place in Studio.
 # Right-click > Run with PowerShell (or: powershell -ExecutionPolicy Bypass -File roblox\start-dev.ps1)
 $repo = Split-Path $PSScriptRoot -Parent
+
+# Verify and build the development target before starting or stopping anything.
+# SecretConfig can contain the live-world key; these targets must exclude it.
+$project = if ($Play) { 'roblox/default.project.json' } else { 'roblox/demo.project.json' }
+$placeFile = if ($Play) { 'roblox\WorldGame-dev.rbxlx' } else { 'roblox\WorldGame-demo.rbxlx' }
+$projectData = Get-Content -LiteralPath (Join-Path $repo $project) -Raw | ConvertFrom-Json
+$environment = $projectData.tree.ServerScriptService.WorldServer.'$properties'.Attributes.WorldEnvironment.String
+if ($environment -ne 'development' -or '**/SecretConfig.luau' -notin $projectData.globIgnorePaths) {
+    throw 'Refusing development build: target must declare development and exclude SecretConfig.luau.'
+}
+Push-Location $repo
+try {
+    rojo build $project -o $placeFile
+    if ($LASTEXITCODE -ne 0) { throw 'Development place build failed.' }
+} finally { Pop-Location }
+Write-Host "Development place built: local world only; production credentials excluded."
+if ($BuildOnly) { return }
 
 # -Fresh: point the server at a NEW database file, so the world is CREATED and
 # therefore seeded with Noblemen. Computed BEFORE the Start-Process call below —
@@ -101,20 +120,6 @@ if (-not $listening) {
     Write-Host "  If you expected new content (Freeholds, the 11-unit roster, Realm of Power),"
     Write-Host "  re-run with -Fresh: a running server is old code with an old world."
 }
-
-# 2. Fresh place build.
-Set-Location $repo
-if ($Play) {
-    $project   = 'roblox/default.project.json'
-    $placeFile = 'roblox\WorldGame-dev.rbxlx'
-    Write-Host "-Play: building the NORMAL place (no self-driving tour - the controls are yours)"
-} else {
-    $project   = 'roblox/demo.project.json'
-    $placeFile = 'roblox\WorldGame-demo.rbxlx'
-    Write-Host "building the DEMO place (self-driving tour; it will steer your character - use -Play to drive it yourself)"
-}
-rojo build $project -o $placeFile
-if (-not $?) { Write-Host "rojo build failed"; exit 1 }
 
 # 3. Open in the CURRENT Studio (file association goes stale when Studio auto-updates)
 $studio = Get-ChildItem "$env:LOCALAPPDATA\Roblox\Versions" -Recurse -Filter RobloxStudioBeta.exe |

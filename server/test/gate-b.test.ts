@@ -185,7 +185,7 @@ test("completed construction materializes from server time after reconnect", () 
 test("the HTTP boundary keeps two cookie sessions isolated and streams committed events", async () => {
   const temp = tempDatabase();
   const store = new SharedWorldStore(temp.path, { buildDurationMs: 60_000 });
-  const app = createWorldHttpServer({ store });
+  const app = createWorldHttpServer({ store, legacyWebEnabled: true });
   await new Promise<void>((resolveListen) => app.server.listen(0, "127.0.0.1", resolveListen));
   const address = app.server.address();
   assert.ok(address && typeof address === "object");

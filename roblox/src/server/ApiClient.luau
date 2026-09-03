@@ -4,8 +4,10 @@
 -- final, and no answer is reported as UNREACHABLE (never as success).
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage:WaitForChild("WorldShared"):WaitForChild("Config"))
+local ConnectionPolicy = require(script.Parent:WaitForChild("ConnectionPolicy"))
 
 local ApiClient = {}
 
@@ -21,24 +23,12 @@ local function readSecrets(): { [string]: any }?
 	return nil
 end
 
-local function secretKey(): string?
-	local secrets = readSecrets()
-	if secrets and typeof(secrets.KEY) == "string" then
-		return secrets.KEY
-	end
-	return nil
-end
-
--- The world server's address. Config.API_BASE is the dev default
--- (127.0.0.1, Studio-only); a published place points at the hosted world by
--- putting BASE_URL in the same gitignored SecretConfig that carries the key,
--- so hosting is a config change, not a source edit (audit finding 11.1).
-local function baseUrl(): string
-	local secrets = readSecrets()
-	if secrets and typeof(secrets.BASE_URL) == "string" and #secrets.BASE_URL > 0 then
-		return secrets.BASE_URL
-	end
-	return Config.API_BASE
+local function connection(): (ConnectionPolicy.Connection?, string?)
+	local environment = script.Parent:GetAttribute("WorldEnvironment")
+	local isStudio = RunService:IsStudio()
+	-- A dev build must not even require a production credential module.
+	local secrets = if environment == "production" and not isStudio then readSecrets() else nil
+	return ConnectionPolicy.resolve(environment, isStudio, Config.API_BASE, secrets)
 end
 
 -- A missing secret used to be a SILENT infinite hang: no HTTP status, so the
@@ -61,19 +51,23 @@ end
 -- happened. Command payloads carry commandId, so transport retries can never
 -- double-charge.
 function ApiClient.postFull(path: string, body: { [string]: any }): (boolean, number?, any)
-	local key = secretKey()
-	if not key then
-		warnNoSecret()
-		return false, nil, "NO_SECRET"
+	local target, reason = connection()
+	if not target then
+		if reason == "NO_SECRET" then
+			warnNoSecret()
+		else
+			warn("[ApiClient] Connection refused: " .. tostring(reason) .. ". Use the correct development or production build.")
+		end
+		return false, nil, reason
 	end
 	local payload = HttpService:JSONEncode(body)
 	local delays = { 1, 2 }
 	for attempt = 1, 3 do
 		local ok, response = pcall(function()
 			return HttpService:RequestAsync({
-				Url = baseUrl() .. path,
+				Url = target.baseUrl .. path,
 				Method = "POST",
-				Headers = { ["Content-Type"] = "application/json", ["x-kingsage-key"] = key },
+				Headers = { ["Content-Type"] = "application/json", ["x-kingsage-key"] = target.key },
 				Body = payload,
 			})
 		end)

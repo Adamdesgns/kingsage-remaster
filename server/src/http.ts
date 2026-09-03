@@ -12,6 +12,9 @@ type ServerOptions = {
   staticRoot?: string;
   materializeIntervalMs?: number;
   robloxKey?: string;
+  /** Archived web protocol, for explicit local test harnesses only. The
+   * production entry point never enables this: Roblox owns admission. */
+  legacyWebEnabled?: boolean;
   /** Per-address door for register/login (default 5/min). Injectable for tests. */
   authRateLimit?: RateLimiter;
   /** Per-player door for /api/roblox/commands (default 30/min). The state
@@ -144,6 +147,14 @@ export function createWorldHttpServer(options: ServerOptions): {
       const origin = `http://${request.headers.host ?? "127.0.0.1"}`;
       const url = new URL(request.url ?? "/", origin);
       const path = url.pathname;
+
+      // Deny retired web admission, cookies, streams, commands and static UI
+      // before reading a body or touching the world. A missing Roblox key must
+      // never turn the legacy account flow into an alternative entry point.
+      if (options.legacyWebEnabled !== true && path !== "/api/health" && !path.startsWith("/api/roblox/")) {
+        json(response, 404, { error: { code: "NOT_FOUND", message: "Route not found." } });
+        return;
+      }
 
       // Structural gate: EVERY current and future /api/roblox route is
       // key-authenticated here, so a new route cannot forget the check.
@@ -334,7 +345,7 @@ export function createWorldHttpServer(options: ServerOptions): {
         return;
       }
 
-      if (request.method === "GET" && staticRoot && serveStatic(response, staticRoot, path)) return;
+      if (options.legacyWebEnabled === true && request.method === "GET" && staticRoot && serveStatic(response, staticRoot, path)) return;
       json(response, 404, { error: { code: "NOT_FOUND", message: "Route not found." } });
     } catch (error) {
       if (error instanceof StoreError) {

@@ -16,6 +16,7 @@ import {
   applyRealmOfPower,
   cavalryConversion,
   horseCapacity,
+  horsesPerHour,
   planConversion,
   countSurvivesEscort,
   ramWallAfterBattle,
@@ -147,6 +148,7 @@ export type WorldChatMessage = {
 export type TroopCatalogEntry = {
   troop: TroopType;
   cost: ResourceStock;
+  conversion: { from: TroopType; soldiersPerUnit: number; horsesPerUnit: number } | null;
   population: number;
   barracksLevel: number;
   requires: Partial<Record<BuildingType, number>>;
@@ -422,6 +424,7 @@ export class SharedWorldStore {
     this.migrateHorses();
     this.migrateScoutRealmIntel();
     this.migrateOpenSeats();
+    this.migrateHorseFraction();
   }
 
   /**
@@ -530,6 +533,17 @@ export class SharedWorldStore {
       .run(12, this.now().toISOString());
   }
 
+  private migrateHorseFraction(): void {
+    const columns = this.db.prepare("PRAGMA table_info(local_villages)").all() as DbRow[];
+    if (columns.some((column) => String(column.name) === "horses_fraction")) return;
+    const migrationPath = fileURLToPath(new URL("../db/migrations/0013_horse_fraction.sql", import.meta.url));
+    this.withTransaction(() => {
+      this.db.exec(readFileSync(migrationPath, "utf8"));
+      this.db.prepare("INSERT OR IGNORE INTO local_schema_migrations(version, applied_at) VALUES (?, ?)")
+        .run(13, this.now().toISOString());
+    });
+  }
+
   /**
    * Bring a village's herd up to date.
    *
@@ -539,7 +553,7 @@ export class SharedWorldStore {
    * breeder want to sell rather than a rule telling them to.
    */
   private accrueHorses(villageId: string, at: Date): void {
-    const row = this.db.prepare("SELECT buildings_json, horses, horses_at FROM local_villages WHERE id = ?")
+    const row = this.db.prepare("SELECT buildings_json, horses, horses_at, horses_fraction FROM local_villages WHERE id = ?")
       .get(villageId) as DbRow | undefined;
     if (!row) return;
     const stable = parseJson<BuildingLevels>(row.buildings_json).stable ?? 0;
@@ -565,12 +579,19 @@ export class SharedWorldStore {
     }
     const hours = Math.max(0, (at.getTime() - since) / 3_600_000);
     if (hours <= 0) return;
-    const grown = accrueHorses({ horses: held, stableLevel: stable, hours });
+    // Keep the fraction durably: snapshots every ten seconds must breed the
+    // same herd as one snapshot after an hour. At capacity, production is lost
+    // rather than banked for the next conversion. The shared rule still owns
+    // whole-animal growth and capacity; the store owns elapsed-time carry.
+    const rate = horsesPerHour(stable);
+    const production = Number(row.horses_fraction ?? 0) + rate * hours;
+    const grown = accrueHorses({ horses: held, stableLevel: stable, hours: (production + 1e-9) / rate });
+    const fraction = grown >= horseCapacity(stable) ? 0 : Math.max(0, production - (grown - held));
     if (grown !== held) {
-      this.db.prepare("UPDATE local_villages SET horses = ?, horses_at = ?, state_version = state_version + 1 WHERE id = ?")
-        .run(grown, at.toISOString(), villageId);
+      this.db.prepare("UPDATE local_villages SET horses = ?, horses_at = ?, horses_fraction = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(grown, at.toISOString(), fraction, villageId);
     } else {
-      this.db.prepare("UPDATE local_villages SET horses_at = ? WHERE id = ?").run(at.toISOString(), villageId);
+      this.db.prepare("UPDATE local_villages SET horses_at = ?, horses_fraction = ? WHERE id = ?").run(at.toISOString(), fraction, villageId);
     }
   }
 
@@ -693,10 +714,11 @@ export class SharedWorldStore {
   // structurally; every claim change goes through these two helpers.
   private findOpenSeat(): { kingdomId: string; worldId: string; villageId: string } {
     const seat = this.db.prepare(`
-      SELECT id, world_id, capital_village_id
-      FROM local_kingdoms
-      WHERE controller_player_id IS NULL AND seat_kind IN ('open', 'ai')
-      ORDER BY CASE seat_kind WHEN 'open' THEN 0 ELSE 1 END, id
+      SELECT k.id, k.world_id, k.capital_village_id
+      FROM local_kingdoms k
+      JOIN local_villages v ON v.id = k.capital_village_id AND v.kingdom_id = k.id AND v.world_id = k.world_id
+      WHERE k.controller_player_id IS NULL AND k.seat_kind IN ('open', 'ai') AND k.alive = 1
+      ORDER BY CASE k.seat_kind WHEN 'open' THEN 0 ELSE 1 END, k.id
       LIMIT 1
     `).get() as DbRow | undefined;
     if (!seat) throw new StoreError("WORLD_FULL", "This alpha world has no open kingdom seats.", 409);
@@ -970,10 +992,12 @@ export class SharedWorldStore {
       world,
       troopCatalog: TROOP_ORDER.map((troop) => {
         const definition = TROOPS[troop];
+        const conversion = cavalryConversion(troop);
         const researchLevel = Number(kingdom.troopLevels[troop] ?? 1);
         return {
           troop,
-          cost: definition.cost,
+          cost: conversion ? { wood: 0, stone: 0, iron: 0 } : definition.cost,
+          conversion: conversion ? { from: conversion.from, soldiersPerUnit: 1, horsesPerUnit: conversion.horses } : null,
           population: definition.population,
           barracksLevel: definition.barracksLevel,
           requires: definition.requires ?? {},
@@ -1380,7 +1404,7 @@ export class SharedWorldStore {
     // Adam's rule: line up what you want, and it goes ahead as production
     // covers it. Queueing is free; building is not.
     const runningJob = pending.some((job) => String(job.status) === "queued");
-    const canStartNow = !runningJob && canAfford(resources, buildingCost(building, currentLevel));
+    const canStartNow = !runningJob && !this.openBattleForVillage(villageId) && canAfford(resources, buildingCost(building, currentLevel));
     const startedAt = this.now();
     let job: ConstructionJob;
     if (canStartNow) {
@@ -1456,6 +1480,9 @@ export class SharedWorldStore {
     const from = this.kingdomVillageRow(worldId, fromVillageId, kingdomId);
     const target = this.db.prepare("SELECT * FROM local_villages WHERE id = ? AND world_id = ?").get(targetVillageId, worldId) as DbRow | undefined;
     if (!from) return this.reject(commandId, "FORBIDDEN", "The player does not own the departure village.", currentVersion);
+    if (this.openBattleForVillage(fromVillageId)) {
+      return this.reject(commandId, "SIEGE_IN_PROGRESS", "The village is under siege — its defenders must hold until the battle ends.", currentVersion);
+    }
     if (!target || String(target.kingdom_id) === kingdomId || targetVillageId === fromVillageId) {
       return this.reject(commandId, "INVALID_TARGET", "Choose a foreign village in this world.", currentVersion);
     }
@@ -1678,6 +1705,9 @@ export class SharedWorldStore {
     const villageRow = this.db.prepare("SELECT * FROM local_villages WHERE id = ? AND world_id = ?")
       .get(payload.villageId, worldId) as DbRow | undefined;
     if (!villageRow) return this.reject(commandId, "FORBIDDEN", "The player does not own that village.", currentVersion);
+    if (this.openBattleForVillage(payload.villageId)) {
+      return this.reject(commandId, "SIEGE_IN_PROGRESS", "The village is under siege — training must wait until the battle ends.", currentVersion);
+    }
     if (this.db.prepare("SELECT 1 FROM local_recruitment_jobs WHERE village_id = ? AND status = 'queued'").get(payload.villageId)) {
       return this.reject(commandId, "QUEUE_FULL", "That village already has an active recruitment order.", currentVersion);
     }
@@ -1692,6 +1722,7 @@ export class SharedWorldStore {
     // Stable spent on the horse - which is what makes cavalry rate-limited
     // rather than cash-limited. No resource cost: you already paid for the man.
     const conversion = cavalryConversion(payload.troop);
+    let horsesAfterConversion: number | undefined;
     if (conversion) {
       this.accrueHorses(payload.villageId, this.now());
       const horsesRow = this.db.prepare("SELECT horses FROM local_villages WHERE id = ?").get(payload.villageId) as DbRow;
@@ -1711,11 +1742,10 @@ export class SharedWorldStore {
           : `Not enough ${TROOPS[conversion.from].plural}. ${payload.quantity} ${TROOPS[payload.troop].plural} need ${payload.quantity}, and the village holds ${army[conversion.from]}.`;
         return this.reject(commandId, "INSUFFICIENT_TROOPS", message, currentVersion);
       }
-      // The soldiers and horses are committed the moment the order is placed -
-      // they are off the board, exactly like resources spent on training.
+      // Calculate the proposed army now, but do not spend it until every
+      // validation passes. A normal command refusal commits its inbox record.
       army[conversion.from] -= plan.soldiersUsed;
-      this.db.prepare("UPDATE local_villages SET army_json = ?, horses = ?, state_version = state_version + 1 WHERE id = ?")
-        .run(JSON.stringify(army), horses - plan.horsesUsed, payload.villageId);
+      horsesAfterConversion = horses - plan.horsesUsed;
     }
 
     const cost = conversion ? { wood: 0, stone: 0, iron: 0 } : troopCost(payload.troop, payload.quantity);
@@ -1723,6 +1753,10 @@ export class SharedWorldStore {
     const usedPopulation = armyPopulation(army) + this.queuedPopulation(payload.villageId);
     if (usedPopulation + TROOPS[payload.troop].population * payload.quantity > populationCapacity(buildings.farm)) {
       return this.reject(commandId, "POPULATION_FULL", "Upgrade the Farm before recruiting that many troops.", currentVersion);
+    }
+    if (horsesAfterConversion !== undefined) {
+      this.db.prepare("UPDATE local_villages SET army_json = ?, horses = ?, state_version = state_version + 1 WHERE id = ?")
+        .run(JSON.stringify(army), horsesAfterConversion, payload.villageId);
     }
     for (const kind of RESOURCE_KINDS) resources[kind] -= cost[kind];
     const startedAt = this.now();
@@ -1755,6 +1789,9 @@ export class SharedWorldStore {
     if (!TROOP_TYPES.includes(payload.troop)) return this.reject(envelope.commandId, "INVALID_COMMAND", "Unknown troop research.", currentVersion);
     const villageRow = this.ownedVillageRow(player, envelope.worldId, payload.villageId);
     if (!villageRow) return this.reject(envelope.commandId, "FORBIDDEN", "The player does not own that village.", currentVersion);
+    if (this.openBattleForVillage(payload.villageId)) {
+      return this.reject(envelope.commandId, "SIEGE_IN_PROGRESS", "The village is under siege — research must wait until the battle ends.", currentVersion);
+    }
     if (this.db.prepare("SELECT 1 FROM local_research_jobs WHERE kingdom_id = ? AND status = 'queued'").get(player.kingdomId)) {
       return this.reject(envelope.commandId, "QUEUE_FULL", "That kingdom already has active troop research.", currentVersion);
     }
@@ -2006,8 +2043,11 @@ export class SharedWorldStore {
           attackerWon: outcome.winner === "attacker",
           defenderLossFraction: defenderStarted > 0 ? defenderLost / defenderStarted : 0,
         });
-        if (razedWall !== buildings.wall) {
-          buildings.wall = razedWall;
+        // A paid wall upgrade may have completed during the battle. Apply
+        // this siege's damage, not its old wall level, to the current wall.
+        const wallAfterDamage = Math.max(0, buildings.wall - Math.max(0, Number(row.defender_wall_level) - razedWall));
+        if (wallAfterDamage !== buildings.wall) {
+          buildings.wall = wallAfterDamage;
           this.db.prepare("UPDATE local_villages SET buildings_json = ?, state_version = state_version + 1 WHERE id = ?")
             .run(JSON.stringify(buildings), String(row.defender_village_id));
         }
@@ -2250,6 +2290,9 @@ export class SharedWorldStore {
    * standing when it was queued.
    */
   private startNextConstruction(villageId: string, at: Date = this.now()): boolean {
+    // The battle has committed its opening stock. Already-paid work and new
+    // arrivals still complete, but another job cannot spend those same stores.
+    if (this.openBattleForVillage(villageId)) return false;
     const running = this.db.prepare(
       "SELECT 1 FROM local_construction_jobs WHERE village_id = ? AND status = 'queued'",
     ).get(villageId);
@@ -2404,7 +2447,37 @@ export class SharedWorldStore {
       const status = String(row.status);
       const kind = String(row.kind);
       if (status === "returning") {
-        const village = this.db.prepare("SELECT army_json, resources_json FROM local_villages WHERE id = ?").get(String(row.from_village_id)) as DbRow;
+        const village = this.db.prepare("SELECT kingdom_id, army_json, resources_json, x, y FROM local_villages WHERE id = ?")
+          .get(String(row.from_village_id)) as DbRow;
+        if (String(village.kingdom_id) !== kingdomId) {
+          const fallback = this.db.prepare(`
+            SELECT id, name, x, y FROM local_villages
+            WHERE kingdom_id = ? AND world_id = ? ORDER BY is_capital DESC, id LIMIT 1
+          `).get(kingdomId, worldId) as DbRow | undefined;
+          if (fallback) {
+            // They reached a fallen home, not a friendly garrison. Carry every
+            // soldier and resource onward to an owned holding, with real travel.
+            const distance = distanceBetween({ x: Number(village.x), y: Number(village.y) }, { x: Number(fallback.x), y: Number(fallback.y) });
+            const travelMs = this.returnDurationMs ?? marchDurationSeconds(distance, "return", parseJson<Army>(row.army_json)) * 1000;
+            const arrivesAt = new Date(now.getTime() + Math.max(1, travelMs)).toISOString();
+            this.db.prepare("UPDATE local_marches SET from_village_id = ?, target_village_id = ?, departed_at = ?, arrives_at = ? WHERE id = ?")
+              .run(String(fallback.id), String(row.from_village_id), now.toISOString(), arrivesAt, marchId);
+            const message = `Home has fallen. ${armyUnitCount(parseJson(row.army_json))} troops are returning to ${String(fallback.name)} instead.`;
+            this.insertNotification(worldId, kingdomId, "march", message, now.toISOString());
+            const worldVersion = this.incrementWorldVersion(worldId);
+            published.push(this.insertEvent(worldId, worldVersion, "march.changed", { march: this.readMarch(marchId), message }));
+          } else {
+            // A fallen realm has nowhere to receive its army. Preserve the
+            // completed march as history and state the loss; never gift it to
+            // the conqueror or leave an endlessly retrying return behind.
+            this.db.prepare("UPDATE local_marches SET status = 'complete' WHERE id = ?").run(marchId);
+            const message = `${armyUnitCount(parseJson(row.army_json))} returning troops and their carried resources were lost: your realm holds no settlement.`;
+            this.insertNotification(worldId, kingdomId, "march", message, now.toISOString());
+            const worldVersion = this.incrementWorldVersion(worldId);
+            published.push(this.insertEvent(worldId, worldVersion, "march.completed", { march: this.readMarch(marchId), message }));
+          }
+          continue;
+        }
         const army = addArmies(parseJson(village.army_json), parseJson(row.army_json));
         const resources = parseJson<ResourceStock>(village.resources_json);
         const loot = parseJson<ResourceStock>(row.loot_json);

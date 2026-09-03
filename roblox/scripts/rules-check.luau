@@ -930,12 +930,10 @@ check("recall only offers itself for a march this snapshot calls outbound", (fun
 	return string.find(commandSource, 'tostring%(march%.status%) == "outbound"') ~= nil
 end)())
 
-check("the world's address is resolved in exactly one place, secret-overridable", (function(): boolean
-	-- baseUrl() = SecretConfig.BASE_URL or Config.API_BASE. A second literal
-	-- URL in ApiClient would let a published place talk dev and vice versa.
+check("the world's address and key come from the build connection policy", (function(): boolean
 	local api = codeOnly(fs.readFile("roblox/src/server/ApiClient.luau"))
-	local _, urlUses = api:gsub("baseUrl%(%) %.%. path", "")
-	return string.find(api, "secrets%.BASE_URL") ~= nil
+	local _, urlUses = api:gsub("target%.baseUrl %.%. path", "")
+	return string.find(api, "ConnectionPolicy%.resolve") ~= nil
 		and urlUses == 1
 		and string.find(api, "Config%.API_BASE %.%. path") == nil
 end)())

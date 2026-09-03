@@ -90,8 +90,24 @@ return {
 }
 ```
 
-Publish (PRIVATE — the allowlist and Roblox permissions still gate who
-joins), enable **Allow HTTP Requests** in Game Settings → Security.
+Build the explicit production target:
+
+```powershell
+rojo build roblox/live.project.json -o roblox/WorldGame-live.rbxlx
+```
+
+Publish that build (PRIVATE — the allowlist and Roblox permissions still gate
+who joins), enable **Allow HTTP Requests** in Game Settings → Security.
+The origin must be bare HTTPS with no path/trailing slash. Default/demo
+projects exclude the production credential and refuse HTTP outside Studio;
+the production project refuses HTTP inside Studio. Local tests therefore use
+the development project and a separate local world.
+
+The world-server entry point disables all retired web routes by default,
+including registration, login, cookie commands, streams and static UI.
+Health and key-authenticated Roblox routes remain. Legacy protocol tests
+explicitly opt in at the server factory; there is no production environment
+variable to enable them.
 
 ## Backups — `/etc/cron.daily/kingsage-backup` (chmod +x)
 
@@ -113,6 +129,14 @@ trusting it): stop the service, copy a backup over
 check `/api/health` + a state pull.
 
 ## Updating the world
+
+For the September audit fix release, first verify the private Studio/phone
+drills in `docs/verification/2026-09-03-audit-fixes.md`. Take a consistent
+backup and let existing battles finish before updating; battles opened before
+these guards could already contain spent stock. Deploy the reviewed server
+commit, then publish its matching `live.project.json` client. Migration 0013
+adds a fractional horse-production column, preserving existing whole horses;
+its restart/migration behavior is test-verified, not yet production-applied.
 
 ```bash
 sudo -u kingsage git -C /home/kingsage/kingsage-remaster pull

@@ -1,104 +1,44 @@
-# HANDBACK — Phase A: "fully functioning"
+# HANDBACK — September audit fixes
 
-Branch: `feat/fully-functional-phase-a` (from `main` @ `c9e1e5c`).
-Written 2026-08-29, evening session, on Adam's word ("Ok let's get it
-fully functioning so we can see what it can do"). Plan:
-`docs/superpowers/plans/2026-08-29-fully-functional-phase-a.md`. Executes
-the critical path of `docs/audits/kingsage-functionality-audit.md`
-(same session). Supersedes the slice-4 handback that stood here — that
-one's claim "never committed to main" had gone stale anyway (slice 4 is
-`main~1`); its content lives on in git history.
+Branch: `feat/audit-fixes-codex`. Base: main `9b478db`.
+Adam authorized implementation with **“Do it.”** Work is local and ready for integration review. No merge, push, live deployment or publication was performed.
 
-## Built (every item test-first; gate counts below)
+## Built
 
-- **Empty/malformed commandIds die at the door** (audit 8.5): both command
-  routes require a 1–128 char string id and a typed command object (400),
-  the store guards the same as defence-in-depth, and a non-string chat
-  body refuses instead of crashing. Before: an integration that forgot
-  commandId had every later command silently "accepted" as a replay of
-  its first.
-- **Retreat exposure is the battle's own clock** (8.4): `atMs` is derived
-  server-side from `opened_at`; the client field is ignored and no longer
-  sent. `atMs=0` no longer buys 88% survivors.
-- **Fog covers realm power and herds** (8.3): snapshots zero
-  `realmOfPower(+Max)` / `horses(+Max)` for foreign villages; the scout
-  report now carries `observedRealmOfPower` (+ derived max) — migration
-  **0011**, conditional per the 0008–0010 pattern.
-- **The event stream is fogged per reader** (8.2): one
-  `filterEventForKingdom` drops private events (marches, scout reports,
-  queue orders, battles you're not in) for other readers and fogs the
-  village inside public ones, failing closed on unknown event types.
-  Replay route and live SSE both go through it.
-- **Sequential sieges** (8.1, the P0): at most one open battle per
-  village. Attended open against a held field → `SIEGE_IN_PROGRESS`; a
-  deadline firing during someone's open battle waits a 30s beat and
-  retries. Three-scenario test proves loot conservation and
-  survivors-not-copies. Before: two attackers each fought the FULL
-  garrison and looted the same stock twice.
-- **Rate limits** (12.4): token bucket, injectable clock.
-  register+login 5/min/address (429), roblox commands 30/min/player
-  (refused in the `command.rejected` shape the client already renders).
-  The state heartbeat is deliberately never limited.
-- **`march.cancel`**: an OUTBOUND march you own turns for home from where
-  it stands; the walk back costs what the walk out cost. Arrived =
-  `MARCH_COMMITTED`; rivals = `FORBIDDEN`; replays return the stored
-  result.
-- **Open seats** (11.4 / Grok handback deviation): migration **0012**
-  widens `seat_kind` with `'open'` (table rebuild per 0007; backfill by
-  the seed's naming rule, proven against a fabricated pre-0012 DB).
-  findOpenSeat hands out the two fresh seats first, then named kingdoms
-  (capacity still 6); **the AI tick never develops an open seat**.
-- **The AI is ON in the dev loop**: `start-dev.ps1` sets
-  `KINGSAGE_AI_TICK_MS=45000`. Live drill (scratch world, 2s tick, zero
-  player action): all four named kingdoms queued farm upgrades + 12
-  Squires within seconds; the open seat got nothing.
-- **The snapshot carries a `troopCatalog`** (server-built: costs,
-  population, prerequisites, research levels + next step) so the client
-  renders numbers from server truth — no Luau mirror of economy.ts.
-- **Roblox client wiring**: full 11-troop recruitment picker with costs,
-  prerequisites and an x1/x5/x25 batch cycle (Counts stay
-  one-at-a-time); **Smithy research section** (the server path existed
-  with NO interface); **Recall** on outbound marches (two-tap armed);
-  **THE HERALD** — the realm's notifications finally render (they were
-  written to the DB and shown to nobody).
-- **Hosting is config** (11.1): `KINGSAGE_BIND` (default loopback);
-  SecretConfig gains optional `BASE_URL`; a missing secret warns loudly
-  once a minute instead of silently hanging every player (8.6).
-- **Docs truth pass**: AI-TEAM-BRIEFING's dead "80/81 known fail"
-  instruction replaced with the real bar; README now says the Roblox game
-  is the product; `docs/ops/vps-runbook.md` written (Adam's 15-minute
-  part listed first; everything else is SSH-runnable).
+- Hosted defaults reject retired web account/world/static routes.
+- Separate development/demo and production Roblox targets, with an executable transport policy and development credential exclusion.
+- Fractional horse production, rejection-safe cavalry conversion, siege asset guards, preserved wall upgrades, correct captured-home return routing, and living-seat eligibility.
+- Full private war tables in all owned holdings.
+- Fresh-start AI reconnaissance preparation and retaliation.
+- Accurate cavalry costs, growing/wrapped mobile rows with 44 px actions, and observed conquest-strength reports.
 
-## Gates (all green, run on this branch)
+## Verification
 
-- `npm run check:types` — clean.
-- `npm run test:server` — **114/114** (baseline was 97; +17 new).
-- `npm run test:core` — 92/92.
-- `npm run test:luau` — syntax + **72 rules** (63 + 9 new, the recruit
-  clamp rule mutation-checked live) + 7 spike sims.
+**130 server tests, 92 core tests, type checking, 34 Luau files, 72 rules, 7 troop simulations, 25 connection checks and 5 UI/binding scenarios all pass.** Four Rojo targets and credential-exclusion proof pass. Independent review found no remaining blocker in the reviewed fixes.
 
-## Not built / honest limits
+Full evidence and exact live checks: [docs/verification/2026-09-03-audit-fixes.md](docs/verification/2026-09-03-audit-fixes.md).
 
-- **No live Studio look at the new village-tab and war-tab UI yet.** The
-  Luau compiles and 9 rules pin the wiring, but no human (or demo run)
-  has seen the recruit picker, research rows, Recall or Herald rendered.
-  That is the next Studio session's first job.
-- Phase B (the VPS itself) needs Adam's account + card; runbook is ready.
-- Retention/pruning of events/inbox/notifications still unbounded (audit
-  P2) — deliberately out of Phase A scope.
-- Trebuchets and night bonus remain wired-to-nothing stubs; alliances /
-  market / trade remain missing — Phase C+ scope, listed in the audit's
-  §14 build order. Adam's nine §16 decisions still stand open.
-- The rate-limit defaults (5/min auth, 30/min commands) are judgment
-  calls, tunable via injection; nobody has played against them yet.
-- `contracts.test.ts:21` still pins the fixture's nominal two-human
-  seats (the store overwrites them to 'open' now) — left alone: it tests
-  the fixture, and the new freeholds tests pin the world.
+## Files
 
-## How to run
+Server:
+- `server/src/http.ts`, `server/src/store.ts`, `server/src/ai.ts`
+- `server/db/migrations/0013_horse_fraction.sql`
+- New `server/test/audit-store-integrity.test.ts`, `ai-fresh-retaliation.test.ts`, `deployment-boundary.test.ts`
+- Existing `server/test/gate-b.test.ts`, `rate-limit.test.ts`, `roblox-api.test.ts` narrowly updated for explicit legacy harnesses/true conversion costs
 
-- Dev loop: `roblox/start-dev.ps1 -Fresh` — now boots a LIVING world
-  (AI on). Everything else unchanged.
-- Full gates: `npm run check:types && npm run test:server && npm run
-  test:core && npm run test:luau`.
-- Hosting: `docs/ops/vps-runbook.md`.
+Roblox:
+- `roblox/src/server/ApiClient.luau`, new `ConnectionPolicy.luau`, `SecretConfig.example.luau`, `WarTable.luau`, `SettlementBuilder.luau`
+- `roblox/src/client/init.client.luau`
+- `roblox/default.project.json`, `demo.project.json`, new `live.project.json`, `start-dev.ps1`
+- New `roblox/scripts/connection-check.luau`, `client-audit-check.luau`; existing `rules-check.luau` updated
+
+Checks/docs:
+- `package.json`, `README.md`, `roblox/README.md`, `docs/ops/vps-runbook.md`, this handback and the verification record
+
+## Decisions and limits
+
+Open sieges block new defender spending/departures while preserving paid work and arrivals. Fallen-home returns travel onward to a remaining owned holding; eliminated realms receive explicit loss notifications. Dead kingdoms do not become joinable seats. Migration 0013 preserves existing whole horses and has been exercised only against disposable local databases.
+
+The new UI is source/runtime-stub verified, **not yet visually accepted in Studio or on a real phone**. Full-game/two-client play remains the next gate. Default/demo builds are local-only; production must use `live.project.json` after separate release approval.
+
+No world capacity/lifecycle, alliances or trade scope was added. Main and the live world remain unchanged.
