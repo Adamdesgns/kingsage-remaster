@@ -1,3 +1,5 @@
+import type { PracticeSiegeRequest } from "./practice-siege.ts";
+
 export const GAME_CONTRACT_VERSION = 1 as const;
 export const WORLD_SIZE = 50 as const;
 
@@ -242,6 +244,9 @@ export type GameCommand =
   // exposure from the battle's own opened_at and ignores any client value.
   | { type: "battle.retreat"; payload: { battleId: BattleId; sequence: number; atMs?: number } }
   | { type: "battle.resolve"; payload: { battleId: BattleId } }
+  /** Stateless training battle. The HTTP authority handles this before the
+   * persistent command inbox; it can never spend or reward world state. */
+  | { type: "practice.siege.resolve"; payload: PracticeSiegeRequest }
   | { type: "alliance.create"; payload: { name: string } }
   | { type: "alliance.join"; payload: { allianceId: AllianceId } }
   | { type: "alliance.leave"; payload: { allianceId: AllianceId } }

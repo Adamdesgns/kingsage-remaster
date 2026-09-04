@@ -6,6 +6,7 @@ import { scheduleAiKingdomTick } from "./ai.ts";
 import { createRateLimiter, type RateLimiter } from "./rate-limit.ts";
 import { SharedWorldStore, StoreError, type SessionPlayer } from "./store.ts";
 import { GAME_CONTRACT_VERSION, makeCommandEnvelope, type CommandEnvelope, type GameCommand } from "../../packages/game-core/src/contracts.ts";
+import { PracticeSiegeValidationError, resolvePracticeSiege, type PracticeSiegeRequest } from "../../packages/game-core/src/practice-siege.ts";
 
 type ServerOptions = {
   store: SharedWorldStore;
@@ -332,6 +333,36 @@ export function createWorldHttpServer(options: ServerOptions): {
         }
         const linked = store.peekRobloxPlayer(Number(body.robloxUserId));
         if (!linked) throw new StoreError("UNKNOWN_ROBLOX_USER", "Call /api/roblox/session first.", 404);
+        const command = body.command as { type: string; payload?: unknown };
+        if (command.type === "practice.siege.resolve") {
+          // Practice is deliberately outside applyCommand: that path persists
+          // every request in the command inbox and opens a world transaction.
+          // The pure resolver has no rewards or live-world inputs, while this
+          // boundary still supplies the real Roblox key, identity and limiter.
+          const worldVersion = store.getSnapshot(linked, { skipMaterialize: true }).world.version;
+          try {
+            const practiceSiege = resolvePracticeSiege(command.payload as PracticeSiegeRequest);
+            json(response, 200, {
+              type: "command.accepted",
+              payload: { commandId: String(body.commandId), worldVersion, practiceSiege },
+            });
+          } catch (error) {
+            if (error instanceof PracticeSiegeValidationError) {
+              json(response, 400, {
+                type: "command.rejected",
+                payload: {
+                  commandId: String(body.commandId),
+                  code: error.code,
+                  message: error.message,
+                  currentWorldVersion: worldVersion,
+                },
+              });
+              return;
+            }
+            throw error;
+          }
+          return;
+        }
         const envelope = makeCommandEnvelope({
           commandId: String(body.commandId ?? ""),
           worldId: store.worldIdForKingdom(linked.kingdomId),

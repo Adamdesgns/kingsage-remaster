@@ -1,4 +1,72 @@
-# HANDBACK — September audit fixes
+# HANDBACK — Player-first roadmap and practice siege checkpoint
+
+**Date:** 2026-09-04
+**Branch:** `feat/practice-siege-codex`
+**Base:** `09cf525` on `feat/audit-fixes-codex`, which is itself unmerged and unpushed
+**Owner authorization:** Adam said “Start,” then “Lock this roadmap in and keep working until you need me.”
+**Release boundary:** local only; no merge, push, deploy, publication, live-world change, or purchase.
+
+## What Adam locked
+
+The dated roadmap at `docs/plans/2026-09-04-player-first-roadmap.md` is now the product direction. It records ages 9+, a starter city and army for every new player, a beginner shield until the first deliberately confirmed real attack, a guided first session, functional map-command sieges and saved defenses, world/clan communication, clan profiles and rosters, the Great Hall social hub, Tourney Grounds, building-guide NPCs, cosmetic expression, and later peaceful jobs/economy. `docs/design/CANONICAL-BRIEF.md` now carries the owner overrides for ages 9+ and future cosmetic-only monetization.
+
+## Built in this checkpoint
+
+- A versioned, JSON-safe, deterministic TypeScript practice-siege resolver in `packages/game-core/src/practice-siege.ts`.
+- Three squads draw 0–100 integer-grid routes through a fixed fort with a gate, two archer towers, a barricade, and keep doors.
+- Routes, chosen objectives, tower exposure, tower-clearing order, wall entry, the barricade, and the saved defense priority materially affect casualties or outcome.
+- Strict request validation rejects missing/extra keys, wrong versions/plans/objectives, decimals, out-of-map points, backward routes, duplicate points, missed objectives, and routes that do not finish at the keep.
+- A stateless authenticated `practice.siege.resolve` Roblox HTTP command. It uses the existing key, linked identity, command-shape guard, and rate limiter, then resolves before `store.applyCommand`, so it writes no inbox row and mutates no world data.
+- Clear `command.rejected` validation responses with `INVALID_PRACTICE_SIEGE`.
+- A shared Luau vocabulary/geometry module and an unconnected touch-first `PracticeSiege.luau` planner module. They compile and are preserved for continuation.
+
+## Not built yet
+
+- The Roblox planner is **not wired** into `CommandService.luau` or `init.client.luau`; there is no Practice button at the War Table and no in-game request can reach the server yet.
+- No Roblox rule/runtime tests specifically exercise route drawing, the command bridge, 320/390 layouts, result replay, or clear rejection copy.
+- No Studio interaction, two-client drill, real-phone check, or visual acceptance was performed.
+- No tutorial, starter-city allocation, beginner shield, saved player defense, incoming attack, real-army integration, clans/chat, Great Hall, NPC guides, store, shows, or jobs were implemented. They are roadmap work, not current behavior.
+- The requested full-day captioned walkthrough video was not recorded. Record it only after the interface is connected and stable enough to teach honestly.
+
+## Verification completed
+
+- `npm run check:types` — pass.
+- `npm run test:core` — 101/101 pass, including 9 practice-siege tests.
+- `npm run test:server` — 135/135 pass, including 5 practice API tests. The first sandboxed run reached 133/134 and failed only because Windows denied spawning Lune; the approved outside-sandbox rerun passed clean.
+- `npm run test:luau` — pass: 36 syntax files, 72 rules, 7 spike simulations, 25 connection checks, and 5 client audit scenarios. These existing rules compile the two new modules but do not prove the new UI behavior.
+- `rojo build roblox/default.project.json -o .tmp/practice-siege-dev.rbxlx` — pass after creating the ignored `.tmp` output directory.
+- Focused core suite — 9/9 pass. Focused server suite — 5/5 pass.
+- `git diff --check` — pass before handback update.
+
+## Exact next steps
+
+1. Review `PracticeSiegeConfig.luau` and `PracticeSiege.luau` against the TypeScript contract; keep the coordinate system at integer 0–100 and the command name `practice.siege.resolve`.
+2. Add a non-village `practiceSiege` request to `CommandService.luau`. Forward `{version, routes, objectives, defensePlan}` and return `body.payload.practiceSiege`; surface `command.rejected.payload.message` unchanged.
+3. Add a Practice entry inside the existing War Table and mount the planner from `init.client.luau` without changing `BattleScene` or the production battle path.
+4. Add deletion-sensitive Luau checks for request vocabulary, route validation, no `BattleScene` dependency, 44px controls, 320/390 layout, accepted replay, and rejected-plan copy.
+5. Run all gates and the Rojo build again.
+6. Start an isolated local world server and Studio only when continuing the test. Prove drawing all three routes, submitting, seeing ordered phase events/reasons, reset/retry, and no world-resource/version mutation.
+7. After Studio acceptance, capture the requested captioned walkthrough. Keep it labeled as practice until the real-city tutorial and attacks exist.
+8. Ask Adam before any merge into the audit-fix branch, GitHub push, VPS deploy, or Roblox publication.
+
+## Files created or changed in this checkpoint
+
+- `docs/plans/2026-09-04-player-first-roadmap.md`
+- `docs/superpowers/specs/2026-09-04-practice-siege-prototype.md`
+- `docs/design/CANONICAL-BRIEF.md`
+- `packages/game-core/src/practice-siege.ts`
+- `packages/game-core/test/practice-siege.test.ts`
+- `packages/game-core/src/contracts.ts`
+- `packages/game-core/src/index.ts`
+- `server/src/http.ts`
+- `server/test/practice-siege-api.test.ts`
+- `roblox/src/shared/PracticeSiegeConfig.luau`
+- `roblox/src/client/PracticeSiege.luau`
+- `HANDBACK.md`
+
+---
+
+# Previous handback — September audit fixes
 
 Branch: `feat/audit-fixes-codex`. Base: main `9b478db`.
 Adam authorized implementation with **“Do it.”** Work is local and ready for integration review. No merge, push, live deployment or publication was performed.

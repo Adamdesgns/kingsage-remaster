@@ -23,12 +23,14 @@
   is a *place* you walk, not a menu you read — and you take the world one
   settlement at a time.
 
-- **Target ages:** ~13+.
+- **Target ages:** ages 9 and up. **Owner override, 2026-09-04.** The game
+  must be understandable by a capable nine-year-old while retaining strategic
+  depth for older players.
 
-- **Maturity target:** Roblox "Moderate"-leaning. Grittier palette and
-  weightier combat than Blockshore; **no gore** (platform cap regardless).
-  **Blockshore's kid-safe word-ban explicitly does NOT apply to this game.**
-  Knowingly accepts the younger-audience tradeoff on a young-skewing platform.
+- **Maturity target:** age-appropriate medieval conflict with weight and clear
+  stakes, **no gore**, and communication suitable for ages 9+. **Owner
+  override, 2026-09-04.** Current Roblox maturity and communication policies
+  must be checked again before public release.
 
 - **Supported devices:** Roblox on phone, tablet, desktop. **Mobile is the
   baseline** — every interaction must stay readable and responsive on a
@@ -116,9 +118,11 @@
   / Iron Mine, capped by Warehouse, and spent on buildings and troops.
   Population is capped by the Farm.
 
-- **Premium products:** **None. Monetization has never been discussed and is
-  deliberately absent from the approved design.** Do not propose any without
-  Adam raising it first.
+- **Premium products:** **Future cosmetic expression only. Owner override,
+  2026-09-04.** Adam requested a store for armor appearances and outfits.
+  Banners, emotes, mounts, and city decoration are valid later candidates.
+  Purchases must not add combat power. Products, prices, parental safeguards,
+  and current Roblox policy require a separately approved design before build.
 
 - **Session target:** *Not established.* **OPEN.**
 
@@ -176,9 +180,11 @@ Do not reopen these without new evidence.
 5. **On foot from day one**, with the C-hybrid war table.
 6. **Region world** — chosen over settlements-as-islands and over one seamless
    landmass.
-7. **Audience is teen (~13+), Moderate-leaning, no gore.**
+7. **Audience is ages 9+, strategically deep, and no gore.** Updated by Adam
+   2026-09-04.
 8. **The name can never be "KingsAge."**
-9. **No monetization.**
+9. **Future monetization is cosmetic expression only; no combat power.** The
+   exact store remains unapproved. Updated by Adam 2026-09-04.
 10. **The world server lives and barely changes** — command/event protocol,
     economy rules, schema.
 
