@@ -43,6 +43,7 @@ local TimeUtil = require(shared:WaitForChild("TimeUtil"))
 -- Sibling module: with init.client.luau, Rojo makes this folder the LocalScript
 -- and everything beside it a child of that script.
 local BattleScene = require(script:WaitForChild("BattleScene"))
+local PracticeSiege = require(script:WaitForChild("PracticeSiege"))
 local Celebration = require(script:WaitForChild("Celebration"))
 local Paddock = require(script:WaitForChild("Paddock"))
 local Villagers = require(script:WaitForChild("Villagers"))
@@ -844,6 +845,19 @@ local tablePanel: Frame? = nil
 local activeTab: string = "village"
 local buildTablePanel: () -> () = function() end
 local buildBattlePanel: () -> () = function() end
+local practiceOpen = false
+local practiceSiege = PracticeSiege.new(function(request, finished)
+	task.spawn(function()
+		local ok, result = pcall(function()
+			return queueCommand:InvokeServer(request)
+		end)
+		finished(if ok then result else { ok = false, message = "The realm did not answer. Your routes are saved; try again." })
+	end)
+end, function()
+	if inTableView and activeTab == "war" and practiceOpen then
+		buildTablePanel()
+	end
+end)
 
 local function refreshLocationVisibility()
 	setLocationVisible(
@@ -1019,6 +1033,8 @@ local function exitTableView()
 		return
 	end
 	inTableView = false
+	practiceOpen = false
+	practiceSiege:hide()
 	tableInfo = nil
 	activeTab = "village"
 	camera.CameraType = Enum.CameraType.Custom
@@ -1502,6 +1518,11 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 		order += 1
 		return order
 	end
+	sectionHeader(scroll, nextOrder(), "TRAIN AT THE WAR TABLE")
+	actionRow(scroll, nextOrder(), "Draw three squad routes on a fully scouted training fort. No troops or resources are spent.", "Practice siege", Color3.fromRGB(91, 67, 39), function()
+		practiceOpen = true
+		buildTablePanel()
+	end)
 
 	-- --- send scouts ---
 	local scoutsOnHand = math.floor(tonumber(village.army and village.army.scout) or 0)
@@ -1838,13 +1859,19 @@ local function buildWarTab(scroll: ScrollingFrame, village: any, villageId: stri
 end
 
 function buildTablePanel()
+	-- A world heartbeat must not destroy a finger stroke in progress. Practice
+	-- has no live-world state; the next completed gesture can safely rebuild it.
+	if practiceOpen and practiceSiege:isDrawing() then
+		return
+	end
 	-- The panel is rebuilt on every heartbeat so it can never show stale
 	-- state. Carry the scroll position across, or a player reading a scout
 	-- report gets yanked to the top every 10 seconds.
 	local keptScroll: Vector2? = nil
+	local contentView = if practiceOpen and activeTab == "war" then "practice" else activeTab
 	if tablePanel then
 		local previous = tablePanel:FindFirstChild("Body")
-		if previous and previous:IsA("ScrollingFrame") then
+		if previous and previous:IsA("ScrollingFrame") and tablePanel:GetAttribute("ContentView") == contentView then
 			keptScroll = previous.CanvasPosition
 		end
 		tablePanel:Destroy()
@@ -1872,6 +1899,7 @@ function buildTablePanel()
 	local panelHeight = math.max(180, math.floor(viewport.Y) - panelTop - safeBottom)
 	local panel = Instance.new("Frame")
 	panel.Name = "TablePanel"
+	panel:SetAttribute("ContentView", contentView)
 	panel.Size = UDim2.fromOffset(panelWidth, panelHeight)
 	panel.Position = UDim2.fromOffset(safeLeft, panelTop)
 	panel.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
@@ -1901,7 +1929,9 @@ function buildTablePanel()
 		button.Text = label
 		button.Parent = tabs
 		button.Activated:Connect(function()
-			if activeTab ~= name then
+			if activeTab ~= name or practiceOpen then
+				practiceOpen = false
+				practiceSiege:hide()
 				activeTab = name
 				buildTablePanel()
 			end
@@ -1925,7 +1955,13 @@ function buildTablePanel()
 	layout.Padding = UDim.new(0, 4)
 	layout.Parent = scroll
 
-	if activeTab == "war" then
+	if activeTab == "war" and practiceOpen then
+		practiceSiege:build(scroll, function()
+			practiceOpen = false
+			practiceSiege:hide()
+			buildTablePanel()
+		end)
+	elseif activeTab == "war" then
 		buildWarTab(scroll, village, villageId)
 	elseif activeTab == "map" then
 		buildMapTab(scroll, village, villageId)
@@ -1979,6 +2015,8 @@ enterTable.OnClientEvent:Connect(openTableView)
 gui:GetAttributeChangedSignal("DemoTab"):Connect(function()
 	local wanted = gui:GetAttribute("DemoTab")
 	if inTableView and (wanted == "village" or wanted == "war" or wanted == "map") and activeTab ~= wanted then
+		practiceOpen = false
+		practiceSiege:hide()
 		activeTab = tostring(wanted)
 		buildTablePanel()
 	end

@@ -19,6 +19,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local shared = ReplicatedStorage:WaitForChild("WorldShared")
 local Buildings = require(shared:WaitForChild("Buildings"))
 local BattleConfig = require(shared:WaitForChild("BattleConfig"))
+local PracticeSiegeConfig = require(shared:WaitForChild("PracticeSiegeConfig"))
 local ApiClient = require(script.Parent:WaitForChild("ApiClient"))
 local WorldSession = require(script.Parent:WaitForChild("WorldSession"))
 
@@ -44,16 +45,18 @@ local BATTLE_KINDS: { [string]: boolean } = {
 -- Kinds that act on something other than a village, so the villageId
 -- ownership gate does not apply. marchCancel proves ownership from OUR
 -- snapshot's march list (buildCommand), and the world server re-checks
--- with FORBIDDEN - the same two-layer shape battles use.
+-- with FORBIDDEN - the same two-layer shape battles use. Practice has no
+-- persistent target; it still requires the player's linked online identity.
 local NON_VILLAGE_KINDS: { [string]: boolean } = {
 	marchCancel = true,
+	practiceSiege = true,
 }
 
 local CommandService = {}
 
 type QueueRequest = {
 	kind: string,
-	-- Battle commands act on a battle, not a village, so this is optional.
+	-- Battles, march cancellation, and practice do not require a village.
 	villageId: string?,
 	building: string?,
 	troop: string?,
@@ -66,8 +69,12 @@ type QueueRequest = {
 	x: number?,
 	y: number?,
 	atMs: number?,
+	version: number?,
+	routes: { [string]: { PracticeSiegeConfig.Point } }?,
+	objectives: { [string]: string }?,
+	defensePlan: string?,
 }
-type QueueResult = { ok: boolean, message: string }
+type QueueResult = { ok: boolean, message: string, practiceSiege: { [string]: any }? }
 
 local inFlight: { [Player]: boolean } = {}
 local lastCompleted: { [Player]: { fingerprint: string, at: number, result: QueueResult } } = {}
@@ -185,9 +192,25 @@ end
 -- that saves a round trip; anything the client cannot know for certain is left
 -- to the world server, whose message is what the player then reads.
 local function buildCommand(request: QueueRequest, snapshot: any, kingdomId: string): ({ [string]: any }?, string?, string?)
-	-- runQueue guarantees a real villageId for every kind below; the battle
-	-- kinds that legitimately have none are handled after them.
+	-- runQueue guarantees a real villageId for village commands. The
+	-- non-village kinds below validate their own request vocabulary.
 	local villageId = request.villageId or ""
+
+	if request.kind == "practiceSiege" then
+		-- Only the versioned practice vocabulary crosses the bridge. There is
+		-- no village, live battle, reward, or client-provided outcome here.
+		local payload = {
+			version = request.version,
+			routes = request.routes,
+			objectives = request.objectives,
+			defensePlan = request.defensePlan,
+		}
+		local valid, reason = PracticeSiegeConfig.validateRequest(payload)
+		if not valid then
+			return nil, nil, reason or "That practice plan made no sense."
+		end
+		return { type = "practice.siege.resolve", payload = payload }, PracticeSiegeConfig.fingerprint(payload), nil
+	end
 
 	if request.kind == "build" and typeof(request.building) == "string" then
 		return { type = "village.build.queue", payload = { villageId = villageId, building = request.building } },
@@ -541,6 +564,22 @@ local function runQueue(player: Player, request: QueueRequest): QueueResult
 		local answered, body = postOnce(identity.robloxUserId, snapshot.world.version, command)
 		if not answered then
 			result = { ok = false, message = COPY_UNREACHABLE }
+			break
+		end
+		if request.kind == "practiceSiege" then
+			-- The external server's practice result is final and stateless.
+			-- Never refresh live state, advance a version/sequence, or retry a
+			-- practice rejection through the production battle repair path.
+			local payload = if typeof(body) == "table" then body.payload else nil
+			if typeof(body) == "table" and body.type == "command.accepted"
+				and typeof(payload) == "table" and typeof(payload.practiceSiege) == "table" then
+				result = { ok = true, message = "Practice siege resolved.", practiceSiege = payload.practiceSiege }
+			elseif typeof(body) == "table" and body.type == "command.rejected"
+				and typeof(payload) == "table" and typeof(payload.message) == "string" then
+				result = { ok = false, message = payload.message }
+			else
+				result = { ok = false, message = COPY_UNREACHABLE }
+			end
 			break
 		end
 		if typeof(body) == "table" and body.type == "command.accepted" then

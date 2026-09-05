@@ -1,4 +1,20 @@
-# HANDBACK — Player-first roadmap and practice siege checkpoint
+# HANDBACK — Practice siege connected; Studio access pending
+
+**Date:** 2026-09-04. **Branch:** `feat/practice-siege-codex`. **Continuation of:** `36758fb`, still based on unmerged/unpushed `09cf525`.
+
+The practice planner is now connected to the War tab and the authenticated server command. It collects three bounded integer routes, preserves target turns, displays tower ranges and ordered server reasons, and supports reset/retry. The separate bridge returns practice results and rejection messages without live snapshot/version/battle changes. Shared validation and actual TypeScript/Luau contract tests prevent vocabulary/geometry drift. Closing/resetting cancels late results; active strokes survive heartbeats and reject conflicting second-finger controls.
+
+**Verified:** types; 101 core tests; 138 server tests; 40 Luau syntax files, 72 rules, 7 simulations, 25 connection checks, 5 existing client scenarios, 272 practice contract checks, 28 bridge checks, 7 planner scenarios, 48 wiring checks; isolated Rojo dev build; clean diff; real HTTP/durable-byte no-mutation probe. Full details, corrections and hash evidence: [practice siege verification](docs/verification/2026-09-04-practice-siege-wiring.md).
+
+**Not verified:** Studio play, rendered layout, real touch/device behavior, child comprehension, or gameplay recording. The interactive launch returned `Computer Use app approval timed out`; no screenshot or in-game request was observed. A fresh local server was left on loopback 4178 and health passed. The ignored normal place is `roblox/WorldGame-dev.rbxlx`; its fresh ignored database is `server/data/practice-studio-6bdbf5e57e50421f93ab92fa9b6380cc.sqlite`. Recheck processes and access before resuming; do not use the older audit place/database by mistake.
+
+**Next:** obtain Studio app access, open that local development place, Play and prove War → Practice siege with all three drawn routes, target changes, ordered events/reasons, rejected input, reset/retry and phone layouts. Then record the honest captioned practice walkthrough and obtain Adam's hands-on judgment. No merge, push, deployment, Roblox publication or live-world changes without Adam. The broader locked roadmap remains future work.
+
+**New/changed in this continuation:** `package.json`; `roblox/src/client/PracticeSiege.luau`; `roblox/src/client/init.client.luau`; `roblox/src/server/CommandService.luau`; `roblox/src/shared/PracticeSiegeConfig.luau`; four `roblox/scripts/practice-*-check.luau` gates; `scripts/verify-practice-persistence.mjs`; `server/test/practice-siege-luau-contract.test.ts`; this handback and its linked verification document. No schema, migration, production battle code, secret, or live connection configuration changed.
+
+---
+
+# Previous handback — Player-first roadmap and practice siege checkpoint
 
 **Date:** 2026-09-04
 **Branch:** `feat/practice-siege-codex`

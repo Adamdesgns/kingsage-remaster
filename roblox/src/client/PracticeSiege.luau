@@ -49,6 +49,50 @@ local function pointDistance(left: Point, right: Point): number
 	return math.sqrt(dx * dx + dy * dy)
 end
 
+-- Display geometry only. These helpers never calculate a siege outcome.
+function PracticeSiege.layout(viewportWidth: number): { [string]: number }
+	local panelWidth = math.max(1, math.min(340, math.floor(viewportWidth) - 16))
+	local contentWidth = math.max(1, panelWidth - 12)
+	return {
+		panelWidth = panelWidth,
+		contentWidth = contentWidth,
+		squadButtonWidth = (contentWidth - 12) / 3,
+		halfButtonWidth = (contentWidth - 6) / 2,
+		canvasHeight = contentWidth,
+		controlHeight = 44,
+	}
+end
+
+local function segmentDistance(point: Point, first: Point, last: Point): number
+	local dx, dy = last.x - first.x, last.y - first.y
+	local length = dx * dx + dy * dy
+	local along = if length == 0 then 0 else math.clamp(((point.x - first.x) * dx + (point.y - first.y) * dy) / length, 0, 1)
+	return pointDistance(point, { x = first.x + along * dx, y = first.y + along * dy })
+end
+
+function PracticeSiege.simplifyRoute(points: Route, maximum: number, protectedPoint: Point?): Route
+	local route: Route = {}
+	for _, point in points do
+		local previous = route[#route]
+		if not previous or point.x ~= previous.x or point.y ~= previous.y then
+			table.insert(route, copyPoint(point))
+		end
+	end
+	while #route > math.max(3, maximum) do
+		local removeIndex, smallest = 2, math.huge
+		for index = 2, #route - 1 do
+			local point = route[index]
+			local protected = protectedPoint and point.x == protectedPoint.x and point.y == protectedPoint.y
+			local errorSize = segmentDistance(point, route[index - 1], route[index + 1])
+			if not protected and errorSize < smallest then
+				removeIndex, smallest = index, errorSize
+			end
+		end
+		table.remove(route, removeIndex)
+	end
+	return route
+end
+
 local function label(parent: Instance, text: string, size: number, bold: boolean?): TextLabel
 	local item = Instance.new("TextLabel")
 	item.Size = UDim2.new(1, 0, 0, 0)
@@ -67,6 +111,7 @@ end
 
 local function button(parent: Instance, text: string, color: Color3, activated: () -> ()): TextButton
 	local item = Instance.new("TextButton")
+	item.Name = text
 	item.Size = UDim2.new(1, 0, 0, 44)
 	item.BackgroundColor3 = color
 	item.TextColor3 = Color3.new(1, 1, 1)
@@ -158,6 +203,8 @@ function PracticeSiege.new(submit: Submit, refresh: () -> ()): any
 		selectedSquad = Config.SQUADS[1].id,
 		status = "Choose a squad, then draw from its flag through its target to the keep.",
 		busy = false,
+		visible = false,
+		requestToken = 0,
 		result = nil,
 		revealedEvents = 0,
 		replayToken = 0,
@@ -167,12 +214,18 @@ function PracticeSiege.new(submit: Submit, refresh: () -> ()): any
 		activeInput = nil,
 		moveConnection = nil,
 		endConnection = nil,
+		scroll = nil,
+		statusLabel = nil,
+		stroke = nil,
 	}, Controller)
 end
 
 function Controller:_disconnectDrawing()
 	self.drawing = false
 	self.activeInput = nil
+	if self.scroll and self.scroll.Parent then
+		self.scroll.ScrollingEnabled = true
+	end
 	if self.moveConnection then
 		self.moveConnection:Disconnect()
 		self.moveConnection = nil
@@ -180,6 +233,31 @@ function Controller:_disconnectDrawing()
 	if self.endConnection then
 		self.endConnection:Disconnect()
 		self.endConnection = nil
+	end
+end
+
+function Controller:isDrawing(): boolean
+	return self.drawing
+end
+
+function Controller:hide()
+	self:_disconnectDrawing()
+	self.visible = false
+	self.requestToken += 1
+	self.replayToken += 1
+	if self.busy then
+		self.status = "Practice closed. Try this plan again when you return."
+	end
+	self.busy = false
+	if self.result and typeof(self.result.phaseEvents) == "table" then
+		self.revealedEvents = #self.result.phaseEvents
+	end
+	self.canvas, self.routeLayer, self.statusLabel, self.scroll = nil, nil, nil, nil
+end
+
+function Controller:_showStatus()
+	if self.statusLabel and self.statusLabel.Parent then
+		self.statusLabel.Text = self.status
 	end
 end
 
@@ -194,6 +272,18 @@ function Controller:_drawRoutes()
 	end
 	if canvas.AbsoluteSize.X < 1 or canvas.AbsoluteSize.Y < 1 then
 		return
+	end
+	if not self.result then
+		for _, objective in Config.OBJECTIVES do
+			local structure = canvas:FindFirstChild(objective.id)
+			if structure and structure:IsA("Frame") then
+				structure.BackgroundColor3 = if objective.id == "keep" then Color3.fromRGB(178, 151, 96)
+					elseif objective.id == "barricade" then Color3.fromRGB(105, 72, 45)
+					else Color3.fromRGB(158, 148, 128)
+			end
+			local range = canvas:FindFirstChild(objective.id .. "Range")
+			if range and range:IsA("Frame") then range.Visible = true end
+		end
 	end
 	for _, squad in Config.SQUADS do
 		local color = colorFrom(squad.color)
@@ -210,6 +300,21 @@ function Controller:_drawRoutes()
 		end
 	end
 	local events = self.result and self.result.phaseEvents
+	if typeof(events) == "table" then
+		for index = 1, math.min(self.revealedEvents, #events) do
+			local event = events[index]
+			if event.code == "objectiveWon" and typeof(event.feature) == "string" then
+				local structure = canvas:FindFirstChild(event.feature)
+				if structure and structure:IsA("Frame") then
+					structure.BackgroundColor3 = Color3.fromRGB(103, 170, 113)
+				end
+				local range = canvas:FindFirstChild(event.feature .. "Range")
+				if range and range:IsA("Frame") then
+					range.Visible = false
+				end
+			end
+		end
+	end
 	local current = typeof(events) == "table" and events[self.revealedEvents] or nil
 	if current and typeof(current.position) == "table" then
 		local marker = feature(layer, "ServerEvent", current.position, Color3.fromRGB(255, 244, 166), 24, 24)
@@ -234,27 +339,24 @@ function Controller:_pointFromInput(input: InputObject): Point?
 end
 
 function Controller:_recordPoint(point: Point)
-	local route = self.routes[self.selectedSquad]
-	if not route then
+	local stroke = self.stroke
+	if not stroke then
 		return
 	end
-	local previous = route[#route]
+	local previous = stroke[#stroke]
 	point.y = math.clamp(math.max(point.y, previous.y), previous.y, Config.KEEP.y)
 	if point.x == previous.x and point.y == previous.y then
 		return
 	end
-	if #route == 1 then
-		table.insert(route, point)
-	else
-		local anchor = route[math.max(1, #route - 1)]
-		if #route < Config.MAX_ROUTE_POINTS - 1 and pointDistance(anchor, point) >= 14 then
-			table.insert(route, point)
-		else
-			route[#route] = point
-		end
-	end
+	table.insert(stroke, copyPoint(point))
+	local objective = assert(Config.objective(self.objectives[self.selectedSquad]))
+	-- Keep the target vertex when smoothing a touch stroke to six route points.
+	-- This prevents early movement samples from silently erasing the tower turn.
+	self.stroke = PracticeSiege.simplifyRoute(stroke, 24, objective.position)
+	self.routes[self.selectedSquad] = PracticeSiege.simplifyRoute(self.stroke, Config.MAX_ROUTE_POINTS - 1, objective.position)
 	self.result = nil
 	self.status = "Drawing " .. tostring(Config.squad(self.selectedSquad).label) .. " — lift to finish at the keep."
+	self:_showStatus()
 	self:_drawRoutes()
 end
 
@@ -274,20 +376,26 @@ function Controller:_finishRoute()
 	end
 	self.status = tostring(Config.squad(self.selectedSquad).label) .. " route ends at the keep."
 	self:_disconnectDrawing()
+	self:_showStatus()
 	self:_drawRoutes()
+	self.refresh()
 end
 
 function Controller:_beginDrawing(input: InputObject)
-	if self.busy then
+	if self.busy or self.drawing or not self.visible then
 		return
 	end
 	self:_disconnectDrawing()
 	local squad = assert(Config.squad(self.selectedSquad))
 	self.routes[self.selectedSquad] = { copyPoint(squad.start) }
+	self.stroke = { copyPoint(squad.start) }
 	self.result = nil
 	self.replayToken += 1
 	self.drawing = true
 	self.activeInput = input
+	if self.scroll then
+		self.scroll.ScrollingEnabled = false
+	end
 	local first = self:_pointFromInput(input)
 	if first and first.y > Config.DEPLOYMENT_MAX_Y then
 		self:_recordPoint(first)
@@ -334,13 +442,14 @@ end
 
 function Controller:_acceptResult(result: any)
 	self.busy = false
-	if typeof(result) ~= "table" or result.ok ~= true or typeof(result.data) ~= "table" then
+	if typeof(result) ~= "table" or result.ok ~= true or typeof(result.practiceSiege) ~= "table"
+		or typeof(result.practiceSiege.phaseEvents) ~= "table" then
 		self.status = tostring((typeof(result) == "table" and result.message) or "The realm did not return practice results.")
 		self.result = nil
 		self.refresh()
 		return
 	end
-	self.result = result.data
+	self.result = result.practiceSiege
 	if typeof(self.result.validated) == "table" then
 		self.routes = copyRoutes(self.result.validated.routes)
 		self.objectives = copyObjectives(self.result.validated.objectives)
@@ -357,7 +466,7 @@ function Controller:_acceptResult(result: any)
 	task.spawn(function()
 		for index = 1, #events do
 			task.wait(if index == 1 then 0.2 else 0.55)
-			if self.replayToken ~= token or self.result == nil then
+			if self.replayToken ~= token or self.result == nil or not self.visible then
 				return
 			end
 			self.revealedEvents = index
@@ -373,7 +482,7 @@ function Controller:_acceptResult(result: any)
 end
 
 function Controller:_submit()
-	if self.busy then
+	if self.busy or self.drawing or not self.visible then
 		return
 	end
 	local request = self:_request()
@@ -393,9 +502,23 @@ function Controller:_submit()
 	self.status = "The realm is checking this practice plan…"
 	self.result = nil
 	self.replayToken += 1
+	self.requestToken += 1
+	local requestToken = self.requestToken
 	self.refresh()
-	self.submit(request, function(result)
+	local function finished(result: any)
+		if self.requestToken ~= requestToken or not self.visible or not self.busy then
+			return
+		end
 		self:_acceptResult(result)
+	end
+	local ok = pcall(function()
+		self.submit(request, finished)
+	end)
+	if not ok then
+		finished({ ok = false, message = "The realm did not answer. Your routes are saved; try again." })
+	end
+	task.delay(30, function()
+		finished({ ok = false, message = "The realm took too long. Your routes are saved; try again." })
 	end)
 end
 
@@ -408,16 +531,19 @@ function Controller:reset()
 	self.result = nil
 	self.revealedEvents = 0
 	self.replayToken += 1
+	self.requestToken += 1
 end
 
 function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 	self:_disconnectDrawing()
 	self.canvas = nil
 	self.routeLayer = nil
+	self.visible = true
+	self.scroll = parent
 
 	local root = Instance.new("Frame")
 	root.Name = "PracticeSiege"
-	root.Size = UDim2.new(1, -8, 0, 0)
+	root.Size = UDim2.new(1, -12, 0, 0)
 	root.AutomaticSize = Enum.AutomaticSize.Y
 	root.BackgroundTransparency = 1
 	root.Parent = parent
@@ -427,11 +553,13 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 	rootLayout.Parent = root
 
 	label(root, "PRACTICE SIEGE", 17, true)
-	label(root, "No troops, resources, rewards, or real settlements are used. Pick each squad, choose its target, and draw through that target to the keep.", 14)
+	label(root, "A training fight with no cost or reward. Pick a squad and draw through its target. Lift to connect the final line to the keep. Up to 6 points; routes only move forward.", 14)
+	label(root, "Saved defense: Guard the gate. Towers cover the shaded circles; the brown block is a barricade. The realm decides each result.", 13)
 
 	local squadRow = row(root, 44)
 	for _, squad in Config.SQUADS do
 		local item = button(squadRow, squad.label, if squad.id == self.selectedSquad then colorFrom(squad.color) else Color3.fromRGB(48, 48, 58), function()
+			if self.busy or self.drawing then return end
 			self.selectedSquad = squad.id
 			self.status = "Draw " .. squad.label .. " from its flag through " .. tostring(Config.objective(self.objectives[squad.id]).label) .. "."
 			self.refresh()
@@ -442,6 +570,7 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 	local selected = assert(Config.squad(self.selectedSquad))
 	local chosen = assert(Config.objective(self.objectives[self.selectedSquad]))
 	local target = button(root, "Target: " .. chosen.label .. "  ·  Tap to change", Color3.fromRGB(70, 58, 40), function()
+		if self.busy or self.drawing then return end
 		local index = Config.objectiveIndex(self.objectives[self.selectedSquad]) % #Config.OBJECTIVES + 1
 		local nextObjective = Config.OBJECTIVES[index]
 		self.objectives[self.selectedSquad] = nextObjective.id
@@ -455,13 +584,27 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 
 	local canvas = Instance.new("Frame")
 	canvas.Name = "RouteCanvas"
-	canvas.Size = UDim2.new(1, 0, 0, 286)
+	canvas.Size = UDim2.new(1, 0, 0, math.max(1, parent.AbsoluteSize.X - 12))
 	canvas.BackgroundColor3 = Color3.fromRGB(82, 102, 66)
 	canvas.BorderSizePixel = 0
 	canvas.ClipsDescendants = true
 	canvas.Active = true
 	canvas.Parent = root
 	self.canvas = canvas
+	local function resizeCanvas()
+		if canvas.Parent and canvas.AbsoluteSize.X > 0 then
+			canvas.Size = UDim2.new(1, 0, 0, canvas.AbsoluteSize.X)
+		end
+	end
+
+	for towerId, tower in { westTower = Config.WEST_TOWER, eastTower = Config.EAST_TOWER } do
+		local range = feature(canvas, towerId .. "Range", tower, Color3.fromRGB(220, 171, 71), 1, 1)
+		range.Size = UDim2.fromScale(tower.range * 2 / Config.GRID_SIZE, tower.range * 2 / Config.GRID_SIZE)
+		range.BackgroundTransparency = 0.76
+		local round = Instance.new("UICorner")
+		round.CornerRadius = UDim.new(1, 0)
+		round.Parent = range
+	end
 
 	local wall = feature(canvas, "FrontWall", { x = 50, y = Config.FRONT_WALL_Y }, Color3.fromRGB(120, 113, 102), 300, 8)
 	wall.Size = UDim2.new(1, -12, 0, 8)
@@ -486,10 +629,23 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 		text.BackgroundTransparency = 1
 		text.Font = Enum.Font.GothamBold
 		text.TextColor3 = Color3.fromRGB(25, 24, 23)
-		text.TextSize = 10
+		text.TextSize = 12
 		text.Text = objective.short
 		text.ZIndex = 3
 		text.Parent = marker
+	end
+	for _, squad in Config.SQUADS do
+		local flag = feature(canvas, squad.id .. "Flag", squad.start, colorFrom(squad.color), 22, 22)
+		flag.ZIndex = 6
+		local letter = Instance.new("TextLabel")
+		letter.Size = UDim2.fromScale(1, 1)
+		letter.BackgroundTransparency = 1
+		letter.Text = squad.short
+		letter.TextColor3 = Color3.new(1, 1, 1)
+		letter.Font = Enum.Font.GothamBold
+		letter.TextSize = 14
+		letter.ZIndex = 6
+		letter.Parent = flag
 	end
 
 	local routeLayer = Instance.new("Frame")
@@ -501,6 +657,7 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 	routeLayer.Parent = canvas
 	self.routeLayer = routeLayer
 	canvas:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		resizeCanvas()
 		self:_drawRoutes()
 	end)
 	canvas.InputBegan:Connect(function(input)
@@ -509,26 +666,33 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 		end
 	end)
 	task.defer(function()
-		self:_drawRoutes()
+		if self.canvas == canvas then
+			resizeCanvas()
+			self:_drawRoutes()
+		end
 	end)
 
 	local editRow = row(root, 44)
 	local undo = button(editRow, "Undo turn", Color3.fromRGB(58, 58, 68), function()
+		if self.busy or self.drawing then return end
 		local route = self.routes[self.selectedSquad]
 		if route and #route > 2 then
 			table.remove(route, #route - 1)
 			self.result = nil
 			self.status = selected.label .. " lost its last turn."
-			self:_drawRoutes()
+			self.replayToken += 1
+			self.refresh()
 		end
 	end)
 	undo.Name = "UndoRoute"
 	undo.Size = UDim2.new(0.5, -3, 1, 0)
 	local clear = button(editRow, "Clear route", Color3.fromRGB(70, 48, 44), function()
+		if self.busy or self.drawing then return end
 		self.routes[self.selectedSquad] = { copyPoint(selected.start), { x = Config.KEEP.x, y = Config.KEEP.y } }
 		self.result = nil
 		self.status = "Route cleared. Draw " .. selected.label .. " through " .. chosen.label .. "."
-		self:_drawRoutes()
+		self.replayToken += 1
+		self.refresh()
 	end)
 	clear.Name = "ClearRoute"
 	clear.Size = UDim2.new(0.5, -3, 1, 0)
@@ -536,6 +700,7 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 	local statusCard = card(root, Color3.fromRGB(29, 35, 43))
 	local status = label(statusCard, self.status, 14, true)
 	status.Name = "PracticeStatus"
+	self.statusLabel = status
 
 	local submit = button(root, if self.busy then "Checking plan…" else "Try this plan", Color3.fromRGB(107, 73, 39), function()
 		self:_submit()

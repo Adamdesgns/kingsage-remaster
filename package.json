@@ -19,7 +19,12 @@
     "check:spike-sim": "lune run roblox/scripts/spike-sim-check.luau",
     "check:connections": "lune run roblox/scripts/connection-check.luau",
     "check:client-audit": "lune run roblox/scripts/client-audit-check.luau",
-    "test:luau": "npm run check:luau && npm run check:luau-rules && npm run check:spike-sim && npm run check:connections && npm run check:client-audit",
+    "check:practice-contract": "lune run roblox/scripts/practice-contract-check.luau",
+    "check:practice-bridge": "lune run roblox/scripts/practice-bridge-check.luau",
+    "check:practice-client": "lune run roblox/scripts/practice-client-check.luau",
+    "check:practice-wiring": "lune run roblox/scripts/practice-wiring-check.luau",
+    "check:practice-persistence": "node --experimental-strip-types scripts/verify-practice-persistence.mjs",
+    "test:luau": "npm run check:luau && npm run check:luau-rules && npm run check:spike-sim && npm run check:connections && npm run check:client-audit && npm run check:practice-contract && npm run check:practice-bridge && npm run check:practice-client && npm run check:practice-wiring",
     "check:gate-d": "node scripts/check-gate-d.mjs",
     "test:gate-d": "npm run test:gate-c && npm run check:gate-d"
   },

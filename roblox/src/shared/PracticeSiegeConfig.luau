@@ -14,6 +14,13 @@ PracticeSiegeConfig.DEPLOYMENT_MAX_Y = 12
 PracticeSiegeConfig.FRONT_WALL_Y = 34
 PracticeSiegeConfig.SNAP_RADIUS = 7
 PracticeSiegeConfig.DEFENSE_PLAN = "guardGate"
+PracticeSiegeConfig.DEFENSE_PLANS = { "guardGate", "towerCrossfire", "holdKeep" }
+
+PracticeSiegeConfig.GATE = { x = 50, y = 34, openingHalfWidth = 6 }
+PracticeSiegeConfig.WEST_TOWER = { x = 28, y = 34, range = 24, breachHalfWidth = 5 }
+PracticeSiegeConfig.EAST_TOWER = { x = 72, y = 34, range = 24, breachHalfWidth = 5 }
+PracticeSiegeConfig.KEEP = { x = 50, y = 88, radius = 8 }
+PracticeSiegeConfig.BARRICADE = { minimum = { x = 43, y = 54 }, maximum = { x = 57, y = 60 } }
 
 PracticeSiegeConfig.SQUADS = {
 	{ id = "vanguard", label = "Vanguard", short = "V", color = { 150, 60, 55 }, start = { x = 50, y = 5 }, defaultObjective = "gate" },
@@ -22,15 +29,15 @@ PracticeSiegeConfig.SQUADS = {
 }
 
 PracticeSiegeConfig.OBJECTIVES = {
-	{ id = "gate", label = "Gate", short = "GATE", position = { x = 50, y = 34 }, radius = 7 },
-	{ id = "westTower", label = "West tower", short = "WEST", position = { x = 28, y = 34 }, radius = 7 },
-	{ id = "eastTower", label = "East tower", short = "EAST", position = { x = 72, y = 34 }, radius = 7 },
-	{ id = "barricade", label = "Barricade", short = "BLOCK", position = { x = 50, y = 57 }, radius = 6 },
-	{ id = "keep", label = "Keep doors", short = "KEEP", position = { x = 50, y = 88 }, radius = 8 },
+	{ id = "gate", label = "Gate", short = "GATE", position = { x = PracticeSiegeConfig.GATE.x, y = PracticeSiegeConfig.GATE.y }, radius = 7 },
+	{ id = "westTower", label = "West tower", short = "WEST", position = { x = PracticeSiegeConfig.WEST_TOWER.x, y = PracticeSiegeConfig.WEST_TOWER.y }, radius = 7 },
+	{ id = "eastTower", label = "East tower", short = "EAST", position = { x = PracticeSiegeConfig.EAST_TOWER.x, y = PracticeSiegeConfig.EAST_TOWER.y }, radius = 7 },
+	{ id = "barricade", label = "Barricade", short = "BLOCK", position = {
+		x = (PracticeSiegeConfig.BARRICADE.minimum.x + PracticeSiegeConfig.BARRICADE.maximum.x) / 2,
+		y = (PracticeSiegeConfig.BARRICADE.minimum.y + PracticeSiegeConfig.BARRICADE.maximum.y) / 2,
+	}, radius = 6 },
+	{ id = "keep", label = "Keep doors", short = "KEEP", position = { x = PracticeSiegeConfig.KEEP.x, y = PracticeSiegeConfig.KEEP.y }, radius = PracticeSiegeConfig.KEEP.radius },
 }
-
-PracticeSiegeConfig.KEEP = { x = 50, y = 88, radius = 8 }
-PracticeSiegeConfig.BARRICADE = { minimum = { x = 43, y = 54 }, maximum = { x = 57, y = 60 } }
 
 export type Point = { x: number, y: number }
 export type Route = { Point }
@@ -139,27 +146,75 @@ local function routeReaches(route: Route, objective: any): boolean
 	return false
 end
 
+local function exactKeys(value: any, expected: { string }): boolean
+	if typeof(value) ~= "table" then
+		return false
+	end
+	local count = 0
+	for key in value do
+		if table.find(expected, key) == nil then
+			return false
+		end
+		count += 1
+	end
+	return count == #expected
+end
+
+local function routeLength(route: any): number?
+	if typeof(route) ~= "table" then
+		return nil
+	end
+	local count = 0
+	for key in route do
+		if typeof(key) ~= "number" or key < 1 or key > PracticeSiegeConfig.MAX_ROUTE_POINTS or key ~= math.floor(key) then
+			return nil
+		end
+		count += 1
+	end
+	if count < PracticeSiegeConfig.MIN_ROUTE_POINTS or count > PracticeSiegeConfig.MAX_ROUTE_POINTS then
+		return nil
+	end
+	-- Lua's # is undefined for sparse tables: count and inspect every slot
+	-- before treating an untrusted remote table as a JSON route array.
+	for index = 1, count do
+		if route[index] == nil then
+			return nil
+		end
+	end
+	return count
+end
+
 function PracticeSiegeConfig.validateRequest(request: any): (boolean, string?)
-	if typeof(request) ~= "table" or request.version ~= PracticeSiegeConfig.VERSION then
+	if not exactKeys(request, { "version", "routes", "objectives", "defensePlan" }) then
+		return false, "A practice plan needs only version, routes, objectives, and defence plan."
+	end
+	if request.version ~= PracticeSiegeConfig.VERSION then
 		return false, "This practice plan needs version 1."
 	end
-	if request.defensePlan ~= PracticeSiegeConfig.DEFENSE_PLAN then
+	if typeof(request.defensePlan) ~= "string" or table.find(PracticeSiegeConfig.DEFENSE_PLANS, request.defensePlan) == nil then
 		return false, "That practice defence is not available."
 	end
-	if typeof(request.routes) ~= "table" or typeof(request.objectives) ~= "table" then
+	local squadIds = {}
+	for _, squad in PracticeSiegeConfig.SQUADS do
+		table.insert(squadIds, squad.id)
+	end
+	if not exactKeys(request.routes, squadIds) or not exactKeys(request.objectives, squadIds) then
 		return false, "Draw all three squad routes."
 	end
 	for _, squad in PracticeSiegeConfig.SQUADS do
-		local objective = PracticeSiegeConfig.objective(tostring(request.objectives[squad.id]))
+		local objectiveId = request.objectives[squad.id]
+		local objective = if typeof(objectiveId) == "string" then PracticeSiegeConfig.objective(objectiveId) else nil
 		local route = request.routes[squad.id]
 		if not objective then
 			return false, squad.label .. " needs a target."
 		end
-		if typeof(route) ~= "table" or #route < PracticeSiegeConfig.MIN_ROUTE_POINTS or #route > PracticeSiegeConfig.MAX_ROUTE_POINTS then
+		local length = routeLength(route)
+		if length == nil then
 			return false, squad.label .. " needs a route with 2 to 6 points."
 		end
-		for index, point in route do
-			if typeof(point) ~= "table" or typeof(point.x) ~= "number" or typeof(point.y) ~= "number"
+		for index = 1, length do
+			local point = route[index]
+			if not exactKeys(point, { "x", "y" }) or typeof(point.x) ~= "number" or typeof(point.y) ~= "number"
 				or point.x ~= math.floor(point.x) or point.y ~= math.floor(point.y)
 				or point.x < 0 or point.x > PracticeSiegeConfig.GRID_SIZE
 				or point.y < 0 or point.y > PracticeSiegeConfig.GRID_SIZE then
@@ -178,7 +233,7 @@ function PracticeSiegeConfig.validateRequest(request: any): (boolean, string?)
 				end
 			end
 		end
-		local finish = route[#route]
+		local finish = route[length]
 		if distance(finish, PracticeSiegeConfig.KEEP) > PracticeSiegeConfig.KEEP.radius then
 			return false, squad.label .. " must finish at the keep doors."
 		end
