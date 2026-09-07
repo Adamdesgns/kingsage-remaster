@@ -2,6 +2,26 @@
 
 **Scope:** local continuation of `36758fb` on `feat/practice-siege-codex`; based on unmerged `09cf525`. No merge, push, deployment, Roblox publication, or production request.
 
+## Later September 4 continuation — recorded 2026-09-07
+
+This section supersedes the earlier access-blocked checkpoint below. It records observed September 4 work and current source/evidence files; no Studio interaction or gameplay test was rerun during the September 7 planning revision.
+
+- Studio access later succeeded. A temporary runtime correction to the HUD's ZIndex layering made the interface visible; War → Practice opened, a Vanguard route was drawn, and the real authenticated external request returned **FORT HELD**, squad losses **11 / 7 / 5**, and ordered reasons. The other two routes were defaults. This proves one actual submitted plan/result, not the complete interaction matrix.
+- Source fixes followed for HUD sibling layering, CanvasGroup clipping, explicit row ordering, and disabling city prompts inside the table with online-only restoration. They remain in five uncommitted files listed in [HANDBACK](../../HANDBACK.md); the September 7 planning commit deliberately excludes them.
+- The post-fix Luau run passed **40 syntax files, 72 rules, 7 simulations, 25 connections, 6 client audits, 272 practice contracts, 28 bridge checks, 8 planner scenarios, and 54 wiring checks**. A normal Rojo development build succeeded. Matching rebuilt-source visual verification was interrupted, so these checks cannot close the rendering or touch gate.
+- Adam stopped computer control with Escape and said he would return it later. Current app/process state was not inspected in the September 7 documentation session. Do not resume control or infer that an old server/process is still running.
+- A three-second actual-Studio recording smoke test succeeded. It is not the requested captioned walkthrough, nor proof of the full first-day game.
+
+Evidence directory: `C:\Users\steam\OneDrive\Documents\ChatGPT\Kingmarch\practice-siege-proof-2026-09-04`. The actual server-result frame is `03-server-result-first-run.jpg`; the short video is `capture-smoke.mp4`. The file `02-war-table.png` shows the approach outside the keep rather than an opened table, despite its filename. Preserve that distinction when choosing screenshots.
+
+Still required: final rebuilt-place rendering, all three manually drawn routes, objective changes, controlled successful and failed tactics, invalid feedback, reset/retry, gate/tower teaching consistency (D-06), 320/390 layouts, physical-phone input, and unfamiliar-player understanding. Existing 200-troop phone evidence covers another workload. The real-game tutorial, starter grants/shield, defense integration, and full-day video are not delivered by practice proof.
+
+The controlled HTTP durability probe below remains the no-mutation evidence. A normal running world's economy and heartbeat can write while a Studio request is in progress, so a before/after comparison of that actively ticking whole database cannot isolate practice mutations. Do not replace the controlled probe with that invalid comparison.
+
+---
+
+## Earlier wiring checkpoint — historical
+
 ## Implemented
 
 The current War tab opens a **Practice siege** planner. Its existing `QueueCommand` RemoteFunction carries `{kind: "practiceSiege", version, routes, objectives, defensePlan}`. The Roblox server validates through `PracticeSiegeConfig`, strips the local `kind`, and sends `practice.siege.resolve` to the existing authenticated endpoint. Accepted `payload.practiceSiege` and rejected `payload.message` pass through unchanged. Practice bypasses village ownership, live snapshot refresh, world-version repair, and battle-order repair; identity/online status, in-flight protection, and repeat protection remain.

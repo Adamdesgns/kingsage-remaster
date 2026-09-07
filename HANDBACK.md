@@ -1,4 +1,45 @@
-# HANDBACK — Practice siege connected; Studio access pending
+# HANDBACK — Roadmap audited and opening specified; Studio testing paused
+
+**Updated:** 2026-09-07 by Codex. **Branch:** `feat/practice-siege-codex`. **Source baseline:** `535447d`, plus five pre-existing uncommitted Luau source/check fixes. This checkpoint supersedes the status summaries below; retain them as dated history.
+
+## Current authorized work
+
+Adam requested a thorough audit before implementation, then said “do it” to revising the roadmap and preparing a concrete Phase 2 specification. This continuation changes planning and evidence documents only. It does not implement the opening or return computer control: Adam paused the September 4 Studio session with Escape and said he would return control later.
+
+## Planning deliverables
+
+- [Revised player-first roadmap](docs/plans/2026-09-04-player-first-roadmap.md): retains the owner direction, repairs the phase dependencies, moves fresh-city admission forward, adds an external-alpha gate, and maps the audit findings to decisions and acceptance evidence.
+- [Phase 2 opening specification](docs/superpowers/specs/2026-09-07-player-first-opening.md): proposed founding template, exact normal costs/timers, nine tutorial steps, once-only receipts, shield transitions, saved training defense, safe NPC survey, migration/reconnect behavior, return sessions, and twenty-one acceptance scenarios plus device/player checks.
+- [Decision and release-gate register](docs/plans/2026-09-07-player-first-decisions.md): fifteen decisions and seven open gates with owners, deadlines, and proof requirements. Proposed starter tuning, shield edges, recovery, capacity, and combat/conquest changes remain distinguishable from owner locks.
+- [Canonical brief](docs/design/CANONICAL-BRIEF.md) and [AI team briefing](docs/AI-TEAM-BRIEFING.md): current planning pointers and corrections for existing visuals, research UI, phone troop evidence, and hosting documentation.
+
+The opening proposes 12 Squires, 8 Long-bows and 4 Crusaders as a once-only gift while preserving normal recruitment prerequisites. The exact values live in the opening specification. The no-expiry shield lock is preserved; outgoing scouting of unprotected players is a proposed edge rule because existing real attacks require a scout report. None of these proposals is implemented by this documentation revision.
+
+D-02 also records an unresolved first-war blocker: an all-new world has no unprotected human target, so the current protection/first-attack combination cannot initiate PvP. A complete owner-approved willing-player entry rule is required before real war; the safe shielded opening can be built after its own design gate without inventing an expiry exception.
+
+## Actual practice checkpoint
+
+The earlier “no Studio access/no observed result” statements below became stale during the September 4 continuation. Studio was reached, the War → Practice path was used, and one real Roblox-to-external-server request displayed **FORT HELD**, losses **11 / 7 / 5**, and ordered reasons. That observed run used a temporary runtime HUD-layer correction and one manually redrawn Vanguard route; it is not proof of the final rebuilt source, drawing all three routes, or phone control. The [verification continuation](docs/verification/2026-09-04-practice-siege-wiring.md) records the limits and remaining checks.
+
+Five source/check files already differed from `535447d` when the September 7 planning revision began: `roblox/scripts/client-audit-check.luau`, `roblox/scripts/practice-client-check.luau`, `roblox/scripts/practice-wiring-check.luau`, `roblox/src/client/PracticeSiege.luau`, and `roblox/src/client/init.client.luau`. They contain September 4 HUD layering, clipping, row order, prompt-lifecycle fixes and related checks. They were preserved byte for byte and excluded from the planning commit. Their matching rebuilt-place visual acceptance remains open.
+
+Recorded September 4 checks after those fixes passed: 40 Luau syntax files, 72 rules, 7 simulations, 25 connection checks, 6 client scenarios, 272 practice contract checks, 28 bridge checks, 8 planner scenarios, and 54 wiring checks; the normal Rojo development build also passed. These are historical results, not reruns during the documentation revision. A three-second capture smoke test exists; the requested captioned walkthrough does not.
+
+Proof files remain outside the repository under `C:\Users\steam\OneDrive\Documents\ChatGPT\Kingmarch\practice-siege-proof-2026-09-04`. The actual result frame is `03-server-result-first-run.jpg`; `02-war-table.png` does not show an opened table and must not be used as proof of that interaction.
+
+## Exact next steps
+
+1. Review the opening's proposed tuning and D-01/D-02/D-08 design choices with Adam before Phase 2 persistence/tutorial work.
+2. When Adam explicitly returns computer control, inspect the current local Studio/server state and finish Phase 1 from the matching development build. Do not relaunch, kill, or reconfigure apps on the strength of old process IDs.
+3. Settle D-06 gate-versus-tower entry teaching; prove three drawn routes, objectives, valid success/failure, one-route causality, invalid feedback, reset/retry, 320/390 layouts, and real-phone input. Recheck any changed source with its relevant gates.
+4. Capture the honest captioned **practice** walkthrough, obtain the unfamiliar-player/Adam review, and close G-01. The full city tutorial, real sieges, clans, and shop remain future work.
+5. Only then implement the approved opening contract in the ordered steps of its specification. External play, real PvP, purchases, merge, push, deployment, and publication have separate explicit gates.
+
+No gameplay source, app process, live configuration, or remote was changed during the planning revision. Existing local source work remains uncommitted; this checkpoint does not claim a clean working tree or current hosted readiness.
+
+---
+
+# Previous handback — Practice siege connected; Studio access pending
 
 **Date:** 2026-09-04. **Branch:** `feat/practice-siege-codex`. **Continuation of:** `36758fb`, still based on unmerged/unpushed `09cf525`.
 

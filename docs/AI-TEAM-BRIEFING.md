@@ -16,6 +16,16 @@ Design source of truth: `docs/design/CANONICAL-BRIEF.md` — read it before
 any design-adjacent work. Its "Decisions already locked" section is law;
 do not reopen locked decisions.
 
+**Planning update, 2026-09-07:** the canonical brief now points to the revised
+[player-first roadmap](plans/2026-09-04-player-first-roadmap.md),
+[opening-game specification](superpowers/specs/2026-09-07-player-first-opening.md),
+and [decision register](plans/2026-09-07-player-first-decisions.md). Read those
+before continuing that work. They distinguish owner locks from proposed tuning,
+date-bound evidence, and decisions required before each increment. September 4
+owner overrides supersede earlier product assumptions; historical status below
+does not establish current runtime/release readiness. This revision is documentation
+work, not authority to enable new mechanics or resume paused computer control.
+
 ## Architecture (locked — violating this gets work rejected)
 
 - **The external world server (`server/`) holds ALL authority.** SQLite
@@ -25,9 +35,10 @@ do not reopen locked decisions.
   is the only HTTP speaker and holds no authority. The client
   (`roblox/src/client/`) renders and asks; it never decides.
 - **The math and the movie are separate.** No device's frame rate may ever
-  change a game outcome. Combat resolves server-side as class totals —
-  units have NO positions; any design needing "near"/"flank" is
-  unbuildable today.
+  change a game outcome. Existing persistent combat resolves class totals;
+  rendered unit positions are not authoritative. The separate practice engine
+  calculates bounded route geometry on the world server. Real spatial tactics
+  need explicit server rules and compatibility work before integration.
 - **No Humanoids for mass units** (Roblox dies at ~50-100). Soldiers are
   six anchored parts; part budgets are tested analytically.
 - **Mobile is the baseline.** Owner-only detail: foreign settlements stay
@@ -71,7 +82,7 @@ do not reopen locked decisions.
 9. **Hand back honestly.** Finish with a `HANDBACK.md` on your branch:
    built / not built / deviations with reasons / how to run / open doubts.
 
-## Current state (2026-08-29)
+## Historical state (2026-08-29; use the current planning notice above)
 
 - Feature-complete vs the approved spec; full game loop (scout → attack →
   battle → two-wave Realm-of-Power conquest) proven live in a Studio audit

@@ -13,6 +13,14 @@
 
 ---
 
+## Current planning notice — 2026-09-07
+
+Adam authorized revision of the player-first roadmap and a concrete opening-game specification after the thoroughness audit. Read the [roadmap v2](../plans/2026-09-04-player-first-roadmap.md), [opening specification](../superpowers/specs/2026-09-07-player-first-opening.md), and [decision register](../plans/2026-09-07-player-first-decisions.md) together. The roadmap records the September 4 owner overrides; proposed tuning and new defeat/conquest rules are explicitly marked in the linked documents. They are not implemented features or automatic overrides of existing combat.
+
+Latest explicit owner decisions govern intent; source governs current capability; dated verification governs observed evidence. Architecture locks below remain in force. Older snapshots are historical and must not be used to override the current planning set. A future implementation needs the decisions due for that increment, not every distant shop/season detail.
+
+Current local baseline: practice connection commit 535447d plus five uncommitted Luau display/check fixes from the September 4 playtest. One real local Roblox practice request/result was observed before Adam paused control. The final rebuilt Studio, real-phone planner, comprehension, and captioned practice recording remain unfinished. This September 7 revision changes planning documents only and does not refresh running-app or production state.
+
 - **Game name:** Kingsmarch *(working title, explicitly provisional — Adam,
   2026-08-21. It can **never** ship as "KingsAge": that name belongs to the
   2008 original's owners. Runner-up lane: Emberfall / Realmfall. Full vetting —
@@ -36,8 +44,10 @@
   baseline** — every interaction must stay readable and responsive on a
   lower-powered phone.
 
-- **Visual style words:** Medieval, grounded, weighty, martial. Currently
-  grey-box by design (spec §7). *No art pass has ever been scheduled.*
+- **Visual style words:** Medieval, grounded, weighty, martial. Settlement,
+  owner-detail, HUD, and soldier visuals now exist in source; the old grey-box-only
+  statement is superseded. Final visual direction and full-game device acceptance
+  remain separate design/evidence tasks.
 
 - **Reference games:** The original KingsAge (2008) and its Tribal Wars
   lineage — persistent map, scout→plan→march→battle→loot, conquest by
@@ -52,7 +62,9 @@
   You can walk to a neighbour's gates and see their walls. Farther settlements
   are reached through the war table map. Settlements are database rows; the
   Gate A fixture is 50×50 (2,500 plots) and the schema scales past it.
-  **50+ settlements per player is a supported requirement.**
+  **50+ settlements per player is a long-term design requirement, not a measured
+  capacity claim.** Fresh-city admission, bounded alpha capacity, and world/region
+  identity must be specified before Phase 2; larger scale remains later.
 
 - **Core player fantasy:** Rule a real place. Walk your own streets, plan war
   from your own table, and watch hundreds of soldiers fight it out in front of
@@ -124,13 +136,15 @@
   Purchases must not add combat power. Products, prices, parental safeguards,
   and current Roblox policy require a separately approved design before build.
 
-- **Session target:** *Not established.* **OPEN.**
+- **Session target:** 12–18 minutes for the guided opening (September 4 roadmap).
+  Proposed return-session targets and exact tutorial pacing live in the opening
+  specification; neither is a measured retention result.
 
 - **Server size target:** *Not established.* Constraint of record: Roblox
   HttpService allows ~500 requests/min per server, respected by batching one
   state pull per heartbeat for everyone on the server. **OPEN.**
 
-- **Current build status (2026-08-22):** **Feature-complete against the
+- **Historical build status (2026-08-22; not current acceptance):** **Feature-complete against the
   approved spec.** Five slices built, merged and pushed on `main`: the village
   loop, the region world, scouting, the attack round-trip, the live battle
   scene, and conquest. One full self-driving Studio run on 2026-08-21 proved
@@ -144,9 +158,10 @@
   performance spike). World server in `server/`, shared rules in
   `packages/game-core/`.
 
-- **Existing art/assets:** **None.** Grey parts with floating labels. Soldiers
-  are six anchored parts each, tinted by squad, with no Humanoid — a
-  performance rule from the 200-troop spike, not a placeholder rig.
+- **Existing art/assets:** Current source includes settlement/HQ/war-table
+  construction and shared soldier rendering. The no-Humanoid mass-troop constraint
+  remains. This is existing local content, not a claim that every visual or device
+  gate is complete.
 
 - **Known technical constraints:**
   - **Architecture A — Roblox is a window.** The world server holds ALL
@@ -156,17 +171,21 @@
     ~50–100 instances.
   - **The math and the movie are separate.** No device's frame rate may ever
     change an outcome.
-  - The 200-troop budget has **never been measured on a phone**; the battle
-    scene ships an adaptive budget instead of a known one.
-  - Published Roblox servers cannot reach `127.0.0.1` — a public place needs
-    the VPS deploy, which is not done.
+  - The [200-soldier drill](../superpowers/spike-200-troops.md) records a real-phone
+    PASS on August 28. It does not prove the full settlement or practice planner;
+    measure each new workload separately.
+  - Published Roblox servers cannot reach `127.0.0.1`. Hosting has an existing
+    [VPS runbook](../ops/vps-runbook.md); verify actual deployment, matching code,
+    account eligibility, capacity, recovery, and cost before release. This planning
+    update did not inspect or change the live environment.
 
-- **Current retention or playtest data:** **None.** Zero external players. No
-  telemetry. 9 of 25 written drills carry dated PASS lines.
+- **Retention and comprehension:** No measured player-first opening or practice
+  comprehension study is recorded in the current planning set. Historical Studio
+  and troop-spike phone evidence exists; do not turn it into a retention claim.
 
-- **Current milestone:** Between VERTICAL SLICE and ALPHA. Every core system
-  exists and is server-authoritative; none has been played by anyone but its
-  author.
+- **Current milestone:** Existing war game plus a locally connected practice
+  prototype. The broader player-first opening, shield, city admission, new live
+  defense, clans, and later economy still require scoped implementation/acceptance.
 
 ## Decisions already locked
 
@@ -176,7 +195,9 @@ Do not reopen these without new evidence.
 2. **A paid always-on world server holds all authority** — chosen specifically
    so offline attacks work.
 3. **Architecture A** (Roblox is a window; no local authority, no state cache).
-4. **Roblox UserId replaces auth; Roblox moderated chat replaces world chat.**
+4. **Roblox UserId is the player identity; Roblox-supported moderated communication
+   replaces the retired custom external-world chat.** World/clan features must
+   respect actual participant eligibility; D-11 defines the technical proof gate.
 5. **On foot from day one**, with the C-hybrid war table.
 6. **Region world** — chosen over settlements-as-islands and over one seamless
    landmass.
@@ -185,8 +206,10 @@ Do not reopen these without new evidence.
 8. **The name can never be "KingsAge."**
 9. **Future monetization is cosmetic expression only; no combat power.** The
    exact store remains unapproved. Updated by Adam 2026-09-04.
-10. **The world server lives and barely changes** — command/event protocol,
-    economy rules, schema.
+10. **Preserve the existing authoritative world and proven invariants.** New
+    persistent features require explicit migrations and compatibility plans;
+    the player-first roadmap does not authorize casually replacing economy or
+    conquest rules. Version or drain in-flight battles before a rules transition.
 
 ## Questions still open
 
@@ -220,10 +243,12 @@ validated as *design*:
 
 **Structural:**
 
-- Session target and server size target.
-- VPS provider, deploy story, and secret management.
-- Art direction — no pass has ever been scheduled. Claude's standing (unapproved)
-  suggestion is a **silhouette pass** (distinct shape/roof/colour per building,
-  so a Timber Camp reads as one without its label) before any mesh work.
+- The opening has a session target; server size and real return-session pacing
+  require D-08/D-09 evidence.
+- Hosting readiness, deployment compatibility, recovery, cost, and secret management;
+  reuse the established provider/runbook rather than treating the old question as new.
+- Final art direction and readable building silhouettes; existing visual work is
+  preserved, while new scenes still require their own acceptance.
 - Alliances and the Market: schema and building exist, neither is built.
-- Smithy research is reachable on the server and has no interface.
+- Smithy research has a client interface in source; current rendered behavior and
+  phone acceptance still need verification for the tested build.
