@@ -1,10 +1,11 @@
-# HANDBACK — Phase 1 D-06 teaching fixed; G-01 still needs Adam’s Studio/phone
+# HANDBACK — Phase 1 local implementation complete; G-01 still needs Adam
 
-**Updated:** 2026-09-10 by [Cursor]. **Working branch:** `cursor/practice-phase1-d06-c4e2` off `feat/practice-siege-codex` @ `add2cd2`.
+**Updated:** 2026-09-10 by [Cursor]. **Working branch:** `cursor/practice-phase1-d06-c4e2` off `feat/practice-siege-codex` @ `add2cd2`.  
+**Tip (code):** `01e173f` — `feat: make practice failure a one-tap no-gate-team lesson`. Docs for this pack follow on the same branch.
 
 ## Current milestone
 
-Phase 1 practice siege — D-06 entry teaching. Local implementation of the gate-only rule is in source. G-01 is **not** closed.
+Phase 1 practice siege. D-06 teaching and a **playable** success / failure / one-target comparison are in source. G-01 is **not** closed. Phase 2 and D-02 / OPEN-21 were not started.
 
 ## Implemented versus verified
 
@@ -13,22 +14,27 @@ Phase 1 practice siege — D-06 entry teaching. Local implementation of the gate
 | Open-gate-only entry; towers stop fire, they do not breach the wall | Yes | Automated resolver + Luau teaching/default-route checks. Studio **not verified**. |
 | Default Reset plan visits towers on the approach, then enters through the gate | Yes | Contract: Luau defaults === `PRACTICE_WINNING_GATE_PLAN` and all three `enteredFort` |
 | Planner copy: practice army is separate; “Only an opened gate lets anyone inside.” | Yes | Luau client-check at 320/390. Rendered Studio **not verified**. |
-| Skip replay (“Show all reasons”) | Yes | Luau planner scenario. Studio **not verified**. |
-| Pinned success / failure / one-route causality fixtures | Yes | Core tests pin casualties 14 / 20 / 11 vs 24 |
+| One-tap failure lesson (`Try without a gate team`) | Yes | Luau lesson + contract: `noGateTeamRequest` === `PRACTICE_NO_GATE_TEAM_PLAN`. Studio **not verified**. |
+| Playable causality: same drawings, only Vanguard target Gate → Keep | Yes | Core pin TAKEN **5 / 5 / 4** vs HELD **8 / 7 / 5**. Retired unplayable `holdKeep` Rider pair. |
+| Skip + Previous replay; training-only outcome line | Yes | Luau planner scenarios, including 320px targets. Studio **not verified**. |
+| Invalid input, reset/retry, late-result cancel, second-finger guards | Yes | Existing Luau planner scenarios. Studio **not verified**. |
+| Stateless practice command | Yes | `check:practice-persistence` on earlier tip `aafa0e7`. Re-run after this tip if the command path changed (it did not). |
 | September 4 HUD sibling / CanvasGroup / prompt-lifecycle fixes | Preserved from `add2cd2` | Source + Luau wiring/audit. Rebuilt-place visual **not verified**. |
-| Physical phone, unfamiliar players, Adam acceptance, captioned walkthrough | Test pack written | **not verified** |
-| Phase 2 opening / shield / fresh cities | Not started | G-02 recommendations only |
+| Physical phone, unfamiliar players, Adam acceptance, captioned walkthrough | Test pack tightened | **not verified** |
+| Phase 2 opening / shield / fresh cities | Not started | G-02 recommendations only. D-02 mutual first-war still waiting on Adam. |
 
 ## Checks this continuation
 
-Ran on `aafa0e7` in the cloud agent, Lune 0.10.5 at `~/.local/bin/lune`, TypeScript 5.9.3 installed only in the environment (not committed).
+Cloud agent, Lune 0.10.5 at `~/.local/bin/lune`. TypeScript 5.9.3 is in this environment only (not committed). Gates for `01e173f` are recorded after the run in the same [Cursor] block if they completed; if this paragraph still lists the prior tip, treat those numbers as **not yet rerun** on the no-gate-team commit.
+
+Prior clean run on `aafa0e7` / `b74d127`:
 
 | Command | Result |
 |---|---|
 | `npm run check:types` | pass — game-core/server type-clean |
 | `npm run test:core` | 104 passed, 0 failed |
 | `npm run test:server` | 139 passed, 0 failed |
-| `npm run test:luau` | 40 syntax files; 72 rules; 7 simulations; 25 connections; 6 client audits; 272 practice contracts; 28 bridge; **10** planner scenarios; 54 wiring; 0 failed |
+| `npm run test:luau` | 40 syntax files; 72 rules; 7 simulations; 25 connections; 6 client audits; 272 practice contracts; 28 bridge; **10** planner scenarios (now **12** expected); 54 wiring; 0 failed |
 | `npm run check:practice-persistence` | disposable HTTP 200/200/200 + 400; identical replay; durable DB/WAL/rows unchanged |
 | Rojo development build | **not run** — `rojo` is not installed in this cloud image |
 | `git diff --check` | clean at commit |
@@ -51,9 +57,9 @@ Studio Play, physical phone, two-client privacy, and unfamiliar-player understan
 
 ## Exact next action
 
-1. Adam: Play the development place from this branch and run S-01 through S-08 in the Studio test pack. Then a real phone (S-09).
-2. Adam: answer the two asks in the G-02 note.
-3. Next engineering increment after those: only then Phase 2 founding/tutorial, still without real PvP.
+1. **Adam (blocks G-01):** On the PC, inspect first. Build with `powershell -ExecutionPolicy Bypass -File roblox/start-dev.ps1 -BuildOnly -Play`. Play `roblox/WorldGame-dev.rbxlx` against a **fresh disposable** `127.0.0.1:4178` world (`dev-secret-local-0001`). Run S-01 through S-08 in the Studio pack, then S-09 on a real phone. S-10 is `npm run check:practice-persistence` (do not diff a ticking 45s-AI world).
+2. **Adam (blocks G-02 / real PvP):** Answer the two asks in `docs/plans/2026-09-10-opening-decisions-for-adam.md`.
+3. Next engineering increment after those: only then Phase 2 founding/tutorial, still without an invented PvP shield rule.
 
 Other assistants’ notes below are dated history and were not rewritten.
 

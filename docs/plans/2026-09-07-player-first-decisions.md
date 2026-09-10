@@ -126,6 +126,8 @@ The audit found a teaching mismatch: practice guidance implies tower-opening rou
 
 **Engineering choice, 2026-09-10 [Cursor]:** teach the bounded prototype. Entry rule is `openGateOnly`. Clearing a tower stops its fire only. Unused `breachHalfWidth` was removed from the layout so it cannot be read as an opening. Default Roblox routes now visit a tower on the approach, then cross at the gate. Studio / phone / unfamiliar-player proof is still required before G-01. A later tower-breach mechanic would be a new Adam-reviewed rule, not a silent reinterpretation.
 
+**Playable Phase 1 comparison, 2026-09-10 [Cursor]:** the planner has no defense-plan picker; every submit uses `guardGate`. Gate power only counts squads assigned to the gate, so a Rider-only wall miss under `guardGate` still wins. The comparison the player can actually tap is identical drawings with only the Vanguard target changed (`PRACTICE_NO_GATE_TEAM_PLAN`). A freehand miss-the-gate plan remains pinned as `PRACTICE_LOSING_CLOSED_GATE_PLAN`. Engine `holdKeep` geometry tests stay in game-core; they are not the Studio pair.
+
 For later defenses, define legal access, timing, exposure, clear/disabled states, and counterplay before adding their map icon. A gate, wall, barricade, or keep door is only a gameplay feature when it changes the calculation and the replay can explain how.
 
 ### D-07 — Siege lifecycle, retries, and rules versions
