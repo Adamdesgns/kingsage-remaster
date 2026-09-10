@@ -1,4 +1,52 @@
-# HANDBACK — Roadmap audited and opening specified; Studio testing paused
+# HANDBACK — Phase 1 D-06 teaching fixed; G-01 still needs Adam’s Studio/phone
+
+**Updated:** 2026-09-10 by [Cursor]. **Working branch:** `cursor/practice-phase1-d06-c4e2` off `feat/practice-siege-codex` @ `add2cd2`.
+
+## Current milestone
+
+Phase 1 practice siege — D-06 entry teaching. Local implementation of the gate-only rule is in source. G-01 is **not** closed.
+
+## Implemented versus verified
+
+| Behavior | Implemented | Verified |
+|---|---|---|
+| Open-gate-only entry; towers stop fire, they do not breach the wall | Yes | Automated resolver + Luau teaching/default-route checks. Studio **not verified**. |
+| Default Reset plan visits towers on the approach, then enters through the gate | Yes | Contract: Luau defaults === `PRACTICE_WINNING_GATE_PLAN` and all three `enteredFort` |
+| Planner copy: practice army is separate; “Only an opened gate lets anyone inside.” | Yes | Luau client-check at 320/390. Rendered Studio **not verified**. |
+| Pinned success / failure / one-route causality fixtures | Yes | Core tests pin casualties 14 / 20 / 11 vs 24 |
+| September 4 HUD sibling / CanvasGroup / prompt-lifecycle fixes | Preserved from `add2cd2` | Source + Luau wiring/audit. Rebuilt-place visual **not verified**. |
+| Physical phone, unfamiliar players, Adam acceptance, captioned walkthrough | Test pack written | **not verified** |
+| Phase 2 opening / shield / fresh cities | Not started | G-02 recommendations only |
+
+## Checks this continuation
+
+Record after the verification run on this branch. Pre-commit local runs already showed the new D-06 core tests and the practice Luau client/contract/wiring/audit scripts passing on Lune 0.10.5 installed to `~/.local/bin/lune` in the cloud environment.
+
+## Evidence paths
+
+- Fixtures: `packages/game-core/src/practice-siege-fixtures.ts`
+- Studio/phone script: `docs/verification/2026-09-10-practice-studio-test-pack.md`
+- G-02 asks: `docs/plans/2026-09-10-opening-decisions-for-adam.md`
+- Historical Studio frame (still not this build): `C:\Users\steam\OneDrive\Documents\ChatGPT\Kingmarch\practice-siege-proof-2026-09-04\03-server-result-first-run.jpg`
+
+## Pending decisions and gates
+
+- **G-01** open: Adam must run the Studio test pack, a physical phone, unfamiliar-player study, and give acceptance.
+- **G-02** open: accept or correct D-01 / D-02-storage / D-08 / D-09 / D-10; separately answer the mutual first-war challenge for D-02 / OPEN-21. Silence is not approval.
+- **D-02 first-war** still unresolved. Do not implement timed expiry, voluntary shield drop, or unprotected starters.
+- No merge to `main`, deploy, publish, Roblox spend, or computer control.
+
+## Exact next action
+
+1. Adam: Play the development place from this branch and run S-01 through S-08 in the Studio test pack. Then a real phone (S-09).
+2. Adam: answer the two asks in the G-02 note.
+3. Next engineering increment after those: only then Phase 2 founding/tutorial, still without real PvP.
+
+Other assistants’ notes below are dated history and were not rewritten.
+
+---
+
+# Previous handback — Roadmap audited and opening specified; Studio testing paused
 
 **Updated:** 2026-09-07 by Codex. **Branch:** `feat/practice-siege-codex`. **Source baseline:** `535447d`, plus five pre-existing uncommitted Luau source/check fixes. This checkpoint supersedes the status summaries below; retain them as dated history.
 

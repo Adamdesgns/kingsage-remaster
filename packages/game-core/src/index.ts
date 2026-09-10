@@ -5,3 +5,4 @@ export * from "./warfare.ts";
 export * from "./combat.ts";
 export * from "./horses.ts";
 export * from "./practice-siege.ts";
+export * from "./practice-siege-fixtures.ts";

@@ -124,6 +124,8 @@ Report tactical victory, loot, damage, claim progress, ownership transfer, and s
 
 The audit found a teaching mismatch: practice guidance implies tower-opening routes, while the current resolver admits squads through an opened gate. Choose and state the actual entry rule. Destroying a tower must not be presented as making a traversable breach unless the server models that breach. Fix the teaching to match the bounded prototype or explicitly design and verify the new rule; neither interpretation should be assumed by a future implementer.
 
+**Engineering choice, 2026-09-10 [Cursor]:** teach the bounded prototype. Entry rule is `openGateOnly`. Clearing a tower stops its fire only. Unused `breachHalfWidth` was removed from the layout so it cannot be read as an opening. Default Roblox routes now visit a tower on the approach, then cross at the gate. Studio / phone / unfamiliar-player proof is still required before G-01. A later tower-breach mechanic would be a new Adam-reviewed rule, not a silent reinterpretation.
+
 For later defenses, define legal access, timing, exposure, clear/disabled states, and counterplay before adding their map icon. A gate, wall, barricade, or keep door is only a gameplay feature when it changes the calculation and the replay can explain how.
 
 ### D-07 — Siege lifecycle, retries, and rules versions

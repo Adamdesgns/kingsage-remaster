@@ -3,8 +3,11 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { PRACTICE_WINNING_GATE_PLAN } from "../../packages/game-core/src/practice-siege-fixtures.ts";
 import {
   PRACTICE_DEFENSE_PLANS,
+  PRACTICE_ENTRY_RULE,
+  PRACTICE_ENTRY_TEACHING,
   PRACTICE_OBJECTIVES,
   PRACTICE_SQUADS,
   PracticeSiegeValidationError,
@@ -24,6 +27,8 @@ type LuauContract = {
   defensePlans: string[];
   defaultDefense: string;
   defaultRequest: PracticeSiegeRequest;
+  entryRule: string;
+  entryTeaching: string;
   layout: PracticeSiegeLayout;
   targets: Array<{ id: string; position: { x: number; y: number }; radius: number }>;
   cases: Array<{ name: string; request: unknown; accepted: boolean }>;
@@ -72,6 +77,25 @@ test("the untouched Roblox default routes resolve as an identical JSON-safe prac
   assert.deepEqual(JSON.parse(JSON.stringify(result)), result);
   assert.ok(result.phaseEvents.length > 0);
   assert.ok(result.reasons.every((reason) => typeof reason === "string" && reason.length > 0));
+});
+
+test("Roblox defaults teach gate-only entry and match the resolver rule", () => {
+  const contract = realLuauContract();
+  assert.equal(contract.entryRule, PRACTICE_ENTRY_RULE);
+  assert.equal(contract.entryTeaching, PRACTICE_ENTRY_TEACHING);
+  assert.equal(contract.layout.entryRule, PRACTICE_ENTRY_RULE);
+  const result = resolvePracticeSiege(contract.defaultRequest);
+  for (const squad of PRACTICE_SQUADS) {
+    assert.ok(
+      result.phaseEvents.some((entry) => entry.code === "enteredFort" && entry.squad === squad),
+      `${squad} default route must enter through the opened gate instead of a tower`,
+    );
+  }
+  assert.ok(result.phaseEvents.some((entry) => entry.code === "objectiveWon" && entry.feature === "gate"));
+  assert.ok(result.phaseEvents.some((entry) => entry.code === "enteredFort" && entry.text.includes("open gate")));
+  assert.ok(!result.phaseEvents.some((entry) => entry.code === "blockedAtWall"));
+  assert.deepEqual(contract.defaultRequest, PRACTICE_WINNING_GATE_PLAN,
+    "Roblox Reset must load the pinned winning teaching plan");
 });
 
 test("executed Luau acceptance and rejection agree with the real resolver at every contract boundary", () => {

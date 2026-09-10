@@ -268,6 +268,8 @@ Run relevant automated checks only after implementation; this document does not 
 
 For OPEN-16 and the player study, pin exact versioned route fixtures and expected server outcomes after Phase 1's entry semantics are settled. Require one winning plan, one losing plan with a teachable reason, and one comparison that changes exactly one route while holding force/defense/objectives fixed. Record the actual result, casualties, and decisive event before the study; do not pick a different rule after seeing an inconvenient outcome. Do not promise a particular sample victory until it is observed against the pinned resolver.
 
+**Pinned 2026-09-10 [Cursor], after D-06 `openGateOnly`:** use `PRACTICE_WINNING_GATE_PLAN` (FORT TAKEN, losses 5 / 5 / 4), `PRACTICE_LOSING_CLOSED_GATE_PLAN` (FORT HELD, losses 8 / 7 / 5, gate skipped), and `practiceCausalityPair()` (Rider gate crossing FORT TAKEN 5 / 4 / 2 versus Rider x-40 wall miss FORT HELD 11 / 8 / 5). Source: `packages/game-core/src/practice-siege-fixtures.ts`. Studio observation of those numbers remains **not verified**.
+
 ### 11.1 Device and understanding gate
 
 Check both **320-pixel and 390-pixel-wide** layouts in the available emulator/window tools, then run the whole opening on at least one physical phone in the intended lower-powered range. Record model, OS, resolution/orientation, touch input, build, local/hosted environment, and network conditions. A desktop pointer at phone width is layout evidence, not proof of finger control or performance. Existing troop-drill evidence remains useful but cannot stand in for this planner or complete city loop.

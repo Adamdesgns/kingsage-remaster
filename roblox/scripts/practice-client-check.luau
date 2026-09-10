@@ -153,10 +153,44 @@ for _, width in { 320, 390 } do
 	assert(count >= 9, "planner controls disappeared")
 	assert(find(root, "RouteCanvas").ClipsDescendants)
 	assert(find(root, "PracticeStatus").TextWrapped)
+	assert(text(root, Config.ENTRY_TEACHING), width .. " planner must teach the actual gate-only entry rule")
+	assert(text(root, "Practice army"), width .. " planner must say practice troops are separate from the city army")
+	for _, child in root:GetDescendants() do
+		if typeof(child.Text) == "string" then
+			assert(not string.find(child.Text, "breach", 1, true), "teaching must not call a tower a breach")
+			assert(not string.find(string.lower(child.Text), "through the tower", 1, true),
+				"teaching must not send players through a tower opening")
+		end
+	end
 	controller:hide()
 end
 drainTasks()
 pass("320/390 planner callbacks build with all action targets at least 44px")
+
+do
+	local controller = newController()
+	local root = build(controller, 390)
+	assert(text(root, Config.ENTRY_TEACHING), "390 layout lost the entry rule")
+	assert(Config.ENTRY_RULE == "openGateOnly")
+	for _, squad in Config.SQUADS do
+		local route = Config.defaultRoute(squad.id, squad.defaultObjective)
+		local crossingX = nil
+		for index = 2, #route do
+			local first, last = route[index - 1], route[index]
+			if first.y <= Config.FRONT_WALL_Y and last.y >= Config.FRONT_WALL_Y and last.y > first.y then
+				local along = (Config.FRONT_WALL_Y - first.y) / (last.y - first.y)
+				crossingX = first.x + (last.x - first.x) * along
+				break
+			end
+		end
+		assert(crossingX ~= nil, squad.label .. " default route never crosses the wall")
+		assert(math.abs(crossingX - Config.GATE.x) <= Config.GATE.openingHalfWidth,
+			squad.label .. " default route must cross at the gate, not a tower")
+	end
+	controller:hide()
+end
+drainTasks()
+pass("default routes and planner copy teach gate-only entry")
 
 do
 	local controller = newController()

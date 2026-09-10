@@ -554,8 +554,9 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 	rootLayout.Parent = root
 
 	label(root, "PRACTICE SIEGE", 17, true)
-	label(root, "A training fight with no cost or reward. Pick a squad and draw through its target. Lift to connect the final line to the keep. Up to 6 points; routes only move forward.", 14)
-	label(root, "Saved defense: Guard the gate. Towers cover the shaded circles; the brown block is a barricade. The realm decides each result.", 13)
+	label(root, "Practice army — your city troops are safe. No cost or reward. Pick a squad and draw through its target, then through the GATE to the keep. Up to 6 points; routes only move forward.", 14)
+	label(root, Config.ENTRY_TEACHING, 14)
+	label(root, "Saved defense: Guard the gate. Yellow circles are tower range. The brown block is a barricade. The realm decides each result.", 13)
 
 	local squadRow = row(root, 44)
 	for index, squad in Config.SQUADS do

@@ -26,6 +26,7 @@ This is a practice fight. It spends no resources, grants no rewards, changes no 
 - Route coordinates must affect tower exposure, obstacles, objectives, casualties, and victory.
 - A route through an active tower's range is more costly than an otherwise equal route outside it.
 - Reaching and disabling a tower must affect later exposure in the deterministic phase order.
+- **Entry rule (`openGateOnly`, D-06):** the only traversable opening is an opened gate. Clearing a tower stops its arrows; it does not punch a hole in the wall.
 - The gate and keep doors have explicit strength. A route that never reaches them cannot win.
 - The saved defender plan must name its priorities and affect the result.
 - Every accepted result includes short reason strings tied to the actual calculation.
