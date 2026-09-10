@@ -407,6 +407,24 @@ drainTasks()
 pass("submit suppression, exact rejected copy, retry and ordered server phase reveal")
 
 do
+	local controller, _, callbacks = newController()
+	local root = build(controller, 390)
+	controller:_submit()
+	callbacks[1](accepted(controller))
+	assert(controller.revealedEvents == 0)
+	root = build(controller, 390)
+	assert(text(root, "Show all reasons"), "replay must offer a skip that does not depend on waiting")
+	find(root, "SkipPracticeReplay").Activated:Fire()
+	assert(controller.revealedEvents == 4, "skip did not reveal the ordered server reasons")
+	root = build(controller, 390)
+	assert(text(root, "FOURTH keep doors fell"), "skipped replay hid later reasons")
+	assert(not text(root, "The assault is moving to the next stage"), "skip left the in-progress line")
+	controller:hide()
+end
+drainTasks()
+pass("skip reveals every server reason without waiting on the replay timer")
+
+do
 	for _, close in { "reset", "hide" } do
 		local controller, _, callbacks = newController()
 		build(controller, 390)

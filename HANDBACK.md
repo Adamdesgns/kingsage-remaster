@@ -13,6 +13,7 @@ Phase 1 practice siege — D-06 entry teaching. Local implementation of the gate
 | Open-gate-only entry; towers stop fire, they do not breach the wall | Yes | Automated resolver + Luau teaching/default-route checks. Studio **not verified**. |
 | Default Reset plan visits towers on the approach, then enters through the gate | Yes | Contract: Luau defaults === `PRACTICE_WINNING_GATE_PLAN` and all three `enteredFort` |
 | Planner copy: practice army is separate; “Only an opened gate lets anyone inside.” | Yes | Luau client-check at 320/390. Rendered Studio **not verified**. |
+| Skip replay (“Show all reasons”) | Yes | Luau planner scenario. Studio **not verified**. |
 | Pinned success / failure / one-route causality fixtures | Yes | Core tests pin casualties 14 / 20 / 11 vs 24 |
 | September 4 HUD sibling / CanvasGroup / prompt-lifecycle fixes | Preserved from `add2cd2` | Source + Luau wiring/audit. Rebuilt-place visual **not verified**. |
 | Physical phone, unfamiliar players, Adam acceptance, captioned walkthrough | Test pack written | **not verified** |
@@ -20,7 +21,19 @@ Phase 1 practice siege — D-06 entry teaching. Local implementation of the gate
 
 ## Checks this continuation
 
-Record after the verification run on this branch. Pre-commit local runs already showed the new D-06 core tests and the practice Luau client/contract/wiring/audit scripts passing on Lune 0.10.5 installed to `~/.local/bin/lune` in the cloud environment.
+Ran on `aafa0e7` in the cloud agent, Lune 0.10.5 at `~/.local/bin/lune`, TypeScript 5.9.3 installed only in the environment (not committed).
+
+| Command | Result |
+|---|---|
+| `npm run check:types` | pass — game-core/server type-clean |
+| `npm run test:core` | 104 passed, 0 failed |
+| `npm run test:server` | 139 passed, 0 failed |
+| `npm run test:luau` | 40 syntax files; 72 rules; 7 simulations; 25 connections; 6 client audits; 272 practice contracts; 28 bridge; **10** planner scenarios; 54 wiring; 0 failed |
+| `npm run check:practice-persistence` | disposable HTTP 200/200/200 + 400; identical replay; durable DB/WAL/rows unchanged |
+| Rojo development build | **not run** — `rojo` is not installed in this cloud image |
+| `git diff --check` | clean at commit |
+
+Studio Play, physical phone, two-client privacy, and unfamiliar-player understanding: **not verified**.
 
 ## Evidence paths
 

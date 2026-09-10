@@ -523,6 +523,17 @@ function Controller:_submit()
 	end)
 end
 
+function Controller:skipReplay()
+	if self.drawing or not self.visible or typeof(self.result) ~= "table" or typeof(self.result.phaseEvents) ~= "table" then
+		return
+	end
+	self.replayToken += 1
+	self.revealedEvents = #self.result.phaseEvents
+	self.status = if self.result.outcome == "attackerWin"
+		then "Practice fort taken. Change a target or route and try again."
+		else "The practice fort held. Read the reasons, adjust the plan, and retry."
+end
+
 function Controller:reset()
 	self:_disconnectDrawing()
 	self.routes, self.objectives = Config.defaults()
@@ -741,6 +752,11 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 			end
 			if self.revealedEvents < #events then
 				label(root, "The assault is moving to the next stage…", 13)
+				local skip = button(root, "Show all reasons", Color3.fromRGB(58, 58, 68), function()
+					self:skipReplay()
+					self.refresh()
+				end)
+				skip.Name = "SkipPracticeReplay"
 			end
 		end
 	end

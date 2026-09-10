@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-10  
 **Author:** [Cursor]  
-**Source revision to test:** the commit that lands this file on `cursor/practice-phase1-d06-c4e2` (re-record the SHA after checkout).  
+**Source revision to test:** `aafa0e7` on `cursor/practice-phase1-d06-c4e2` (re-record if this file moves).
 **Place:** `roblox/WorldGame-dev.rbxlx` built from `roblox/default.project.json`.  
 **Server:** isolated loopback world on `127.0.0.1:4178` with a **fresh disposable** SQLite file. Do not use the active world.
 
@@ -41,7 +41,7 @@ Record for each: date, commit SHA, place hash if known, observed outcome, casual
 | S-03 Closed-gate failure | Reset. Change Vanguard target to Keep. Draw all three routes **past** the towers / left and right wall, missing the gate opening (x 44–56). Submit. | **FORT HELD**. Reasons include `No squad was sent to open the gate` and three `gate is the only way in` blocks. Clearing towers must **not** let anyone inside. |
 | S-04 One-route causality | Use the pinned pair: first Rider route through the open gate (x 50), then an otherwise identical plan whose Rider crossing is x 40. Same objectives and `holdKeep` defense. | First: **FORT TAKEN**, Rider enter, losses **5 / 4 / 2**. Second: **FORT HELD**, Riders blocked at the wall, losses **11 / 8 / 5**. The only tactical change is the Rider crossing. |
 | S-05 Invalid input | Enter a decimal or backtracking route (or clear a route so it misses its target). Submit. | No server success card. Status names the squad and the problem. Routes remain editable. |
-| S-06 Reset / retry / interrupt | Submit, then Reset or Back before the result returns. Submit again after a rejected plan. | Late results must not resurrect. Retry sends again. Reset restores the teaching defaults. |
+| S-06 Reset / retry / interrupt / skip | Submit, then Reset or Back before the result returns. Submit again after a rejected plan. On a later success, tap **Show all reasons** before the replay finishes. | Late results must not resurrect. Retry sends again. Reset restores the teaching defaults. Skip reveals every reason immediately and stops the staged wait. |
 | S-07 Drawing vs scrolling | On phone (or Studio touch emulation if that is all that exists): draw with one finger; try a second finger on squad/target/submit. | Panel scroll pauses while drawing and resumes on lift. A second finger cannot change squad, target, or submit. |
 | S-08 320 / 390 layouts | Studio emulator or window at 320px and 390px wide. | All action buttons ≥ 44px. Teaching copy wraps and stays readable. Squads still read Vanguard, Archers, Riders. Color is not the only squad cue (V / A / R letters). |
 | S-09 Physical phone | Repeat S-01, S-03, S-05, S-07 on a real phone, including a weaker device if available. | Same rules. A desktop pointer at phone width is **not** this row. |
