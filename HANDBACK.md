@@ -1,7 +1,7 @@
 # HANDBACK — Phase 1 local implementation complete; G-01 still needs Adam
 
 **Updated:** 2026-09-10 by [Cursor]. **Working branch:** `cursor/practice-phase1-d06-c4e2` off `feat/practice-siege-codex` @ `add2cd2`.  
-**Tip:** this HANDBACK/pack update on `cursor/practice-phase1-d06-c4e2` (code `01e173f`, previous docs `85a167c`).
+**Tip:** `77392b5` on `cursor/practice-phase1-d06-c4e2` (code `01e173f`).
 
 ## Current milestone
 
