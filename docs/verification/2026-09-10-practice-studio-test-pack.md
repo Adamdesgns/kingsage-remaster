@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-10  
 **Author:** [Cursor]  
-**Source revision to test:** tip of `cursor/practice-phase1-d06-c4e2` — code increment `01e173f` (`feat: make practice failure a one-tap no-gate-team lesson`). Re-record the SHA if this file moves again.  
+**Source revision to test:** tip of `cursor/practice-phase1-d06-c4e2` at `85a167c` (code increment `01e173f`). Re-record the SHA if this file moves again.  
 **Place:** `roblox/WorldGame-dev.rbxlx` built from `roblox/default.project.json`.  
 **Server for Play:** isolated loopback world on `127.0.0.1:4178` with a **fresh disposable** SQLite file. Do not use the live world.
 

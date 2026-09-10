@@ -1,7 +1,7 @@
 # HANDBACK — Phase 1 local implementation complete; G-01 still needs Adam
 
 **Updated:** 2026-09-10 by [Cursor]. **Working branch:** `cursor/practice-phase1-d06-c4e2` off `feat/practice-siege-codex` @ `add2cd2`.  
-**Tip (code):** `01e173f` — `feat: make practice failure a one-tap no-gate-team lesson`. Docs for this pack follow on the same branch.
+**Tip:** this HANDBACK/pack update on `cursor/practice-phase1-d06-c4e2` (code `01e173f`, previous docs `85a167c`).
 
 ## Current milestone
 
@@ -18,23 +18,21 @@ Phase 1 practice siege. D-06 teaching and a **playable** success / failure / one
 | Playable causality: same drawings, only Vanguard target Gate → Keep | Yes | Core pin TAKEN **5 / 5 / 4** vs HELD **8 / 7 / 5**. Retired unplayable `holdKeep` Rider pair. |
 | Skip + Previous replay; training-only outcome line | Yes | Luau planner scenarios, including 320px targets. Studio **not verified**. |
 | Invalid input, reset/retry, late-result cancel, second-finger guards | Yes | Existing Luau planner scenarios. Studio **not verified**. |
-| Stateless practice command | Yes | `check:practice-persistence` on earlier tip `aafa0e7`. Re-run after this tip if the command path changed (it did not). |
+| Stateless practice command | Yes | `check:practice-persistence` rerun on this tip: HTTP 200/200/200 + 400; identical replay; durable DB/WAL/rows unchanged. |
 | September 4 HUD sibling / CanvasGroup / prompt-lifecycle fixes | Preserved from `add2cd2` | Source + Luau wiring/audit. Rebuilt-place visual **not verified**. |
 | Physical phone, unfamiliar players, Adam acceptance, captioned walkthrough | Test pack tightened | **not verified** |
 | Phase 2 opening / shield / fresh cities | Not started | G-02 recommendations only. D-02 mutual first-war still waiting on Adam. |
 
 ## Checks this continuation
 
-Cloud agent, Lune 0.10.5 at `~/.local/bin/lune`. TypeScript 5.9.3 is in this environment only (not committed). Gates for `01e173f` are recorded after the run in the same [Cursor] block if they completed; if this paragraph still lists the prior tip, treat those numbers as **not yet rerun** on the no-gate-team commit.
-
-Prior clean run on `aafa0e7` / `b74d127`:
+Cloud agent, Lune 0.10.5 at `~/.local/bin/lune`. TypeScript 5.9.3 is in this environment only (not committed). Reran on tip `85a167c` / code `01e173f`:
 
 | Command | Result |
 |---|---|
 | `npm run check:types` | pass — game-core/server type-clean |
 | `npm run test:core` | 104 passed, 0 failed |
 | `npm run test:server` | 139 passed, 0 failed |
-| `npm run test:luau` | 40 syntax files; 72 rules; 7 simulations; 25 connections; 6 client audits; 272 practice contracts; 28 bridge; **10** planner scenarios (now **12** expected); 54 wiring; 0 failed |
+| `npm run test:luau` | 40 syntax files; 72 rules; 7 simulations; 25 connections; 6 client audits; 272 practice contracts; 28 bridge; **12** planner scenarios; 54 wiring; 0 failed |
 | `npm run check:practice-persistence` | disposable HTTP 200/200/200 + 400; identical replay; durable DB/WAL/rows unchanged |
 | Rojo development build | **not run** — `rojo` is not installed in this cloud image |
 | `git diff --check` | clean at commit |
