@@ -2,6 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  PRACTICE_LOSING_CLOSED_GATE_PLAN,
+  PRACTICE_NO_GATE_TEAM_PLAN,
+  PRACTICE_WINNING_GATE_PLAN,
+  practiceCausalityPair,
+} from "../src/practice-siege-fixtures.ts";
+import {
+  PRACTICE_ENTRY_RULE,
+  PRACTICE_ENTRY_TEACHING,
   PracticeSiegeValidationError,
   practiceSiegeLayout,
   resolvePracticeSiege,
@@ -83,6 +91,38 @@ test("tower range measures the drawn path, not how many route points it has", ()
   assert.ok(exposedResult.attackerCasualties.vanguard > directResult.attackerCasualties.vanguard);
   assert.ok(exposedResult.phaseEvents.some((entry) =>
     entry.phase === "approach" && entry.squad === "vanguard" && entry.text.includes("route steps")));
+});
+
+test("clearing a tower does not open a wall crossing at that tower", () => {
+  const throughClearedTower = baseRequest("guardGate");
+  throughClearedTower.objectives.archers = "westTower";
+  throughClearedTower.routes.archers = [
+    { x: 10, y: 5 },
+    { x: 28, y: 28 },
+    { x: 28, y: 34 },
+    { x: 28, y: 48 },
+    { x: 40, y: 68 },
+    { x: 50, y: 88 },
+  ];
+
+  const result = resolvePracticeSiege(throughClearedTower);
+
+  assert.ok(result.phaseEvents.some((entry) =>
+    entry.code === "objectiveWon" && entry.feature === "westTower"), "archers must still be able to clear the tower");
+  assert.ok(result.phaseEvents.some((entry) => entry.code === "blockedAtWall" && entry.squad === "archers"),
+    "a cleared tower must not become a traversable breach");
+  assert.ok(!result.phaseEvents.some((entry) => entry.code === "enteredFort" && entry.squad === "archers"));
+  assert.ok(result.reasons.every((reason) => !/breach|opened the west tower|opened the east tower/i.test(reason)));
+});
+
+test("practice entry is an opened gate only, and teaching states that rule", () => {
+  const layout = practiceSiegeLayout();
+  assert.equal(PRACTICE_ENTRY_RULE, "openGateOnly");
+  assert.equal(layout.entryRule, "openGateOnly");
+  assert.equal(PRACTICE_ENTRY_TEACHING, "Clearing a tower stops its arrows. Only an opened gate lets anyone inside.");
+  assert.equal(typeof (layout.westTower as { breachHalfWidth?: number }).breachHalfWidth, "undefined",
+    "unused tower breach width must not be presented as an opening");
+  assert.equal(typeof (layout.eastTower as { breachHalfWidth?: number }).breachHalfWidth, "undefined");
 });
 
 test("a wall crossing works only where the attackers made an opening", () => {
@@ -187,14 +227,16 @@ test("the layout is normalized and each caller gets its own copy", () => {
   const second = practiceSiegeLayout();
   assert.equal(first.size, 100);
   assert.equal(first.gate.position.x, 50);
-  assert.equal(first.westTower.breachHalfWidth, 5);
-  assert.equal(first.eastTower.breachHalfWidth, 5);
+  assert.equal(first.entryRule, "openGateOnly");
+  assert.equal(first.westTower.range, 24);
+  assert.equal(first.eastTower.range, 24);
   first.gate.position.x = 1;
-  first.westTower.breachHalfWidth = 99;
+  first.westTower.range = 99;
   assert.equal(second.gate.position.x, 50);
-  assert.equal(second.westTower.breachHalfWidth, 5);
+  assert.equal(second.westTower.range, 24);
   assert.equal(practiceSiegeLayout().gate.position.x, 50);
-  assert.equal(practiceSiegeLayout().westTower.breachHalfWidth, 5);
+  assert.equal(practiceSiegeLayout().westTower.range, 24);
+  assert.equal(practiceSiegeLayout().entryRule, "openGateOnly");
 });
 
 test("the saved defense priority changes the same attack", () => {
@@ -204,6 +246,38 @@ test("the saved defense priority changes the same attack", () => {
   assert.ok(crossfire.fixedForces.defender.westTower > keepReserve.fixedForces.defender.westTower);
   assert.ok(crossfire.attackerCasualties.total > keepReserve.attackerCasualties.total);
   assert.ok(keepReserve.fixedForces.defender.keep > crossfire.fixedForces.defender.keep);
+});
+
+test("pinned teaching fixtures show success, failure, and one-target causality", () => {
+  const won = resolvePracticeSiege(PRACTICE_WINNING_GATE_PLAN);
+  const lost = resolvePracticeSiege(PRACTICE_LOSING_CLOSED_GATE_PLAN);
+  const { throughGate, noGateTeam, changedSquad, changedField } = practiceCausalityPair();
+  const open = resolvePracticeSiege(throughGate);
+  const closed = resolvePracticeSiege(noGateTeam);
+
+  assert.equal(won.outcome, "attackerWin");
+  assert.deepEqual(won.attackerCasualties, { vanguard: 5, archers: 5, riders: 4, total: 14 });
+  assert.ok(won.phaseEvents.some((entry) => entry.code === "enteredFort" && entry.squad === "archers"));
+  assert.ok(won.phaseEvents.some((entry) => entry.code === "enteredFort" && entry.squad === "riders"));
+
+  assert.equal(lost.outcome, "defenderWin");
+  assert.deepEqual(lost.attackerCasualties, { vanguard: 8, archers: 7, riders: 5, total: 20 });
+  assert.ok(lost.phaseEvents.some((entry) => entry.code === "objectiveSkipped" && entry.feature === "gate"));
+  assert.equal(lost.phaseEvents.filter((entry) => entry.code === "blockedAtWall").length, 3);
+
+  assert.equal(changedSquad, "vanguard");
+  assert.equal(changedField, "objectives");
+  assert.deepEqual(throughGate.defensePlan, "guardGate");
+  assert.deepEqual(throughGate.routes, noGateTeam.routes, "the UI comparison must keep identical drawings");
+  assert.equal(throughGate.objectives.vanguard, "gate");
+  assert.equal(noGateTeam.objectives.vanguard, "keep");
+  assert.deepEqual(noGateTeam, PRACTICE_NO_GATE_TEAM_PLAN);
+  assert.equal(open.outcome, "attackerWin");
+  assert.equal(closed.outcome, "defenderWin");
+  assert.ok(open.phaseEvents.some((entry) => entry.code === "objectiveWon" && entry.feature === "gate"));
+  assert.ok(closed.phaseEvents.some((entry) => entry.code === "objectiveSkipped" && entry.feature === "gate"));
+  assert.deepEqual(open.attackerCasualties, { vanguard: 5, archers: 5, riders: 4, total: 14 });
+  assert.deepEqual(closed.attackerCasualties, { vanguard: 8, archers: 7, riders: 5, total: 20 });
 });
 
 test("bad routes and unknown saved plans are rejected before simulation", () => {

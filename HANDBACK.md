@@ -1,4 +1,69 @@
-# HANDBACK — Roadmap audited and opening specified; Studio testing paused
+# HANDBACK — Phase 1 local implementation complete; G-01 still needs Adam
+
+**Updated:** 2026-09-10 by [Cursor]. **Working branch:** `cursor/practice-phase1-d06-c4e2` off `feat/practice-siege-codex` @ `add2cd2`.  
+**Tip:** `77392b5` on `cursor/practice-phase1-d06-c4e2` (code `01e173f`).
+
+## Current milestone
+
+Phase 1 practice siege. D-06 teaching and a **playable** success / failure / one-target comparison are in source. G-01 is **not** closed. Phase 2 and D-02 / OPEN-21 were not started.
+
+## Implemented versus verified
+
+| Behavior | Implemented | Verified |
+|---|---|---|
+| Open-gate-only entry; towers stop fire, they do not breach the wall | Yes | Automated resolver + Luau teaching/default-route checks. Studio **not verified**. |
+| Default Reset plan visits towers on the approach, then enters through the gate | Yes | Contract: Luau defaults === `PRACTICE_WINNING_GATE_PLAN` and all three `enteredFort` |
+| Planner copy: practice army is separate; “Only an opened gate lets anyone inside.” | Yes | Luau client-check at 320/390. Rendered Studio **not verified**. |
+| One-tap failure lesson (`Try without a gate team`) | Yes | Luau lesson + contract: `noGateTeamRequest` === `PRACTICE_NO_GATE_TEAM_PLAN`. Studio **not verified**. |
+| Playable causality: same drawings, only Vanguard target Gate → Keep | Yes | Core pin TAKEN **5 / 5 / 4** vs HELD **8 / 7 / 5**. Retired unplayable `holdKeep` Rider pair. |
+| Skip + Previous replay; training-only outcome line | Yes | Luau planner scenarios, including 320px targets. Studio **not verified**. |
+| Invalid input, reset/retry, late-result cancel, second-finger guards | Yes | Existing Luau planner scenarios. Studio **not verified**. |
+| Stateless practice command | Yes | `check:practice-persistence` rerun on this tip: HTTP 200/200/200 + 400; identical replay; durable DB/WAL/rows unchanged. |
+| September 4 HUD sibling / CanvasGroup / prompt-lifecycle fixes | Preserved from `add2cd2` | Source + Luau wiring/audit. Rebuilt-place visual **not verified**. |
+| Physical phone, unfamiliar players, Adam acceptance, captioned walkthrough | Test pack tightened | **not verified** |
+| Phase 2 opening / shield / fresh cities | Not started | G-02 recommendations only. D-02 mutual first-war still waiting on Adam. |
+
+## Checks this continuation
+
+Cloud agent, Lune 0.10.5 at `~/.local/bin/lune`. TypeScript 5.9.3 is in this environment only (not committed). Reran on tip `85a167c` / code `01e173f`:
+
+| Command | Result |
+|---|---|
+| `npm run check:types` | pass — game-core/server type-clean |
+| `npm run test:core` | 104 passed, 0 failed |
+| `npm run test:server` | 139 passed, 0 failed |
+| `npm run test:luau` | 40 syntax files; 72 rules; 7 simulations; 25 connections; 6 client audits; 272 practice contracts; 28 bridge; **12** planner scenarios; 54 wiring; 0 failed |
+| `npm run check:practice-persistence` | disposable HTTP 200/200/200 + 400; identical replay; durable DB/WAL/rows unchanged |
+| Rojo development build | **not run** — `rojo` is not installed in this cloud image |
+| `git diff --check` | clean at commit |
+
+Studio Play, physical phone, two-client privacy, and unfamiliar-player understanding: **not verified**.
+
+## Evidence paths
+
+- Fixtures: `packages/game-core/src/practice-siege-fixtures.ts`
+- Studio/phone script: `docs/verification/2026-09-10-practice-studio-test-pack.md`
+- G-02 asks: `docs/plans/2026-09-10-opening-decisions-for-adam.md`
+- Historical Studio frame (still not this build): `C:\Users\steam\OneDrive\Documents\ChatGPT\Kingmarch\practice-siege-proof-2026-09-04\03-server-result-first-run.jpg`
+
+## Pending decisions and gates
+
+- **G-01** open: Adam must run the Studio test pack, a physical phone, unfamiliar-player study, and give acceptance.
+- **G-02** open: accept or correct D-01 / D-02-storage / D-08 / D-09 / D-10; separately answer the mutual first-war challenge for D-02 / OPEN-21. Silence is not approval.
+- **D-02 first-war** still unresolved. Do not implement timed expiry, voluntary shield drop, or unprotected starters.
+- No merge to `main`, deploy, publish, Roblox spend, or computer control.
+
+## Exact next action
+
+1. **Adam (blocks G-01):** On the PC, inspect first. Build with `powershell -ExecutionPolicy Bypass -File roblox/start-dev.ps1 -BuildOnly -Play`. Play `roblox/WorldGame-dev.rbxlx` against a **fresh disposable** `127.0.0.1:4178` world (`dev-secret-local-0001`). Run S-01 through S-08 in the Studio pack, then S-09 on a real phone. S-10 is `npm run check:practice-persistence` (do not diff a ticking 45s-AI world).
+2. **Adam (blocks G-02 / real PvP):** Answer the two asks in `docs/plans/2026-09-10-opening-decisions-for-adam.md`.
+3. Next engineering increment after those: only then Phase 2 founding/tutorial, still without an invented PvP shield rule.
+
+Other assistants’ notes below are dated history and were not rewritten.
+
+---
+
+# Previous handback — Roadmap audited and opening specified; Studio testing paused
 
 **Updated:** 2026-09-07 by Codex. **Branch:** `feat/practice-siege-codex`. **Source baseline:** `535447d`, plus five pre-existing uncommitted Luau source/check fixes. This checkpoint supersedes the status summaries below; retain them as dated history.
 

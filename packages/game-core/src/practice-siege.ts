@@ -15,6 +15,12 @@ export type PracticeObjectiveId = (typeof PRACTICE_OBJECTIVES)[number];
 export const PRACTICE_DEFENSE_PLANS = ["guardGate", "towerCrossfire", "holdKeep"] as const;
 export type PracticeDefensePlanId = (typeof PRACTICE_DEFENSE_PLANS)[number];
 
+/** Phase 1 entry rule: towers stop fire; they do not punch a hole in the wall. */
+export const PRACTICE_ENTRY_RULE = "openGateOnly" as const;
+export type PracticeEntryRule = typeof PRACTICE_ENTRY_RULE;
+export const PRACTICE_ENTRY_TEACHING =
+  "Clearing a tower stops its arrows. Only an opened gate lets anyone inside.";
+
 export type PracticePoint = { x: number; y: number };
 export type PracticeRoute = PracticePoint[];
 
@@ -80,9 +86,10 @@ export type PracticeSiegeLayout = {
   size: 100;
   deploymentMaxY: number;
   frontWallY: number;
+  entryRule: PracticeEntryRule;
   gate: { position: PracticePoint; openingHalfWidth: number };
-  westTower: { position: PracticePoint; range: number; breachHalfWidth: number };
-  eastTower: { position: PracticePoint; range: number; breachHalfWidth: number };
+  westTower: { position: PracticePoint; range: number };
+  eastTower: { position: PracticePoint; range: number };
   barricade: { minimum: PracticePoint; maximum: PracticePoint };
   keep: { position: PracticePoint; finishRadius: number };
 };
@@ -102,9 +109,10 @@ const LAYOUT: PracticeSiegeLayout = {
   size: 100,
   deploymentMaxY: 12,
   frontWallY: 34,
+  entryRule: PRACTICE_ENTRY_RULE,
   gate: { position: { x: 50, y: 34 }, openingHalfWidth: 6 },
-  westTower: { position: { x: 28, y: 34 }, range: 24, breachHalfWidth: 5 },
-  eastTower: { position: { x: 72, y: 34 }, range: 24, breachHalfWidth: 5 },
+  westTower: { position: { x: 28, y: 34 }, range: 24 },
+  eastTower: { position: { x: 72, y: 34 }, range: 24 },
   barricade: { minimum: { x: 43, y: 54 }, maximum: { x: 57, y: 60 } },
   keep: { position: { x: 50, y: 88 }, finishRadius: 8 },
 };
@@ -563,8 +571,9 @@ export function practiceSiegeLayout(): PracticeSiegeLayout {
     deploymentMaxY: LAYOUT.deploymentMaxY,
     frontWallY: LAYOUT.frontWallY,
     gate: { position: { ...LAYOUT.gate.position }, openingHalfWidth: LAYOUT.gate.openingHalfWidth },
-    westTower: { position: { ...LAYOUT.westTower.position }, range: LAYOUT.westTower.range, breachHalfWidth: LAYOUT.westTower.breachHalfWidth },
-    eastTower: { position: { ...LAYOUT.eastTower.position }, range: LAYOUT.eastTower.range, breachHalfWidth: LAYOUT.eastTower.breachHalfWidth },
+    entryRule: LAYOUT.entryRule,
+    westTower: { position: { ...LAYOUT.westTower.position }, range: LAYOUT.westTower.range },
+    eastTower: { position: { ...LAYOUT.eastTower.position }, range: LAYOUT.eastTower.range },
     barricade: { minimum: { ...LAYOUT.barricade.minimum }, maximum: { ...LAYOUT.barricade.maximum } },
     keep: { position: { ...LAYOUT.keep.position }, finishRadius: LAYOUT.keep.finishRadius },
   };
@@ -682,7 +691,7 @@ export function resolvePracticeSiege(request: PracticeSiegeRequest): PracticeSie
       }));
     } else {
       const losses = takeAttackerLoss(squad, Math.ceil(survivors[squad] * 0.4));
-      phaseEvents.push(event("wall", "blockedAtWall", `${squadName(squad)} reached x ${roundStep(crossingX)}, but there was no open way through the wall.`, {
+      phaseEvents.push(event("wall", "blockedAtWall", `${squadName(squad)} reached x ${roundStep(crossingX)}, but the gate is the only way in and it was closed or missed.`, {
         squad,
         position: { x: roundStep(crossingX), y: LAYOUT.frontWallY },
         casualties: losses,

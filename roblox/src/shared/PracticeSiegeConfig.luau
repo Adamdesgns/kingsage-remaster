@@ -15,10 +15,12 @@ PracticeSiegeConfig.FRONT_WALL_Y = 34
 PracticeSiegeConfig.SNAP_RADIUS = 7
 PracticeSiegeConfig.DEFENSE_PLAN = "guardGate"
 PracticeSiegeConfig.DEFENSE_PLANS = { "guardGate", "towerCrossfire", "holdKeep" }
+PracticeSiegeConfig.ENTRY_RULE = "openGateOnly"
+PracticeSiegeConfig.ENTRY_TEACHING = "Clearing a tower stops its arrows. Only an opened gate lets anyone inside."
 
 PracticeSiegeConfig.GATE = { x = 50, y = 34, openingHalfWidth = 6 }
-PracticeSiegeConfig.WEST_TOWER = { x = 28, y = 34, range = 24, breachHalfWidth = 5 }
-PracticeSiegeConfig.EAST_TOWER = { x = 72, y = 34, range = 24, breachHalfWidth = 5 }
+PracticeSiegeConfig.WEST_TOWER = { x = 28, y = 34, range = 24 }
+PracticeSiegeConfig.EAST_TOWER = { x = 72, y = 34, range = 24 }
 PracticeSiegeConfig.KEEP = { x = 50, y = 88, radius = 8 }
 PracticeSiegeConfig.BARRICADE = { minimum = { x = 43, y = 54 }, maximum = { x = 57, y = 60 } }
 
@@ -111,19 +113,34 @@ function PracticeSiegeConfig.snapPoint(rawX: number, rawY: number): Point
 	return point
 end
 
+local function appendUnique(route: Route, point: Point)
+	local last = route[#route]
+	if last and last.x == point.x and last.y == point.y then
+		return
+	end
+	table.insert(route, copyPoint(point))
+end
+
 function PracticeSiegeConfig.defaultRoute(squadId: string, objectiveId: string?): Route
 	local squad = assert(PracticeSiegeConfig.squad(squadId), "unknown practice squad")
 	local objective = assert(PracticeSiegeConfig.objective(objectiveId or squad.defaultObjective), "unknown practice objective")
 	local route = { copyPoint(squad.start) }
-	table.insert(route, copyPoint(objective.position))
-	-- Leave the wall vertically after taking a tower. This makes the intended
-	-- opening leg easy to read and avoids a diagonal that crosses solid wall.
+	local gate = { x = PracticeSiegeConfig.GATE.x, y = PracticeSiegeConfig.GATE.y }
+	local keep = { x = PracticeSiegeConfig.KEEP.x, y = PracticeSiegeConfig.KEEP.y }
+	-- Towers are approach targets only. Visit them in front of the wall, then
+	-- enter through the gate. Crossing at a tower is not an opening.
 	if objective.id == "westTower" or objective.id == "eastTower" then
-		table.insert(route, { x = objective.position.x, y = 48 })
+		appendUnique(route, { x = objective.position.x, y = objective.position.y - 6 })
+		appendUnique(route, gate)
+	elseif objective.id == "gate" then
+		appendUnique(route, gate)
+	elseif objective.id == "barricade" then
+		appendUnique(route, gate)
+		appendUnique(route, copyPoint(objective.position))
+	else
+		appendUnique(route, gate)
 	end
-	if objective.id ~= "keep" then
-		table.insert(route, { x = PracticeSiegeConfig.KEEP.x, y = PracticeSiegeConfig.KEEP.y })
-	end
+	appendUnique(route, keep)
 	return route
 end
 
@@ -135,6 +152,24 @@ function PracticeSiegeConfig.defaults(): ({ [string]: Route }, { [string]: strin
 		routes[squad.id] = PracticeSiegeConfig.defaultRoute(squad.id, squad.defaultObjective)
 	end
 	return routes, objectives
+end
+
+-- Same drawings as defaults(); only Vanguard's target changes. This is the
+-- one-tap failure / causality lesson the planner can actually submit.
+function PracticeSiegeConfig.noGateTeamLesson(): ({ [string]: Route }, { [string]: string })
+	local routes, objectives = PracticeSiegeConfig.defaults()
+	objectives.vanguard = "keep"
+	routes.vanguard = PracticeSiegeConfig.defaultRoute("vanguard", "keep")
+	return routes, objectives
+end
+
+function PracticeSiegeConfig.hasGateTeam(objectives: { [string]: string }): boolean
+	for _, squad in PracticeSiegeConfig.SQUADS do
+		if objectives[squad.id] == "gate" then
+			return true
+		end
+	end
+	return false
 end
 
 local function routeReaches(route: Route, objective: any): boolean
