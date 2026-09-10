@@ -155,6 +155,8 @@ for _, width in { 320, 390 } do
 	assert(find(root, "PracticeStatus").TextWrapped)
 	assert(text(root, Config.ENTRY_TEACHING), width .. " planner must teach the actual gate-only entry rule")
 	assert(text(root, "Practice army"), width .. " planner must say practice troops are separate from the city army")
+	assert(find(root, "LoadNoGateTeam"), width .. " missing the one-tap failure lesson")
+	assert(dimension(find(root, "LoadNoGateTeam"), "Y", 700) >= 44, width .. " failure lesson is shorter than 44px")
 	for _, child in root:GetDescendants() do
 		if typeof(child.Text) == "string" then
 			assert(not string.find(child.Text, "breach", 1, true), "teaching must not call a tower a breach")
@@ -423,6 +425,64 @@ do
 end
 drainTasks()
 pass("skip reveals every server reason without waiting on the replay timer")
+
+do
+	local controller = newController()
+	local root = build(controller, 390)
+	find(root, "LoadNoGateTeam").Activated:Fire()
+	assert(controller.objectives.vanguard == "keep", "failure lesson did not reassign Vanguard")
+	assert(controller.routes.vanguard[2].x == 50 and controller.routes.archers[3].x == 50,
+		"failure lesson must keep the teaching drawings and only change the gate assignment")
+	assert(not Config.hasGateTeam(controller.objectives))
+	assert(string.find(controller.status, "gate", 1, true), controller.status)
+	local request = controller:_request(); request.kind = nil
+	local valid, problem = Config.validateRequest(request)
+	assert(valid, tostring(problem))
+	controller:hide()
+end
+drainTasks()
+pass("one-tap failure lesson keeps drawings and removes the gate team")
+
+do
+	local controller, _, callbacks = newController()
+	local root = build(controller, 390)
+	controller:_submit()
+	callbacks[1](accepted(controller))
+	root = build(controller, 320)
+	assert(text(root, "Training only"), "outcome must separate practice from owning a city")
+	assert(find(root, "SkipPracticeReplay"), "incomplete replay lost skip")
+	assert(dimension(find(root, "SkipPracticeReplay"), "Y", 700) >= 44, "skip is shorter than 44px at 320")
+	local previousBeforeSkip = nil
+	for _, child in root:GetDescendants() do
+		if child.Name == "PreviousPracticeReason" then previousBeforeSkip = child end
+	end
+	assert(previousBeforeSkip == nil, "previous reason must stay hidden until a reason is visible")
+	find(root, "SkipPracticeReplay").Activated:Fire()
+	root = build(controller, 320)
+	assert(text(root, "Training only"), "finished replay lost the training-only line")
+	assert(find(root, "PreviousPracticeReason"), "review control missing after skip")
+	assert(dimension(find(root, "PreviousPracticeReason"), "Y", 700) >= 44, "previous reason is shorter than 44px at 320")
+	assert(dimension(find(root, "PreviousPracticeReason"), "X", 320) >= 44, "previous reason is narrower than 44px at 320")
+	find(root, "PreviousPracticeReason").Activated:Fire()
+	assert(controller.revealedEvents == 3, "previous reason did not step back")
+	root = build(controller, 390)
+	assert(not text(root, "FOURTH keep doors fell"), "step-back still showed the later reason")
+	assert(text(root, "THIRD barricade crossed"), "step-back hid the current reason")
+	while controller.revealedEvents > 0 do
+		find(root, "PreviousPracticeReason").Activated:Fire()
+		root = build(controller, 390)
+	end
+	assert(controller.revealedEvents == 0)
+	local previousAtStart = nil
+	for _, child in root:GetDescendants() do
+		if child.Name == "PreviousPracticeReason" then previousAtStart = child end
+	end
+	assert(previousAtStart == nil, "stepping back to the start must hide previous")
+	assert(text(root, "Show all reasons"), "hidden reasons must still offer skip")
+	controller:hide()
+end
+drainTasks()
+pass("result names training-only and can step back through reasons")
 
 do
 	for _, close in { "reset", "hide" } do

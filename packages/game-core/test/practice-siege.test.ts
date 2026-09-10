@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   PRACTICE_LOSING_CLOSED_GATE_PLAN,
+  PRACTICE_NO_GATE_TEAM_PLAN,
   PRACTICE_WINNING_GATE_PLAN,
   practiceCausalityPair,
 } from "../src/practice-siege-fixtures.ts";
@@ -247,12 +248,12 @@ test("the saved defense priority changes the same attack", () => {
   assert.ok(keepReserve.fixedForces.defender.keep > crossfire.fixedForces.defender.keep);
 });
 
-test("pinned teaching fixtures show success, failure, and one-route causality", () => {
+test("pinned teaching fixtures show success, failure, and one-target causality", () => {
   const won = resolvePracticeSiege(PRACTICE_WINNING_GATE_PLAN);
   const lost = resolvePracticeSiege(PRACTICE_LOSING_CLOSED_GATE_PLAN);
-  const { throughGate, intoWall, changedSquad } = practiceCausalityPair();
+  const { throughGate, noGateTeam, changedSquad, changedField } = practiceCausalityPair();
   const open = resolvePracticeSiege(throughGate);
-  const blocked = resolvePracticeSiege(intoWall);
+  const closed = resolvePracticeSiege(noGateTeam);
 
   assert.equal(won.outcome, "attackerWin");
   assert.deepEqual(won.attackerCasualties, { vanguard: 5, archers: 5, riders: 4, total: 14 });
@@ -264,19 +265,19 @@ test("pinned teaching fixtures show success, failure, and one-route causality", 
   assert.ok(lost.phaseEvents.some((entry) => entry.code === "objectiveSkipped" && entry.feature === "gate"));
   assert.equal(lost.phaseEvents.filter((entry) => entry.code === "blockedAtWall").length, 3);
 
-  assert.equal(changedSquad, "riders");
-  assert.deepEqual(throughGate.objectives, intoWall.objectives);
-  assert.deepEqual(throughGate.defensePlan, intoWall.defensePlan);
-  assert.deepEqual(throughGate.routes.vanguard, intoWall.routes.vanguard);
-  assert.deepEqual(throughGate.routes.archers, intoWall.routes.archers);
-  assert.notDeepEqual(throughGate.routes.riders, intoWall.routes.riders);
+  assert.equal(changedSquad, "vanguard");
+  assert.equal(changedField, "objectives");
+  assert.deepEqual(throughGate.defensePlan, "guardGate");
+  assert.deepEqual(throughGate.routes, noGateTeam.routes, "the UI comparison must keep identical drawings");
+  assert.equal(throughGate.objectives.vanguard, "gate");
+  assert.equal(noGateTeam.objectives.vanguard, "keep");
+  assert.deepEqual(noGateTeam, PRACTICE_NO_GATE_TEAM_PLAN);
   assert.equal(open.outcome, "attackerWin");
-  assert.equal(blocked.outcome, "defenderWin");
-  assert.ok(open.phaseEvents.some((entry) => entry.code === "enteredFort" && entry.squad === "riders"));
-  assert.ok(blocked.phaseEvents.some((entry) => entry.code === "blockedAtWall" && entry.squad === "riders"));
-  assert.ok(blocked.attackerCasualties.riders > open.attackerCasualties.riders);
-  assert.deepEqual(open.attackerCasualties, { vanguard: 5, archers: 4, riders: 2, total: 11 });
-  assert.deepEqual(blocked.attackerCasualties, { vanguard: 11, archers: 8, riders: 5, total: 24 });
+  assert.equal(closed.outcome, "defenderWin");
+  assert.ok(open.phaseEvents.some((entry) => entry.code === "objectiveWon" && entry.feature === "gate"));
+  assert.ok(closed.phaseEvents.some((entry) => entry.code === "objectiveSkipped" && entry.feature === "gate"));
+  assert.deepEqual(open.attackerCasualties, { vanguard: 5, archers: 5, riders: 4, total: 14 });
+  assert.deepEqual(closed.attackerCasualties, { vanguard: 8, archers: 7, riders: 5, total: 20 });
 });
 
 test("bad routes and unknown saved plans are rejected before simulation", () => {

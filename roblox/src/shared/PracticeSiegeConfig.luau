@@ -154,6 +154,24 @@ function PracticeSiegeConfig.defaults(): ({ [string]: Route }, { [string]: strin
 	return routes, objectives
 end
 
+-- Same drawings as defaults(); only Vanguard's target changes. This is the
+-- one-tap failure / causality lesson the planner can actually submit.
+function PracticeSiegeConfig.noGateTeamLesson(): ({ [string]: Route }, { [string]: string })
+	local routes, objectives = PracticeSiegeConfig.defaults()
+	objectives.vanguard = "keep"
+	routes.vanguard = PracticeSiegeConfig.defaultRoute("vanguard", "keep")
+	return routes, objectives
+end
+
+function PracticeSiegeConfig.hasGateTeam(objectives: { [string]: string }): boolean
+	for _, squad in PracticeSiegeConfig.SQUADS do
+		if objectives[squad.id] == "gate" then
+			return true
+		end
+	end
+	return false
+end
+
 local function routeReaches(route: Route, objective: any): boolean
 	for index = 2, #route do
 		if pointToSegmentDistance(objective.position, route[index - 1], route[index]) <= objective.radius then

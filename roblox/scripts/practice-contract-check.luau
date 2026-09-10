@@ -177,6 +177,10 @@ if emit then
 		defensePlans = Config.DEFENSE_PLANS,
 		defaultDefense = Config.DEFENSE_PLAN,
 		defaultRequest = request(),
+		noGateTeamRequest = (function()
+			local routes, objectives = Config.noGateTeamLesson()
+			return { version = Config.VERSION, routes = routes, objectives = objectives, defensePlan = Config.DEFENSE_PLAN }
+		end)(),
 		entryRule = Config.ENTRY_RULE,
 		entryTeaching = Config.ENTRY_TEACHING,
 		layout = {

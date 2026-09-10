@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { PRACTICE_WINNING_GATE_PLAN } from "../../packages/game-core/src/practice-siege-fixtures.ts";
+import { PRACTICE_NO_GATE_TEAM_PLAN, PRACTICE_WINNING_GATE_PLAN } from "../../packages/game-core/src/practice-siege-fixtures.ts";
 import {
   PRACTICE_DEFENSE_PLANS,
   PRACTICE_ENTRY_RULE,
@@ -27,6 +27,7 @@ type LuauContract = {
   defensePlans: string[];
   defaultDefense: string;
   defaultRequest: PracticeSiegeRequest;
+  noGateTeamRequest: PracticeSiegeRequest;
   entryRule: string;
   entryTeaching: string;
   layout: PracticeSiegeLayout;
@@ -96,6 +97,11 @@ test("Roblox defaults teach gate-only entry and match the resolver rule", () => 
   assert.ok(!result.phaseEvents.some((entry) => entry.code === "blockedAtWall"));
   assert.deepEqual(contract.defaultRequest, PRACTICE_WINNING_GATE_PLAN,
     "Roblox Reset must load the pinned winning teaching plan");
+  assert.deepEqual(contract.noGateTeamRequest, PRACTICE_NO_GATE_TEAM_PLAN,
+    "the one-tap failure lesson must match the pinned no-gate-team plan");
+  const closed = resolvePracticeSiege(contract.noGateTeamRequest);
+  assert.equal(closed.outcome, "defenderWin");
+  assert.ok(closed.phaseEvents.some((entry) => entry.code === "objectiveSkipped" && entry.feature === "gate"));
 });
 
 test("executed Luau acceptance and rejection agree with the real resolver at every contract boundary", () => {

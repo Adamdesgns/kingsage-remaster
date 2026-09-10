@@ -474,9 +474,7 @@ function Controller:_acceptResult(result: any)
 			self.refresh()
 		end
 		if self.replayToken == token then
-			self.status = if self.result.outcome == "attackerWin"
-				then "Practice fort taken. Change a target or route and try again."
-				else "The practice fort held. Read the reasons, adjust the plan, and retry."
+			self:_finishReplayStatus()
 			self.refresh()
 		end
 	end)
@@ -523,15 +521,50 @@ function Controller:_submit()
 	end)
 end
 
+function Controller:_finishReplayStatus()
+	self.status = if self.result.outcome == "attackerWin"
+		then "Practice fort taken. Training only — your city did not change. Use Previous reason to reread, or try without a gate team."
+		else "The practice fort held. Training only — your city did not change. Use Previous reason to reread, then reset and compare."
+end
+
 function Controller:skipReplay()
 	if self.drawing or not self.visible or typeof(self.result) ~= "table" or typeof(self.result.phaseEvents) ~= "table" then
 		return
 	end
 	self.replayToken += 1
 	self.revealedEvents = #self.result.phaseEvents
-	self.status = if self.result.outcome == "attackerWin"
-		then "Practice fort taken. Change a target or route and try again."
-		else "The practice fort held. Read the reasons, adjust the plan, and retry."
+	self:_finishReplayStatus()
+end
+
+function Controller:stepReplay(delta: number)
+	if self.drawing or not self.visible or typeof(self.result) ~= "table" or typeof(self.result.phaseEvents) ~= "table" then
+		return
+	end
+	local events = self.result.phaseEvents
+	self.replayToken += 1
+	self.revealedEvents = math.clamp(self.revealedEvents + delta, 0, #events)
+	if self.revealedEvents >= #events then
+		self:_finishReplayStatus()
+	elseif self.revealedEvents == 0 then
+		self.status = "Reasons hidden. Use Show all reasons to review them."
+	else
+		self.status = "Reading reason " .. tostring(self.revealedEvents) .. " of " .. tostring(#events) .. "."
+	end
+end
+
+function Controller:loadNoGateTeam()
+	if self.busy or self.drawing then
+		return
+	end
+	self:_disconnectDrawing()
+	self.routes, self.objectives = Config.noGateTeamLesson()
+	self.selectedSquad = Config.SQUADS[1].id
+	self.status = "No squad is opening the gate. Everyone will be stopped at the wall. Try this plan, then reset and compare."
+	self.busy = false
+	self.result = nil
+	self.revealedEvents = 0
+	self.replayToken += 1
+	self.requestToken += 1
 end
 
 function Controller:reset()
@@ -568,6 +601,16 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 	label(root, "Practice army — your city troops are safe. No cost or reward. Pick a squad and draw through its target, then through the GATE to the keep. Up to 6 points; routes only move forward.", 14)
 	label(root, Config.ENTRY_TEACHING, 14)
 	label(root, "Saved defense: Guard the gate. Yellow circles are tower range. The brown block is a barricade. The realm decides each result.", 13)
+	if not Config.hasGateTeam(self.objectives) then
+		label(root, "No squad is opening the gate. Crossing the gate mark is not enough.", 14, true)
+	end
+
+	local lesson = button(root, "Try without a gate team", Color3.fromRGB(70, 48, 44), function()
+		if self.busy or self.drawing then return end
+		self:loadNoGateTeam()
+		self.refresh()
+	end)
+	lesson.Name = "LoadNoGateTeam"
 
 	local squadRow = row(root, 44)
 	for index, squad in Config.SQUADS do
@@ -731,6 +774,7 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 		local outcome = card(root, if self.result.outcome == "attackerWin" then Color3.fromRGB(42, 76, 49) else Color3.fromRGB(85, 47, 43))
 		local outcomeLabel = label(outcome, if self.result.outcome == "attackerWin" then "FORT TAKEN" else "FORT HELD", 17, true)
 		outcomeLabel.Name = "PracticeOutcome"
+		label(outcome, "Training only. Your city troops and stock did not change.", 13)
 		local casualties = self.result.attackerCasualties
 		if typeof(casualties) == "table" then
 			label(outcome, string.format(
@@ -750,13 +794,33 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 				label(eventCard, phase .. (if loss > 0 then "  ·  " .. loss .. " lost" else ""), 12, true)
 				label(eventCard, tostring(event.text or "The realm returned no reason for this stage."), 14)
 			end
-			if self.revealedEvents < #events then
-				label(root, "The assault is moving to the next stage…", 13)
-				local skip = button(root, "Show all reasons", Color3.fromRGB(58, 58, 68), function()
-					self:skipReplay()
-					self.refresh()
-				end)
-				skip.Name = "SkipPracticeReplay"
+			if #events > 0 then
+				if self.revealedEvents < #events then
+					label(root, "The assault is moving to the next stage…", 13)
+				end
+				local showPrevious = self.revealedEvents > 0
+				local showSkip = self.revealedEvents < #events
+				if showPrevious or showSkip then
+					local review = row(root, 44)
+					if showPrevious then
+						local previous = button(review, "Previous reason", Color3.fromRGB(58, 58, 68), function()
+							self:stepReplay(-1)
+							self.refresh()
+						end)
+						previous.Name = "PreviousPracticeReason"
+						previous.LayoutOrder = 1
+						previous.Size = if showSkip then UDim2.new(0.5, -3, 1, 0) else UDim2.new(1, 0, 1, 0)
+					end
+					if showSkip then
+						local skip = button(review, "Show all reasons", Color3.fromRGB(58, 58, 68), function()
+							self:skipReplay()
+							self.refresh()
+						end)
+						skip.Name = "SkipPracticeReplay"
+						skip.LayoutOrder = 2
+						skip.Size = if showPrevious then UDim2.new(0.5, -3, 1, 0) else UDim2.new(1, 0, 1, 0)
+					end
+				end
 			end
 		end
 	end

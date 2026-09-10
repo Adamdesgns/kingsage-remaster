@@ -68,53 +68,47 @@ export const PRACTICE_LOSING_CLOSED_GATE_PLAN: PracticeSiegeRequest = {
   },
 };
 
-const CAUSALITY_SHARED: PracticeSiegeRequest = {
+/**
+ * Same teaching routes as the winning plan, but Vanguard is not assigned to
+ * the gate. The UI can load this with one tap; the locked NPC defense stays
+ * guardGate. The gate stays closed even if every line still crosses x 50.
+ */
+export const PRACTICE_NO_GATE_TEAM_PLAN: PracticeSiegeRequest = {
   version: 1,
-  defensePlan: "holdKeep",
-  objectives: { vanguard: "gate", archers: "westTower", riders: "keep" },
+  defensePlan: "guardGate",
+  objectives: { vanguard: "keep", archers: "westTower", riders: "eastTower" },
   routes: {
     vanguard: [
       { x: 50, y: 5 },
-      { x: 50, y: 28 },
       { x: 50, y: 34 },
-      { x: 35, y: 48 },
-      { x: 35, y: 68 },
       { x: 50, y: 88 },
     ],
     archers: [
       { x: 10, y: 5 },
-      { x: 20, y: 20 },
-      { x: 28, y: 31 },
+      { x: 28, y: 28 },
       { x: 50, y: 34 },
-      { x: 30, y: 68 },
       { x: 50, y: 88 },
     ],
     riders: [
-      { x: 50, y: 5 },
-      { x: 50, y: 20 },
+      { x: 90, y: 5 },
+      { x: 72, y: 28 },
       { x: 50, y: 34 },
-      { x: 65, y: 48 },
-      { x: 65, y: 68 },
       { x: 50, y: 88 },
     ],
   },
 };
 
-/** Controlled pair: only the Rider wall-crossing X changes. */
+/** Controlled pair the planner can actually submit: only the Vanguard target changes. */
 export function practiceCausalityPair(): {
   throughGate: PracticeSiegeRequest;
-  intoWall: PracticeSiegeRequest;
-  changedSquad: "riders";
+  noGateTeam: PracticeSiegeRequest;
+  changedSquad: "vanguard";
+  changedField: "objectives";
 } {
-  const throughGate = clone(CAUSALITY_SHARED);
-  const intoWall = clone(CAUSALITY_SHARED);
-  intoWall.routes.riders = [
-    { x: 40, y: 5 },
-    { x: 40, y: 20 },
-    { x: 40, y: 34 },
-    { x: 65, y: 48 },
-    { x: 65, y: 68 },
-    { x: 50, y: 88 },
-  ];
-  return { throughGate, intoWall, changedSquad: "riders" };
+  return {
+    throughGate: clone(PRACTICE_WINNING_GATE_PLAN),
+    noGateTeam: clone(PRACTICE_NO_GATE_TEAM_PLAN),
+    changedSquad: "vanguard",
+    changedField: "objectives",
+  };
 }
