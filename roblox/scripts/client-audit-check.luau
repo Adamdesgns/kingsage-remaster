@@ -105,6 +105,28 @@ local enum = setmetatable({}, { __index = function(self, key)
 	rawset(self, key, values)
 	return values
 end })
+
+-- Studio reproduced nearly black table controls: Instance.new created a Global
+-- root, so the ZIndex-2 panel drew over its ZIndex-1 children at 98% opacity.
+-- Execute the real root constructor with that observed starting value. Removing
+-- the explicit Sibling assignment must fail; UI doubles cannot prove rendering.
+do
+	local playerGui = instance("PlayerGui")
+	local hud = load(between(client, 'local gui = Instance.new("ScreenGui")', "local function makeLabel") .. "\nreturn gui", {
+		Instance = { new = function(class)
+			local object = instance(class)
+			object.ZIndexBehavior = enum.ZIndexBehavior.Global
+			return object
+		end },
+		Enum = enum,
+		playerGui = playerGui,
+	})
+	assert(hud.Name == "WorldHud" and hud.Parent == playerGui, "HUD root was not installed")
+	assert(hud.ZIndexBehavior == enum.ZIndexBehavior.Sibling,
+		"Global ordering lets the table background cover its own controls")
+end
+pass("HUD root uses sibling ordering so raised table backgrounds cannot cover their children")
+
 local function dim(scale, offset) return { Scale = scale or 0, Offset = offset or 0 } end
 local function dim2(xs, xo, ys, yo) return { X = dim(xs, xo), Y = dim(ys, yo) } end
 local levels = {}
@@ -198,4 +220,4 @@ assert(myVillage("holding-50") == village)
 village.kingdomId = "enemy"
 assert(myVillage("holding-50") == nil, "an open table stayed bound to a lost village")
 pass("a table loses its village binding when ownership changes")
-print("---- 5 client audit scenarios passed (runtime stubs, not visual proof) ----")
+print("---- 6 client audit scenarios passed (runtime stubs, not visual proof) ----")

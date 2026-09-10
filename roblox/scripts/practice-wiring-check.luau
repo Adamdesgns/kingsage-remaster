@@ -3,6 +3,7 @@
 -- in one lexical scope. UI/service stubs prove wiring, not Studio rendering.
 local fs = require("@lune/fs")
 local luau = require("@lune/luau")
+local roblox = require("@lune/roblox")
 local client = fs.readFile("roblox/src/client/init.client.luau")
 local Buildings = luau.load(fs.readFile("roblox/src/shared/Buildings.luau"))()
 local Config = luau.load(fs.readFile("roblox/src/shared/PracticeSiegeConfig.luau"))()
@@ -34,7 +35,7 @@ local function signal(): any
 end
 
 local function instance(class: string): any
-	local props = { ClassName = class, children = {}, attributes = {}, Activated = signal(), CanvasPosition = { X = 0, Y = 0 } }
+	local props = { ClassName = class, children = {}, attributes = {}, Activated = signal(), Triggered = signal(), CanvasPosition = { X = 0, Y = 0 } }
 	local object = {}
 	function object:IsA(name) return name == class or name == "GuiObject" end
 	function object:SetAttribute(key, value) props.attributes[key] = value end
@@ -44,6 +45,14 @@ local function instance(class: string): any
 		return nil
 	end
 	function object:GetChildren() return table.clone(props.children) end
+	function object:GetDescendants()
+		local result = {}
+		for _, child in props.children do
+			table.insert(result, child)
+			for _, nested in child:GetDescendants() do table.insert(result, nested) end
+		end
+		return result
+	end
 	function object:Destroy()
 		props.Destroyed = true
 		for _, child in table.clone(props.children) do child:Destroy() end
@@ -85,6 +94,8 @@ local function dim2(xs, xo, ys, yo) return { X = dim(xs, xo), Y = dim(ys, yo) } 
 -- practiceOpen/tablePanel and every actual callback share the production state.
 local executable = between(client, 'local PracticeSiege = require(script:WaitForChild("PracticeSiege"))', "local Celebration")
 	.. between(client, 'local queueCommand = remotes:WaitForChild("QueueCommand")', "local toastRemote")
+	.. between(client, "local inTableView = false", "type ShellPartState")
+	.. between(client, "local function hookLocalPrompt", "local function installPrivateDetail")
 	.. between(client, "local camera = workspace.CurrentCamera", "local function refreshLocationVisibility")
 	.. between(client, "local function makeLabel", "-- The world stays visually quiet")
 	.. between(client, "local function addCorner", "local function compactAmount")
@@ -92,6 +103,7 @@ local executable = between(client, 'local PracticeSiege = require(script:WaitFor
 	.. between(client, "local function sectionHeader", "-- Every troop the report actually saw")
 	.. between(client, "local function scoutPowerText", "function buildTablePanel()")
 	.. between(client, "function buildTablePanel()", "local function openTableView")
+	.. between(client, "local function openTableView", "requestOpenLocalTable = openTableView")
 	.. [[
 buildBattlePanel = guardProduction
 return {
@@ -104,6 +116,10 @@ return {
 		return { panel = tablePanel, practice = practiceOpen, inTable = inTableView, inBattle = inBattleView, tab = activeTab }
 	end,
 	build = buildTablePanel,
+	open = openTableView,
+	leave = exitTableView,
+	refreshPrompts = refreshLocalPromptAvailability,
+	hookPrompt = hookLocalPrompt,
 	heartbeat = function()
 ]]
 	.. between(client, "\t-- The war table must refresh even when no job or march exists.", "\tif #entries == 0 then")
@@ -116,6 +132,12 @@ local function context(width: number): any
 	local gui = instance("ScreenGui")
 	local camera = { ViewportSize = { X = width, Y = 844 }, CameraType = "Scriptable" }
 	local village = { id = "home", kingdomId = "mine", army = { scout = 5 } }
+	local latest = { status = "online", snapshot = { world = { villages = { village } } } }
+	local detail = instance("Model")
+	local prompt = instance("ProximityPrompt")
+	prompt.Name = "TablePrompt"
+	prompt.Enabled = true
+	prompt.Parent = detail
 	local ownsVillage = true
 	local spawned, deferred, sent = {}, {}, {}
 	local nextResponse: any = nil
@@ -152,13 +174,14 @@ local function context(width: number): any
 		Instance = { new = instance }, Enum = enum, UDim = { new = dim },
 		UDim2 = { new = dim2, fromOffset = function(x, y) return dim2(0, x, 0, y) end },
 		Color3 = { new = function(...) return { ... } end, fromRGB = function(...) return { ... } end },
+		CFrame = roblox.CFrame, Vector3 = roblox.Vector3,
 		GuiService = { GetGuiInset = function() return {X=0,Y=0}, {X=0,Y=0} end },
 		resourceBar = { Visible = false }, HUD_GOLD = {}, panelRows = {},
 		refreshHudModeVisibility = function() end,
 		myVillage = function(id) assert(id == "home"); return if ownsVillage then village else nil end,
 		myKingdomId = function() return "mine" end,
 		Buildings = Buildings, attackPlan = Buildings.defaultAttackPlan(), rideWithNobles = false,
-		latest = { snapshot = { world = { villages = { village } } } },
+		latest = latest, localDetails = { home = detail },
 		musterCount = function() return 0, 0 end,
 		buildMapTab = function(scroll) local label = instance("TextLabel"); label.Text = "Map content"; label.Parent = scroll end,
 		buildVillageTab = function(scroll) local label = instance("TextLabel"); label.Text = "Village content"; label.Parent = scroll end,
@@ -178,6 +201,14 @@ local function context(width: number): any
 		flush = function() drain(spawned); drain(deferred) end,
 		respond = function(response, fails) nextResponse = response; networkFailure = fails == true end,
 		loseVillage = function() ownsVillage = false end,
+		prompt = prompt,
+		setStatus = function(status) latest.status = status end,
+		newPrompt = function()
+			local added = instance("ProximityPrompt")
+			added.Parent = detail
+			api.hookPrompt(added)
+			return added
+		end,
 	}
 end
 
@@ -297,4 +328,22 @@ lost.loseVillage()
 lost.api.heartbeat()
 lost.flush()
 check("lost village ownership closes the practice table", lost.api.state().panel == nil and not lost.api.state().practice and not lost.api.state().inTable and lost.planner.hides == hides + 1)
+
+local prompts = context(390)
+local tableInfo = { centerX = 0, centerZ = 0, boundsHalf = 200, villageId = "home" }
+prompts.api.open(tableInfo)
+check("opening the real table hides owner prompts", not prompts.prompt.Enabled and prompts.api.state().inTable)
+local replacement = prompts.newPrompt()
+check("private detail installed during table view starts with hidden prompts", not replacement.Enabled)
+prompts.api.refreshPrompts()
+check("online state refresh does not reveal prompts over table view", not prompts.prompt.Enabled and not replacement.Enabled)
+prompts.api.leave()
+check("leaving an online table restores owner prompts", prompts.prompt.Enabled and replacement.Enabled)
+prompts.api.open(tableInfo)
+prompts.setStatus("offline")
+prompts.api.leave()
+check("leaving while offline keeps owner prompts disabled", not prompts.prompt.Enabled and not replacement.Enabled)
+prompts.setStatus("online")
+prompts.api.refreshPrompts()
+check("reconnecting outside table view restores owner prompts", prompts.prompt.Enabled and replacement.Enabled)
 print(string.format("---- %d practice wiring checks, 0 failed (runtime stubs, not visual proof) ----", checks))

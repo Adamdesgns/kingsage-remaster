@@ -131,6 +131,7 @@ local function row(parent: Instance, height: number): Frame
 	item.Parent = parent
 	local layout = Instance.new("UIListLayout")
 	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Padding = UDim.new(0, 6)
 	layout.Parent = item
 	return item
@@ -557,13 +558,14 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 	label(root, "Saved defense: Guard the gate. Towers cover the shaded circles; the brown block is a barricade. The realm decides each result.", 13)
 
 	local squadRow = row(root, 44)
-	for _, squad in Config.SQUADS do
+	for index, squad in Config.SQUADS do
 		local item = button(squadRow, squad.label, if squad.id == self.selectedSquad then colorFrom(squad.color) else Color3.fromRGB(48, 48, 58), function()
 			if self.busy or self.drawing then return end
 			self.selectedSquad = squad.id
 			self.status = "Draw " .. squad.label .. " from its flag through " .. tostring(Config.objective(self.objectives[squad.id]).label) .. "."
 			self.refresh()
 		end)
+		item.LayoutOrder = index
 		item.Size = UDim2.new(1 / #Config.SQUADS, -4, 1, 0)
 	end
 
@@ -582,7 +584,9 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 	end)
 	target.Name = "ObjectiveButton"
 
-	local canvas = Instance.new("Frame")
+	-- Flatten the rotated route segments inside one clipped board. Ordinary
+	-- Frame clipping can let rotated children escape over the scrolling tabs.
+	local canvas = Instance.new("CanvasGroup")
 	canvas.Name = "RouteCanvas"
 	canvas.Size = UDim2.new(1, 0, 0, math.max(1, parent.AbsoluteSize.X - 12))
 	canvas.BackgroundColor3 = Color3.fromRGB(82, 102, 66)
@@ -685,6 +689,7 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 		end
 	end)
 	undo.Name = "UndoRoute"
+	undo.LayoutOrder = 1
 	undo.Size = UDim2.new(0.5, -3, 1, 0)
 	local clear = button(editRow, "Clear route", Color3.fromRGB(70, 48, 44), function()
 		if self.busy or self.drawing then return end
@@ -695,6 +700,7 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 		self.refresh()
 	end)
 	clear.Name = "ClearRoute"
+	clear.LayoutOrder = 2
 	clear.Size = UDim2.new(0.5, -3, 1, 0)
 
 	local statusCard = card(root, Color3.fromRGB(29, 35, 43))
@@ -744,9 +750,11 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 		self.refresh()
 	end)
 	reset.Name = "ResetPracticeSiege"
+	reset.LayoutOrder = 1
 	reset.Size = UDim2.new(0.5, -3, 1, 0)
 	local back = button(bottom, "Back to War", Color3.fromRGB(65, 42, 35), onBack)
 	back.Name = "BackToWar"
+	back.LayoutOrder = 2
 	back.Size = UDim2.new(0.5, -3, 1, 0)
 end
 

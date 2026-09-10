@@ -160,6 +160,61 @@ pass("320/390 planner callbacks build with all action targets at least 44px")
 
 do
 	local controller = newController()
+	local root = build(controller, 390)
+	drainTasks()
+	local canvas = find(root, "RouteCanvas")
+	assert(canvas.ClassName == "CanvasGroup" and canvas.ClipsDescendants,
+		"rotated routes need a composited board so scrolling clips them")
+	local segments = {}
+	for _, child in find(root, "Routes"):GetChildren() do
+		if child.Name == "RouteSegment" then table.insert(segments, child) end
+	end
+	local expected, diagonal = 0, false
+	for _, squad in Config.SQUADS do
+		local route = controller.routes[squad.id]
+		for index = 2, #route do
+			expected += 1
+			local segment = assert(segments[expected], "a route segment disappeared")
+			local first = roblox.Vector2.new(route[index - 1].x / 100 * canvas.AbsoluteSize.X,
+				(1 - route[index - 1].y / 100) * canvas.AbsoluteSize.Y)
+			local last = roblox.Vector2.new(route[index].x / 100 * canvas.AbsoluteSize.X,
+				(1 - route[index].y / 100) * canvas.AbsoluteSize.Y)
+			local delta = last - first
+			-- UDim pixel offsets store whole pixels, so allow only that rounding.
+			assert(math.abs(segment.Size.X.Offset - delta.Magnitude) <= 1, "clipping fix changed the drawn route length")
+			assert(math.abs(segment.Position.X.Offset - (first.X + last.X) / 2) <= 1
+				and math.abs(segment.Position.Y.Offset - (first.Y + last.Y) / 2) <= 1, "clipping fix moved the drawn route")
+			assert(math.abs(segment.Rotation - math.deg(math.atan2(delta.Y, delta.X))) < 0.001, "clipping fix changed the route direction")
+			diagonal = diagonal or (math.abs(delta.X) > 0 and math.abs(delta.Y) > 0)
+		end
+	end
+	assert(#segments == expected and diagonal, "the clipped board must retain all exact straight route segments")
+	local function renderedNames(parent)
+		local layout, children = nil, {}
+		for _, child in parent:GetChildren() do
+			if child.ClassName == "UIListLayout" then layout = child end
+			if child.ClassName == "TextButton" then table.insert(children, child) end
+		end
+		assert(layout, "horizontal row has no layout")
+		table.sort(children, function(left, right)
+			if layout.SortOrder == enum.SortOrder.LayoutOrder and (left.LayoutOrder or 0) ~= (right.LayoutOrder or 0) then
+				return (left.LayoutOrder or 0) < (right.LayoutOrder or 0)
+			end
+			return left.Name < right.Name
+		end)
+		local names = {}; for _, child in children do table.insert(names, child.Name) end
+		return table.concat(names, ",")
+	end
+	assert(renderedNames(find(root, "Vanguard").Parent) == "Vanguard,Archers,Riders", "squads must read Vanguard, Archers, Riders")
+	assert(renderedNames(find(root, "UndoRoute").Parent) == "UndoRoute,ClearRoute", "Undo must precede Clear")
+	assert(renderedNames(find(root, "ResetPracticeSiege").Parent) == "ResetPracticeSiege,BackToWar", "Reset must precede Back")
+	controller:hide()
+end
+drainTasks()
+pass("composited board retains exact route segments; horizontal controls keep their intended order")
+
+do
+	local controller = newController()
 	for _, squad in Config.SQUADS do
 		controller.selectedSquad = squad.id
 		local root = build(controller, 390)

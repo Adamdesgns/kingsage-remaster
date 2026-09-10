@@ -64,6 +64,8 @@ local latest: { snapshot: any?, status: string, clockOffset: number, outdated: b
 }
 
 -- Secure owner-detail renderer ------------------------------------------------
+-- Declared before prompt hooks so rebuilt private detail respects table mode.
+local inTableView = false
 --
 -- Workspace contains only fixed, fog-safe village shells. The server places a
 -- detailed source model under this player's private PlayerGui only; this client
@@ -150,7 +152,7 @@ local function ownerDetailRoot(instance: Instance): Model?
 end
 
 local function hookLocalPrompt(prompt: ProximityPrompt)
-	prompt.Enabled = latest.status == "online"
+	prompt.Enabled = latest.status == "online" and not inTableView
 	prompt.Triggered:Connect(function()
 		local root = ownerDetailRoot(prompt)
 		if not root then
@@ -205,7 +207,7 @@ local function hookLocalPrompt(prompt: ProximityPrompt)
 end
 
 local function refreshLocalPromptAvailability()
-	local enabled = latest.status == "online"
+	local enabled = latest.status == "online" and not inTableView
 	for _, detail in localDetails do
 		for _, descendant in detail:GetDescendants() do
 			if descendant:IsA("ProximityPrompt") then
@@ -482,6 +484,8 @@ local gui = Instance.new("ScreenGui")
 gui.Name = "WorldHud"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
+-- Global ordering lets the opaque ZIndex-2 table cover its own ZIndex-1 controls.
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = playerGui
 
 local function makeLabel(parent: Instance, name: string): TextLabel
@@ -838,7 +842,6 @@ outdatedModal.Parent = gui
 
 -- ===== war table overhead view =====
 local camera = workspace.CurrentCamera
-local inTableView = false
 local inBattleView = false
 local tableInfo: { centerX: number, centerZ: number, boundsHalf: number, villageId: string? }? = nil
 local tablePanel: Frame? = nil
@@ -1033,6 +1036,7 @@ local function exitTableView()
 		return
 	end
 	inTableView = false
+	refreshLocalPromptAvailability()
 	practiceOpen = false
 	practiceSiege:hide()
 	tableInfo = nil
@@ -1995,6 +1999,7 @@ local function openTableView(info: { centerX: number, centerZ: number, boundsHal
 		return
 	end
 	inTableView = true
+	refreshLocalPromptAvailability()
 	refreshHudModeVisibility()
 	tableInfo = info
 	activeTab = "village"
