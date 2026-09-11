@@ -1,13 +1,81 @@
-# HANDBACK — Phase 1 local implementation complete; G-01 still needs Adam
+# HANDBACK — S-01 Studio PASS recorded; touch-scroll fix in source; G-01 still open
+
+**Updated:** 2026-09-11 by [Cursor]. **Working branch:** `cursor/practice-touch-scroll-da9e` off `cursor/practice-phase1-d06-c4e2` @ `41d541e`.
+**Base PR line:** draft PR #7 (`cursor/practice-phase1-d06-c4e2` → `feat/practice-siege-codex`).
+
+## Current milestone
+
+Phase 1 practice siege. D-06 teaching and a playable success / failure / one-target comparison remain in source. Adam + Morgan observed **S-01 PASS** in Studio Play on the previous tip. This continuation records that evidence honestly and fixes the war-table / planner scroll blocker that stopped them reaching Practice siege. **G-01 is not closed.** Phase 2 and D-02 / OPEN-21 were not started.
+
+## Implemented versus verified
+
+| Behavior | Implemented | Verified |
+|---|---|---|
+| Open-gate-only entry; towers stop fire, they do not breach the wall | Yes | Automated resolver + Luau teaching/default-route checks. |
+| S-01 Reset teaching plan (no redraw, Try this plan) | Yes | **Studio PASS 2026-09-11** on `41d541e`, iPhone XR emulator 896×414: FORT TAKEN; losses 5 / 5 / 4; `Training only. Your city troops and stock did not change.` See [S-01 note](docs/verification/2026-09-11-practice-studio-s01.md). |
+| Default Reset plan visits towers, then enters through the gate | Yes | Contract: Luau defaults === `PRACTICE_WINNING_GATE_PLAN`. S-02 freehand redraw **not run**. |
+| Planner copy: practice army is separate; gate-only teaching | Yes | Luau client-check at 320/390. S-01 frame showed the training-only outcome line. |
+| One-tap failure lesson (`Try without a gate team`) | Yes | Luau lesson + contract. **S-03 Studio not run.** |
+| Playable causality: same drawings, only Vanguard target Gate → Keep | Yes | Core pin TAKEN **5 / 5 / 4** vs HELD **8 / 7 / 5**. **S-04 Studio not run.** |
+| Skip + Previous replay | Yes | Luau planner scenarios. **S-06 Studio not run.** |
+| Invalid input, reset/retry, late-result cancel, second-finger guards | Yes | Existing Luau planner scenarios. **S-05 / S-07 Studio not run.** |
+| War-table / planner touch and wheel scroll through action buttons | Yes (this continuation) | Luau `check:touch-scroll` (9 checks). **Studio / phone not verified** on the new helper. |
+| Stateless practice command | Yes | Prior tip: `check:practice-persistence` HTTP 200/200/200 + 400; identical replay; durable rows unchanged. Rerun on this tip before claiming it again. |
+| Physical phone, unfamiliar players, Adam acceptance, captioned walkthrough | Test pack updated | **not verified**. Reaching Practice siege required Adam’s help because the list would not wheel-scroll. |
+| Phase 2 opening / shield / fresh cities | Not started | G-02 recommendations only. D-02 mutual first-war still waiting on Adam. |
+
+## Checks this continuation
+
+Cloud agent. Lune 0.10.5 installed to `~/.local/bin/lune` for this run (not committed). TypeScript is whatever this image already has.
+
+| Command | Result |
+|---|---|
+| `lune run roblox/scripts/touch-scroll-check.luau` | **9/9** pass (stubs, not Studio proof) |
+| `lune run roblox/scripts/practice-client-check.luau` | 12 planner scenarios pass |
+| `lune run roblox/scripts/practice-wiring-check.luau` | 54 wiring checks pass |
+| `lune run roblox/scripts/client-audit-check.luau` | 6 client audits pass |
+| `lune run roblox/scripts/syntax-check.luau` | 42 files, 0 failed |
+| `npm run check:types` / `test:core` / `test:server` / `test:luau` / `check:practice-persistence` | rerun after this commit; record below or in the PR |
+| Rojo development build | **not run** unless `rojo` is present |
+| Studio Play of the new `TouchScroll` helper | **not verified** |
+| Physical phone | **not verified** |
+
+## Evidence paths
+
+- Fixtures: `packages/game-core/src/practice-siege-fixtures.ts` — do not invent a different winning route
+- S-01 observed record: `docs/verification/2026-09-11-practice-studio-s01.md`
+- Studio/phone script: `docs/verification/2026-09-10-practice-studio-test-pack.md`
+- Scroll helper: `roblox/src/client/TouchScroll.luau`
+- G-02 asks: `docs/plans/2026-09-10-opening-decisions-for-adam.md`
+
+## Pending decisions and gates
+
+- **G-01** open: S-01 emulator PASS is on the record. Still owed: S-03+ Studio, physical phone, unfamiliar-player study, Adam acceptance.
+- **G-02** open: accept or correct D-01 / D-02-storage / D-08 / D-09 / D-10; separately answer the mutual first-war challenge for D-02 / OPEN-21. Silence is not approval.
+- **D-02 first-war** still unresolved. Do not implement timed expiry, voluntary shield drop, or unprotected starters.
+- No merge to `main`, deploy, publish, Roblox spend, or computer control.
+
+## Exact next action
+
+1. **Adam:** Rebuild `WorldGame-dev.rbxlx` from this continuation (`-BuildOnly -Play`). On the iPhone XR emulator, confirm S-07: wheel and a drag that starts on a button both move Village / War / the practice planner. Then run S-03 (and S-04 if time). Do not treat that as G-01 closed.
+2. **Adam (still blocks G-01):** S-09 on a real phone; unfamiliar-player study; acceptance.
+3. **Adam (blocks G-02 / real PvP):** Answer the two asks in `docs/plans/2026-09-10-opening-decisions-for-adam.md`.
+4. Next engineering increment after those: only then Phase 2 founding/tutorial, still without an invented PvP shield rule.
+
+Other assistants’ notes below are dated history and were not rewritten.
+
+---
+
+# Previous handback — Phase 1 local implementation complete; G-01 still needs Adam
 
 **Updated:** 2026-09-10 by [Cursor]. **Working branch:** `cursor/practice-phase1-d06-c4e2` off `feat/practice-siege-codex` @ `add2cd2`.  
 **Tip:** `77392b5` on `cursor/practice-phase1-d06-c4e2` (code `01e173f`).
 
-## Current milestone
+## Current milestone (2026-09-10)
 
 Phase 1 practice siege. D-06 teaching and a **playable** success / failure / one-target comparison are in source. G-01 is **not** closed. Phase 2 and D-02 / OPEN-21 were not started.
 
-## Implemented versus verified
+## Implemented versus verified (2026-09-10)
 
 | Behavior | Implemented | Verified |
 |---|---|---|
@@ -23,7 +91,7 @@ Phase 1 practice siege. D-06 teaching and a **playable** success / failure / one
 | Physical phone, unfamiliar players, Adam acceptance, captioned walkthrough | Test pack tightened | **not verified** |
 | Phase 2 opening / shield / fresh cities | Not started | G-02 recommendations only. D-02 mutual first-war still waiting on Adam. |
 
-## Checks this continuation
+## Checks that continuation
 
 Cloud agent, Lune 0.10.5 at `~/.local/bin/lune`. TypeScript 5.9.3 is in this environment only (not committed). Reran on tip `85a167c` / code `01e173f`:
 
@@ -37,27 +105,9 @@ Cloud agent, Lune 0.10.5 at `~/.local/bin/lune`. TypeScript 5.9.3 is in this env
 | Rojo development build | **not run** — `rojo` is not installed in this cloud image |
 | `git diff --check` | clean at commit |
 
-Studio Play, physical phone, two-client privacy, and unfamiliar-player understanding: **not verified**.
+Studio Play, physical phone, two-client privacy, and unfamiliar-player understanding: **not verified** as of that handback. S-01 was later observed on 2026-09-11; see the current section above.
 
-## Evidence paths
-
-- Fixtures: `packages/game-core/src/practice-siege-fixtures.ts`
-- Studio/phone script: `docs/verification/2026-09-10-practice-studio-test-pack.md`
-- G-02 asks: `docs/plans/2026-09-10-opening-decisions-for-adam.md`
-- Historical Studio frame (still not this build): `C:\Users\steam\OneDrive\Documents\ChatGPT\Kingmarch\practice-siege-proof-2026-09-04\03-server-result-first-run.jpg`
-
-## Pending decisions and gates
-
-- **G-01** open: Adam must run the Studio test pack, a physical phone, unfamiliar-player study, and give acceptance.
-- **G-02** open: accept or correct D-01 / D-02-storage / D-08 / D-09 / D-10; separately answer the mutual first-war challenge for D-02 / OPEN-21. Silence is not approval.
-- **D-02 first-war** still unresolved. Do not implement timed expiry, voluntary shield drop, or unprotected starters.
-- No merge to `main`, deploy, publish, Roblox spend, or computer control.
-
-## Exact next action
-
-1. **Adam (blocks G-01):** On the PC, inspect first. Build with `powershell -ExecutionPolicy Bypass -File roblox/start-dev.ps1 -BuildOnly -Play`. Play `roblox/WorldGame-dev.rbxlx` against a **fresh disposable** `127.0.0.1:4178` world (`dev-secret-local-0001`). Run S-01 through S-08 in the Studio pack, then S-09 on a real phone. S-10 is `npm run check:practice-persistence` (do not diff a ticking 45s-AI world).
-2. **Adam (blocks G-02 / real PvP):** Answer the two asks in `docs/plans/2026-09-10-opening-decisions-for-adam.md`.
-3. Next engineering increment after those: only then Phase 2 founding/tutorial, still without an invented PvP shield rule.
+Those 2026-09-10 evidence paths, gate notes, and “run S-01 first” next actions are superseded by the 2026-09-11 section above (S-01 is now observed; scroll rebuild is the next Studio check).
 
 Other assistants’ notes below are dated history and were not rewritten.
 

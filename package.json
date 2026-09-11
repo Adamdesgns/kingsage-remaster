@@ -23,8 +23,9 @@
     "check:practice-bridge": "lune run roblox/scripts/practice-bridge-check.luau",
     "check:practice-client": "lune run roblox/scripts/practice-client-check.luau",
     "check:practice-wiring": "lune run roblox/scripts/practice-wiring-check.luau",
+    "check:touch-scroll": "lune run roblox/scripts/touch-scroll-check.luau",
     "check:practice-persistence": "node --experimental-strip-types scripts/verify-practice-persistence.mjs",
-    "test:luau": "npm run check:luau && npm run check:luau-rules && npm run check:spike-sim && npm run check:connections && npm run check:client-audit && npm run check:practice-contract && npm run check:practice-bridge && npm run check:practice-client && npm run check:practice-wiring",
+    "test:luau": "npm run check:luau && npm run check:luau-rules && npm run check:spike-sim && npm run check:connections && npm run check:client-audit && npm run check:practice-contract && npm run check:practice-bridge && npm run check:practice-client && npm run check:practice-wiring && npm run check:touch-scroll",
     "check:gate-d": "node scripts/check-gate-d.mjs",
     "test:gate-d": "npm run test:gate-c && npm run check:gate-d"
   },
