@@ -20,7 +20,7 @@ Phase 1 practice siege. D-06 teaching and a playable success / failure / one-tar
 | Skip + Previous replay | Yes | Luau planner scenarios. **S-06 Studio not run.** |
 | Invalid input, reset/retry, late-result cancel, second-finger guards | Yes | Existing Luau planner scenarios. **S-05 / S-07 Studio not run.** |
 | War-table / planner touch and wheel scroll through action buttons | Yes (this continuation) | Luau `check:touch-scroll` (9 checks). **Studio / phone not verified** on the new helper. |
-| Stateless practice command | Yes | Prior tip: `check:practice-persistence` HTTP 200/200/200 + 400; identical replay; durable rows unchanged. Rerun on this tip before claiming it again. |
+| Stateless practice command | Yes | This tip: `check:practice-persistence` HTTP 200/200/200 + 400; identical replay; durable DB/WAL/rows unchanged. |
 | Physical phone, unfamiliar players, Adam acceptance, captioned walkthrough | Test pack updated | **not verified**. Reaching Practice siege required Adam’s help because the list would not wheel-scroll. |
 | Phase 2 opening / shield / fresh cities | Not started | G-02 recommendations only. D-02 mutual first-war still waiting on Adam. |
 
@@ -30,13 +30,12 @@ Cloud agent. Lune 0.10.5 installed to `~/.local/bin/lune` for this run (not comm
 
 | Command | Result |
 |---|---|
-| `lune run roblox/scripts/touch-scroll-check.luau` | **9/9** pass (stubs, not Studio proof) |
-| `lune run roblox/scripts/practice-client-check.luau` | 12 planner scenarios pass |
-| `lune run roblox/scripts/practice-wiring-check.luau` | 54 wiring checks pass |
-| `lune run roblox/scripts/client-audit-check.luau` | 6 client audits pass |
-| `lune run roblox/scripts/syntax-check.luau` | 42 files, 0 failed |
-| `npm run check:types` / `test:core` / `test:server` / `test:luau` / `check:practice-persistence` | rerun after this commit; record below or in the PR |
-| Rojo development build | **not run** unless `rojo` is present |
+| `npm run check:types` | pass — game-core/server type-clean |
+| `npm run test:core` | 104 passed, 0 failed |
+| `npm run test:server` | 139 passed, 0 failed |
+| `npm run test:luau` | 42 syntax files; 72 rules; 7 simulations; 25 connections; 6 client audits; 272 practice contracts; 28 bridge; 12 planner scenarios; 54 wiring; **9** touch-scroll; 0 failed |
+| `npm run check:practice-persistence` | disposable HTTP 200/200/200 + 400; identical replay; durable DB/WAL/rows unchanged |
+| Rojo development build | **not run** — `rojo` is not installed in this cloud image |
 | Studio Play of the new `TouchScroll` helper | **not verified** |
 | Physical phone | **not verified** |
 
