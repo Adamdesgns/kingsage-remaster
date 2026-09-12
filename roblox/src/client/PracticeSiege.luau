@@ -7,6 +7,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local shared = ReplicatedStorage:WaitForChild("WorldShared")
 local Config = require(shared:WaitForChild("PracticeSiegeConfig"))
+local TouchScroll = require(script.Parent:WaitForChild("TouchScroll"))
 
 local PracticeSiege = {}
 local Controller = {}
@@ -120,7 +121,7 @@ local function button(parent: Instance, text: string, color: Color3, activated: 
 	item.TextWrapped = true
 	item.Text = text
 	item.Parent = parent
-	item.Activated:Connect(activated)
+	item.Activated:Connect(TouchScroll.protect(activated))
 	return item
 end
 

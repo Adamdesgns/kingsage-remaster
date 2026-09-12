@@ -180,6 +180,7 @@ local function context(width: number): any
 		refreshHudModeVisibility = function() end,
 		myVillage = function(id) assert(id == "home"); return if ownsVillage then village else nil end,
 		myKingdomId = function() return "mine" end,
+		TouchScroll = { bind = function() end, protect = function(callback) return callback end },
 		Buildings = Buildings, attackPlan = Buildings.defaultAttackPlan(), rideWithNobles = false,
 		latest = latest, localDetails = { home = detail },
 		musterCount = function() return 0, 0 end,

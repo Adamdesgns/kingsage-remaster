@@ -1,12 +1,13 @@
 # Practice siege Studio / phone test pack
 
-**Date:** 2026-09-10  
-**Author:** [Cursor]  
-**Source revision to test:** tip of `cursor/practice-phase1-d06-c4e2` at `77392b5` (code increment `01e173f`). Re-record the SHA if this file moves again.  
-**Place:** `roblox/WorldGame-dev.rbxlx` built from `roblox/default.project.json`.  
+**Date:** 2026-09-10; evidence updated 2026-09-11
+**Author:** [Cursor]
+**Source revision last observed in Studio:** `cursor/practice-phase1-d06-c4e2` @ `41d541e` (code increment `01e173f`).
+**Source revision that adds the touch-scroll helper:** the continuation tip that contains `roblox/src/client/TouchScroll.luau`. Rebuild the place before judging scroll. Re-record the SHA if this file moves again.
+**Place:** `roblox/WorldGame-dev.rbxlx` built from `roblox/default.project.json`.
 **Server for Play:** isolated loopback world on `127.0.0.1:4178` with a **fresh disposable** SQLite file. Do not use the live world.
 
-This pack is for Adam when computer control and a physical phone are available. Cloud/Cursor cannot operate Studio or a phone. Until those runs exist, **G-01 stays open**.
+This pack is for Adam when computer control and a physical phone are available. Cloud/Cursor cannot operate Studio or a phone. **G-01 stays open.** S-01 was observed in Studio Play on 2026-09-11; that one row does not close the gate. Written record: [2026-09-11 S-01 note](2026-09-11-practice-studio-s01.md).
 
 Pinned plans live in `packages/game-core/src/practice-siege-fixtures.ts`. Do not invent a different “winning” route after seeing a result.
 
@@ -51,7 +52,7 @@ Record for each: date, commit SHA, place hash if known, observed outcome, casual
 | S-04 One-target causality | Run S-01, then S-03, without changing any drawn points. | The **only** tactical change is Vanguard’s target: Gate → Keep. Same routes, same `guardGate` defense. First: TAKEN 5 / 5 / 4. Second: HELD 8 / 7 / 5. Do **not** use the retired `holdKeep` Rider x-50 vs x-40 pair — the planner cannot submit that. Optional freehand miss-the-gate (`PRACTICE_LOSING_CLOSED_GATE_PLAN`) is extra geometry, not this row. |
 | S-05 Invalid input | Enter a decimal or backtracking route (or clear a route so it misses its target). Submit. | No server success card. Status names the squad and the problem. Routes remain editable. |
 | S-06 Reset / retry / interrupt / skip / previous | Submit, then Reset or Back before the result returns. Submit again after a rejected plan. On a later success, tap **Show all reasons**, then **Previous reason** until a later line disappears. Step back to the start: Previous hides; Show all remains. | Late results must not resurrect. Retry sends again. Reset restores the teaching defaults (Vanguard target Gate). Skip reveals every reason immediately. Previous steps back one reason. Outcome still says training-only / city unchanged. |
-| S-07 Drawing vs scrolling | On phone (or Studio touch emulation if that is all that exists): draw with one finger; try a second finger on squad/target/submit. | Panel scroll pauses while drawing and resumes on lift. A second finger cannot change squad, target, or submit. |
+| S-07 Drawing vs scrolling | On phone (or Studio touch emulation if that is all that exists): (1) On Village and War, drag starting on a 44px action row and also use the mouse wheel. (2) Open Practice siege; drag starting on **Try this plan** / teaching copy to reach the board and back. (3) Draw with one finger; try a second finger on squad/target/submit. | List must move for wheel and for a finger-style drag that starts on a button. Drawing still pauses panel scroll and resumes on lift. A second finger cannot change squad, target, or submit. The 2026-09-11 emulator session could not wheel-scroll and needed a drag; that is the bug this row now re-checks. |
 | S-08 320 / 390 layouts | Studio emulator or window at 320px and 390px wide. | All action buttons ≥ 44px, including **Try without a gate team**, **Show all reasons**, and **Previous reason** (the last two appear after a result). Teaching copy wraps. Squads still read Vanguard, Archers, Riders. Color is not the only squad cue (V / A / R letters). |
 | S-09 Physical phone | Repeat S-01, S-03, S-05, S-06, S-07 on a real phone, including a weaker device if available. | Same rules. A desktop pointer at phone width is **not** this row. |
 | S-10 Stateless boundary | Do **not** diff an actively ticking normal world. Run the existing probe from repo root: `npm run check:practice-persistence`. | Probe uses a disposable DB, AI off. Expect HTTP 200/200/200 + 400, identical replay, durable DB/WAL/rows unchanged. Practice does not grant troops/resources or bump world version. |
@@ -66,10 +67,12 @@ Record for each: date, commit SHA, place hash if known, observed outcome, casual
 
 ## Honest labels
 
-| Evidence | Status until Adam runs this pack |
+| Evidence | Status 2026-09-11 |
 |---|---|
 | Source review + automated tests | Recorded in HANDBACK for this continuation |
-| Actual Studio behavior | **not verified** |
-| Physical-phone input | **not verified** |
-| Unfamiliar-player understanding | **not verified** |
+| S-01 Studio Play (iPhone XR emulator 896×414, `41d541e`) | **PASS** — FORT TAKEN; losses 5 / 5 / 4; training-only line present. See [S-01 note](2026-09-11-practice-studio-s01.md). |
+| S-02 through S-08 Studio behavior | **not verified** — S-03+ were not run. S-07 must be re-checked on the rebuild that includes `TouchScroll`. |
+| Physical-phone input (S-09) | **not verified** |
+| Unfamiliar-player understanding | **not verified** — reaching Practice siege required Adam’s help on this session |
 | Two-client ownership/privacy | not required to close practice teaching; still **not verified** for the wider game |
+| G-01 | **open** — one S-01 emulator PASS is not enough |

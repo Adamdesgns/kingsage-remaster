@@ -45,6 +45,7 @@ local TimeUtil = require(shared:WaitForChild("TimeUtil"))
 local BattleScene = require(script:WaitForChild("BattleScene"))
 local PracticeSiege = require(script:WaitForChild("PracticeSiege"))
 local Celebration = require(script:WaitForChild("Celebration"))
+local TouchScroll = require(script:WaitForChild("TouchScroll"))
 local Paddock = require(script:WaitForChild("Paddock"))
 local Villagers = require(script:WaitForChild("Villagers"))
 
@@ -1146,7 +1147,7 @@ local function actionRow(parent: Instance, order: number, text: string, buttonTe
 	button.TextWrapped = true
 	button.Text = buttonText
 	button.Parent = row
-	button.Activated:Connect(onClick)
+	button.Activated:Connect(TouchScroll.protect(onClick))
 	return row
 end
 
@@ -1175,7 +1176,7 @@ local function dualActionRow(parent: Instance, order: number, text: string, left
 		button.TextWrapped = true
 		button.Text = action.label
 		button.Parent = actions
-		button.Activated:Connect(action.onClick)
+		button.Activated:Connect(TouchScroll.protect(action.onClick))
 	end
 	return row
 end
@@ -1952,8 +1953,17 @@ function buildTablePanel()
 	scroll.CanvasSize = UDim2.new()
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.BackgroundTransparency = 1
-	scroll.ScrollBarThickness = 6
+	scroll.Active = true
+	scroll.ScrollingEnabled = true
+	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
+	-- TouchScroll clamps CanvasPosition on every move; native elastic overshoot
+	-- would fight that clamp at both ends and jitter under a finger.
+	scroll.ElasticBehavior = Enum.ElasticBehavior.Never
+	scroll.ScrollBarThickness = 10
+	scroll.ScrollBarImageTransparency = 0
+	scroll.ScrollBarImageColor3 = HUD_GOLD
 	scroll.Parent = panel
+	TouchScroll.bind(scroll, "RouteCanvas")
 	local layout = Instance.new("UIListLayout")
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Padding = UDim.new(0, 4)

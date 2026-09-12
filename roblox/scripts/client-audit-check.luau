@@ -148,6 +148,7 @@ local env = {
 	Instance = { new = instance }, Enum = enum, UDim = { new = dim }, UDim2 = { new = dim2 },
 	Color3 = { fromRGB = function(...) return { ... } end, new = function(...) return { ... } end },
 	Buildings = Buildings, latest = latest, panelRows = {},
+	TouchScroll = { protect = function(callback) return callback end, bind = function() end },
 	invokeQueue = function(request) table.insert(requests, request) end,
 	buildTablePanel = function() end, myKingdomId = function() return "mine" end,
 	musterCount = function() return 0, 0 end, attackPlan = Buildings.defaultAttackPlan(), rideWithNobles = false,

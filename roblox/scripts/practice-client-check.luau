@@ -91,16 +91,29 @@ local function drainTasks()
 end
 
 local Config = luau.load(fs.readFile("roblox/src/shared/PracticeSiegeConfig.luau"))()
-local inputService = { InputChanged = signal(), InputEnded = signal() }
+local inputService = { InputChanged = signal(), InputEnded = signal(), InputBegan = signal(),
+	GetMouseLocation = function() return roblox.Vector2.new(0, 0) end }
 local shared = { WaitForChild = function(_, name) return name end }
 local storage = { WaitForChild = function() return shared end }
+local TouchScroll = luau.load(fs.readFile("roblox/src/client/TouchScroll.luau"), { environment = {
+	game = { GetService = function(_, name)
+		assert(name == "UserInputService")
+		return inputService
+	end },
+	Enum = enum, Vector2 = roblox.Vector2,
+}})()
 local planner = luau.load(fs.readFile("roblox/src/client/PracticeSiege.luau"), { environment = {
 	game = { GetService = function(_, name)
 		if name == "ReplicatedStorage" then return storage end
 		if name == "UserInputService" then return inputService end
 		error("unexpected planner service: " .. name)
 	end },
-	require = function(name) assert(name == "PracticeSiegeConfig"); return Config end,
+	script = { Parent = { WaitForChild = function(_, name) return name end } },
+	require = function(name)
+		if name == "PracticeSiegeConfig" then return Config end
+		if name == "TouchScroll" then return TouchScroll end
+		error("unexpected planner require: " .. tostring(name))
+	end,
 	Instance = { new = instance }, Enum = enum, UDim = roblox.UDim, UDim2 = roblox.UDim2,
 	Vector2 = roblox.Vector2, Color3 = roblox.Color3, task = fakeTask,
 } })()
