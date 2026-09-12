@@ -1,13 +1,14 @@
 # Practice siege Studio / phone test pack
 
-**Date:** 2026-09-10; evidence updated 2026-09-11
+**Date:** 2026-09-10; evidence updated 2026-09-11; reconciliation 2026-09-12
 **Author:** [Cursor]
-**Source revision last observed in Studio:** `cursor/practice-phase1-d06-c4e2` @ `41d541e` (code increment `01e173f`).
-**Source revision that adds the touch-scroll helper:** the continuation tip that contains `roblox/src/client/TouchScroll.luau`. Rebuild the place before judging scroll. Re-record the SHA if this file moves again.
+**Code source of truth now:** `cursor/practice-touch-scroll-da9e` @ `bdcef2e` (PR #8). Full SHA `bdcef2e7c16a6fa83215d2c34a0e2e07bf449bfd`.
+**Source revision last observed in Studio:** `cursor/practice-phase1-d06-c4e2` @ `41d541e` (code increment `01e173f`). That Play is **older than the scroll fix**.
+**Source revision that adds the touch-scroll helper:** `bdcef2e` contains `roblox/src/client/TouchScroll.luau` with wheel event position and one-finger drag ownership. Rebuild the place from **this** SHA before judging scroll. Re-record the place hash if the file is rebuilt.
 **Place:** `roblox/WorldGame-dev.rbxlx` built from `roblox/default.project.json`.
 **Server for Play:** isolated loopback world on `127.0.0.1:4178` with a **fresh disposable** SQLite file. Do not use the live world.
 
-This pack is for Adam when computer control and a physical phone are available. Cloud/Cursor cannot operate Studio or a phone. **G-01 stays open.** S-01 was observed in Studio Play on 2026-09-11; that one row does not close the gate. Written record: [2026-09-11 S-01 note](2026-09-11-practice-studio-s01.md).
+This pack is for Adam / Morgan when computer control and a physical phone are available. Cloud/Cursor cannot operate Studio or a phone. **G-01 stays open.** S-01 was observed in Studio Play on 2026-09-11 on `41d541e` with **Adam-assisted navigation** after the list would not wheel-scroll. That is **not** an independent bot PASS and is **not** acceptance of `bdcef2e`. Written record: [2026-09-11 S-01 note](2026-09-11-practice-studio-s01.md). Branch map and S-03 live assertions: [2026-09-12 reconciliation](2026-09-12-practice-branch-reconciliation.md).
 
 Pinned plans live in `packages/game-core/src/practice-siege-fixtures.ts`. Do not invent a different “winning” route after seeing a result.
 
@@ -48,7 +49,7 @@ Record for each: date, commit SHA, place hash if known, observed outcome, casual
 |---|---|---|
 | S-01 Reset teaching plan | Open War → Practice siege. **Do not redraw.** Tap **Try this plan**. | **FORT TAKEN**. Losses **5 / 5 / 4**. Gate opens. All three squads enter through the open gate. Outcome line: `Training only. Your city troops and stock did not change.` |
 | S-02 Three drawn routes | **Reset all routes**. Manually draw Vanguard through GATE, Archers through WEST then GATE, Riders through EAST then GATE. Submit. | Same family as S-01 if the drawn points match the teaching defaults. If the line wanders through tower range longer, casualties may rise, but squads enter **only** if they cross at the opened gate. |
-| S-03 No-gate-team failure | From the teaching drawings (Reset if needed). Tap **Try without a gate team**. Do not redraw. Submit. | Banner: `No squad is opening the gate. Crossing the gate mark is not enough.` **FORT HELD**. Losses **8 / 7 / 5**. Reasons include `No squad was sent to open the gate` and three `gate is the only way in` / blocked-at-wall lines **even though the lines still cross x 50**. |
+| S-03 No-gate-team failure | From the teaching drawings (Reset if needed). Tap **Try without a gate team**. Do not redraw. Submit. | **Before submit:** emphasized line `No squad is opening the gate. Crossing the gate mark is not enough.`; status `No squad is opening the gate. Everyone will be stopped at the wall. Try this plan, then reset and compare.` **After submit:** outcome banner **FORT HELD** (not TAKEN). Losses **Vanguard 8 · Archers 7 · Riders 5**. Revealed reasons include `No squad was sent to open the gate.` and three `{Vanguard\|Archers\|Riders} reached x 50, but the gate is the only way in and it was closed or missed.` lines **even though the drawings still cross x 50**. No squad enters. Full live checklist: [reconciliation S-03](2026-09-12-practice-branch-reconciliation.md#s-03-live-studio-assertions-current-build). |
 | S-04 One-target causality | Run S-01, then S-03, without changing any drawn points. | The **only** tactical change is Vanguard’s target: Gate → Keep. Same routes, same `guardGate` defense. First: TAKEN 5 / 5 / 4. Second: HELD 8 / 7 / 5. Do **not** use the retired `holdKeep` Rider x-50 vs x-40 pair — the planner cannot submit that. Optional freehand miss-the-gate (`PRACTICE_LOSING_CLOSED_GATE_PLAN`) is extra geometry, not this row. |
 | S-05 Invalid input | Enter a decimal or backtracking route (or clear a route so it misses its target). Submit. | No server success card. Status names the squad and the problem. Routes remain editable. |
 | S-06 Reset / retry / interrupt / skip / previous | Submit, then Reset or Back before the result returns. Submit again after a rejected plan. On a later success, tap **Show all reasons**, then **Previous reason** until a later line disappears. Step back to the start: Previous hides; Show all remains. | Late results must not resurrect. Retry sends again. Reset restores the teaching defaults (Vanguard target Gate). Skip reveals every reason immediately. Previous steps back one reason. Outcome still says training-only / city unchanged. |
@@ -67,12 +68,21 @@ Record for each: date, commit SHA, place hash if known, observed outcome, casual
 
 ## Honest labels
 
-| Evidence | Status 2026-09-11 |
+| Evidence | Status 2026-09-12 |
 |---|---|
-| Source review + automated tests | Recorded in HANDBACK for this continuation |
-| S-01 Studio Play (iPhone XR emulator 896×414, `41d541e`) | **PASS** — FORT TAKEN; losses 5 / 5 / 4; training-only line present. See [S-01 note](2026-09-11-practice-studio-s01.md). |
-| S-02 through S-08 Studio behavior | **not verified** — S-03+ were not run. S-07 must be re-checked on the rebuild that includes `TouchScroll`. |
-| Physical-phone input (S-09) | **not verified** |
-| Unfamiliar-player understanding | **not verified** — reaching Practice siege required Adam’s help on this session |
+| Source review + automated tests on `bdcef2e` | Fresh cloud rerun recorded in HANDBACK for `cursor/practice-pack-reconcile-dfeb` |
+| S-01 Studio Play (iPhone XR emulator 896×414, **`41d541e` only**) | **PASS on that older tip, Adam-assisted.** FORT TAKEN; losses 5 / 5 / 4; training-only line present. Reaching Practice siege needed Adam’s help because the list would not wheel-scroll. **Not** an independent bot PASS. **Not** a `bdcef2e` result. See [S-01 note](2026-09-11-practice-studio-s01.md). |
+| S-01 live Studio on `bdcef2e` | **NOT RUN** |
+| S-02 Studio | **NOT RUN** |
+| S-03 Studio | **NOT RUN** — automated pin is FORT HELD 8/7/5; live checklist in the reconciliation note |
+| S-04 Studio | **NOT RUN** |
+| S-05 Studio | **NOT RUN** |
+| S-06 Studio | **NOT RUN** |
+| S-07 Studio on `bdcef2e` (`TouchScroll`) | **NOT RUN** — required next acceptance. Do not reuse the 2026-09-11 scroll-failure session as a pass. |
+| S-08 Studio 320/390 | **NOT RUN** |
+| S-09 physical phone | **NOT RUN** — a desktop pointer or Studio emulator at phone width is **not** this row |
+| S-10 persistence probe | Automated; see HANDBACK for this rerun |
+| Unfamiliar-player understanding (G-01) | **not verified** — the only Studio S-01 needed coaching to reach the planner |
 | Two-client ownership/privacy | not required to close practice teaching; still **not verified** for the wider game |
-| G-01 | **open** — one S-01 emulator PASS is not enough |
+| G-01 | **open** — Adam-assisted S-01 on `41d541e` is not enough |
+| G-02 opening-design answers | **open** — **not** a desktop-emulator pass; Adam written yes/no only. Green gates do not start Phase 2. |

@@ -1,4 +1,67 @@
-# HANDBACK — scroll fix reviewed on the PC, Rojo-built, two input defects fixed; G-01 still open
+# HANDBACK — PR #7/#8 reconciled on `bdcef2e`; automated gates green; G-01 still open
+
+**Updated:** 2026-09-12 by [Cursor] (cloud). **Working branch:** `cursor/practice-pack-reconcile-dfeb` off `cursor/practice-touch-scroll-da9e` @ `bdcef2e`.
+**Code source of truth:** PR #8 `cursor/practice-touch-scroll-da9e` @ `bdcef2e7c16a6fa83215d2c34a0e2e07bf449bfd`.
+**Parent line:** draft PR #7 `cursor/practice-phase1-d06-c4e2` @ `41d541e9cabc5c6006b1e9f57fd17be39aaa7b6d`.
+**Release boundary:** no merge to `main`, no Roblox publish, no deploy, no Phase 2.
+
+## Current milestone
+
+Phase 1 practice siege. Remote heads already matched: continue **PR #8 / `bdcef2e`**. This continuation adds no second scroll fix. It records the pack matrix, S-03 live Studio assertions, and a fresh automated-gate rerun. **G-01 is not closed.** S-09 and G-02 are not desktop-emulator passes.
+
+## Reconciliation (do not invent a duplicate scroll fix)
+
+| Ref | Full SHA | Role |
+|---|---|---|
+| `cursor/practice-touch-scroll-da9e` | `bdcef2e7c16a6fa83215d2c34a0e2e07bf449bfd` | PR #8. Continue this. |
+| `cursor/practice-phase1-d06-c4e2` | `41d541e9cabc5c6006b1e9f57fd17be39aaa7b6d` | Draft PR #7 parent. |
+| `feat/practice-siege-codex` | `add2cd2c76eb20cb54ef290ba00ceb3e1c437948` | PR #7 base. |
+| `main` | `9b478db8333a330b2bb309e9b3c01896ebf6c255` | Do not merge. |
+
+Written map: [2026-09-12 reconciliation](docs/verification/2026-09-12-practice-branch-reconciliation.md).
+
+## Live Studio / phone matrix (honest)
+
+| ID | Status |
+|---|---|
+| S-01 on `41d541e` | PASS, **Adam-assisted navigation**. FORT TAKEN 5/5/4. **Not** an independent bot PASS. Does not transfer to `bdcef2e`. |
+| S-01 on `bdcef2e` | **NOT RUN** |
+| S-02 | **NOT RUN** |
+| S-03 | **NOT RUN** — expect FORT HELD, losses 8/7/5, `No squad was sent to open the gate.` See the reconciliation note. |
+| S-04 | **NOT RUN** |
+| S-05 | **NOT RUN** |
+| S-06 | **NOT RUN** |
+| S-07 on `bdcef2e` | **NOT RUN** — required next acceptance of `TouchScroll` |
+| S-08 | **NOT RUN** |
+| S-09 physical phone | **NOT RUN** — not an emulator pass |
+| S-10 persistence | **PASS** this rerun (disposable HTTP/SQLite; not Studio) |
+| G-01 | **open** |
+| G-02 | **open** — Adam written answers; not an emulator pass |
+
+## Automated gates this cloud rerun (Lune 0.10.5, TypeScript 5.9.3)
+
+| Command | Result |
+|---|---|
+| `npm run check:types` | pass — game-core/server type-clean |
+| `npm run test:core` | 104 passed, 0 failed |
+| `npm run test:server` | 139 passed, 0 failed |
+| `npm run test:luau` | 42 syntax; 72 rules; 7 simulations; 25 connections; 6 client audits; 272 contracts; 28 bridge; 12 planner; 54 wiring; **11 touch-scroll**; 0 failed |
+| `npm run check:practice-persistence` | HTTP 200/200/200 + 400; identical replay; durable DB/WAL/rows unchanged. DB `890e8309…edd9`; empty WAL `e3b0c442…b855`; rows `95dcf1ae…becc` |
+| Rojo | **not run** — not installed here |
+| Studio Play | **not verified** |
+| Physical phone | **not verified** |
+
+## Exact next action (Morgan / Adam on the PC)
+
+1. Check out **`bdcef2e`** (PR #8). Rebuild: `powershell -ExecutionPolicy Bypass -File roblox/start-dev.ps1 -BuildOnly -Play`. Play `roblox/WorldGame-dev.rbxlx` against a fresh disposable `127.0.0.1:4178` world. Confirm `TouchScroll` is in the place file.
+2. **S-07 first** on the iPhone XR emulator: wheel and a drag that starts on a button both move Village / War / the practice planner; drawing still owns the board; a second finger does nothing.
+3. **S-03 next:** Reset if needed → **Try without a gate team** → do not redraw → **Try this plan**. Must see emphasized `No squad is opening the gate. Crossing the gate mark is not enough.`, then **FORT HELD**, `Losses: Vanguard 8 · Archers 7 · Riders 5`, reason `No squad was sent to open the gate.`, and three blocked-at-wall lines at x 50. S-04 if time.
+4. **S-09** only on a physical phone. **G-02** only as Adam’s written answers. Neither is an emulator pass.
+5. Do not close G-01. Do not start Phase 2 because these gates are green. No merge, publish, or deploy.
+
+---
+
+# Previous handback — scroll fix reviewed on the PC, Rojo-built, two input defects fixed; G-01 still open
 
 **Updated:** 2026-09-11 evening by [Cursor] on Adam's PC. **Working branch:** `cursor/practice-touch-scroll-da9e` (PR #8) off `cursor/practice-phase1-d06-c4e2` @ `41d541e`.
 **Base PR line:** draft PR #7 (`cursor/practice-phase1-d06-c4e2` → `feat/practice-siege-codex`).
