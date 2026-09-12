@@ -33,6 +33,8 @@ Root cause in source (investigated after the session, not proven live on the new
 
 Client fix on the continuation branch: `roblox/src/client/TouchScroll.luau` writes `CanvasPosition` for wheel and for a drag that starts on a button, suppresses that click after the drag threshold, and stays out of `RouteCanvas` drawing / `ScrollingEnabled == false`. The Body scrollbar is 10px and stays visible. **This fix is source + Luau-stub verified, not Studio-verified.**
 
+**PC follow-up, 2026-09-11 evening ([Cursor] on Adam's PC):** the helper was reviewed against Roblox input semantics and two defects were fixed before any Studio run — the wheel hit-test used raw-screen `GetMouseLocation` against inset-space `AbsolutePosition`, and drags had no input identity so a second finger could steer the list or re-arm buttons. `Body.ElasticBehavior` is now `Never` so native overshoot cannot fight the helper's clamp. `check:touch-scroll` is 11 checks. The dev place was rebuilt with Rojo from that tip (SHA256 `D6CAE113…AFEC`). Still **not Studio-verified**; see `HANDBACK.md`.
+
 Adam mitigation until the rebuilt place is Play-tested: drag on the list (not only the wheel); look for the thicker gold scrollbar. Practice siege is the first War-tab action, not a Village-tab row.
 
 ## Remaining pack rows — still not verified

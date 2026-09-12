@@ -1956,7 +1956,9 @@ function buildTablePanel()
 	scroll.Active = true
 	scroll.ScrollingEnabled = true
 	scroll.ScrollingDirection = Enum.ScrollingDirection.Y
-	scroll.ElasticBehavior = Enum.ElasticBehavior.Always
+	-- TouchScroll clamps CanvasPosition on every move; native elastic overshoot
+	-- would fight that clamp at both ends and jitter under a finger.
+	scroll.ElasticBehavior = Enum.ElasticBehavior.Never
 	scroll.ScrollBarThickness = 10
 	scroll.ScrollBarImageTransparency = 0
 	scroll.ScrollBarImageColor3 = HUD_GOLD

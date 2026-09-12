@@ -244,6 +244,53 @@ inputService.InputChanged:Fire({
 assert(scroll.CanvasPosition.Y == 144, "emulator wheel events still move the bound list")
 pass("bound mouse-wheel reaches the list even when native ScrollingFrame wheel is dead")
 
+-- The wheel event's own Position is in AbsolutePosition space; GetMouseLocation
+-- is raw screen pixels and is only a fallback. Here the stub's GetMouseLocation
+-- points OUTSIDE the list while the event points inside: the list must move.
+inputService.GetMouseLocation = function()
+	return roblox.Vector2.new(900, 900)
+end
+inputService.InputChanged:Fire({
+	UserInputType = enum.UserInputType.MouseWheel,
+	Position = roblox.Vector3.new(40, 80, -1),
+})
+assert(scroll.CanvasPosition.Y == 192, "a wheel event over the list must scroll even when GetMouseLocation disagrees")
+inputService.InputChanged:Fire({
+	UserInputType = enum.UserInputType.MouseWheel,
+	Position = roblox.Vector3.new(400, 80, -1),
+})
+assert(scroll.CanvasPosition.Y == 192, "a wheel event beside the list must not scroll it")
+inputService.GetMouseLocation = function()
+	return roblox.Vector2.new(40, 120)
+end
+pass("wheel hit-test uses the event position, not the inset-shifted mouse location")
+
+-- Two fingers: the touch that began the drag is the only one that steers or
+-- ends it. A second finger cannot restart the drag from its own point, cannot
+-- move the list, and cannot re-arm the buttons under the first finger.
+scroll.CanvasPosition = roblox.Vector2.new(0, 100)
+local firstFinger = { UserInputType = enum.UserInputType.Touch, Position = roblox.Vector3.new(40, 150, 0) }
+local secondFinger = { UserInputType = enum.UserInputType.Touch, Position = roblox.Vector3.new(200, 60, 0) }
+inputService.InputBegan:Fire(firstFinger)
+firstFinger.Position = roblox.Vector3.new(40, 120, 0)
+inputService.InputChanged:Fire(firstFinger)
+assert(scroll.CanvasPosition.Y == 130, "the first finger scrolls the list")
+assert(TouchScroll.wasConsumed() == true)
+inputService.InputBegan:Fire(secondFinger)
+assert(TouchScroll.wasConsumed() == true, "a second finger must not re-arm buttons mid-drag")
+secondFinger.Position = roblox.Vector3.new(200, 200, 0)
+inputService.InputChanged:Fire(secondFinger)
+assert(scroll.CanvasPosition.Y == 130, "a second finger must not move the list")
+inputService.InputEnded:Fire(secondFinger)
+firstFinger.Position = roblox.Vector3.new(40, 100, 0)
+inputService.InputChanged:Fire(firstFinger)
+assert(scroll.CanvasPosition.Y == 150, "lifting the second finger must not end the first finger's drag")
+inputService.InputEnded:Fire(firstFinger)
+firstFinger.Position = roblox.Vector3.new(40, 50, 0)
+inputService.InputChanged:Fire(firstFinger)
+assert(scroll.CanvasPosition.Y == 150, "a lifted finger steers nothing")
+pass("only the finger that began the drag can steer or end it")
+
 local client = fs.readFile("roblox/src/client/init.client.luau")
 local planner = fs.readFile("roblox/src/client/PracticeSiege.luau")
 assert(string.find(client, 'local TouchScroll = require(script:WaitForChild("TouchScroll"))', 1, true),

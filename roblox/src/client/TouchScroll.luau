@@ -16,6 +16,11 @@ local listening = false
 local current: ScrollingFrame? = nil
 local blockedName = "RouteCanvas"
 local tracking = false
+-- The InputObject that owns the current drag. A touch keeps one object from
+-- Began through Ended, so a second finger (a different object) can neither
+-- restart nor steer the list. Mouse drags own MouseButton1 and accept
+-- MouseMovement, which Roblox delivers as a separate object.
+local trackingInput: any = nil
 local startY = 0
 local startCanvasY = 0
 
@@ -131,6 +136,60 @@ local function pointer(input: InputObject): (number, number, number)
 	return axis(input.Position, "X"), axis(input.Position, "Y"), axis(input.Position, "Z")
 end
 
+-- InputObject.Position shares the GuiObject.AbsolutePosition space (the same
+-- convention PracticeSiege's RouteCanvas hit-test relies on). GetMouseLocation
+-- does NOT: it is raw screen pixels, so it must be corrected by the GUI inset
+-- before it can be compared with AbsolutePosition. Only fall back to it when
+-- the wheel event carries no pointer position at all.
+local function wheelPointer(input: InputObject): (number, number)
+	local x, y = pointer(input)
+	if x ~= 0 or y ~= 0 then
+		return x, y
+	end
+	local ok, location = pcall(function()
+		return UserInputService:GetMouseLocation()
+	end)
+	if not ok or not location then
+		return x, y
+	end
+	local insetX, insetY = 0, 0
+	local insetOk, topLeftInset = pcall(function()
+		return (game:GetService("GuiService") :: any):GetGuiInset()
+	end)
+	if insetOk and topLeftInset then
+		insetX, insetY = axis(topLeftInset, "X"), axis(topLeftInset, "Y")
+	end
+	return axis(location, "X") - insetX, axis(location, "Y") - insetY
+end
+
+-- A change event steers the drag only when it belongs to the input that began
+-- it: the identical touch object, or mouse movement for a mouse-button drag.
+local function steersDrag(input: InputObject): boolean
+	if not tracking or trackingInput == nil then
+		return false
+	end
+	if input.UserInputType == Enum.UserInputType.Touch then
+		return input == trackingInput
+	end
+	if input.UserInputType == Enum.UserInputType.MouseMovement then
+		return trackingInput.UserInputType == Enum.UserInputType.MouseButton1
+	end
+	return false
+end
+
+local function endsDrag(input: InputObject): boolean
+	if not tracking or trackingInput == nil then
+		return false
+	end
+	if input.UserInputType == Enum.UserInputType.Touch then
+		return input == trackingInput
+	end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		return trackingInput.UserInputType == Enum.UserInputType.MouseButton1
+	end
+	return false
+end
+
 local function listen()
 	if listening then
 		return
@@ -145,11 +204,17 @@ local function listen()
 		if kind ~= Enum.UserInputType.Touch and kind ~= Enum.UserInputType.MouseButton1 then
 			return
 		end
+		if tracking then
+			-- A second finger during a list drag neither restarts the drag nor
+			-- re-arms the buttons under it.
+			return
+		end
 		consumed = false
-		tracking = false
+		trackingInput = nil
 		local x, y = pointer(input)
 		if TouchScroll.shouldBeginDrag(scroll, x, y, blockedName) then
 			tracking = true
+			trackingInput = input
 			startY = y
 			startCanvasY = axis(scroll.CanvasPosition, "Y")
 		end
@@ -160,24 +225,18 @@ local function listen()
 			return
 		end
 		if input.UserInputType == Enum.UserInputType.MouseWheel then
-			local x, y = pointer(input)
-			local location = UserInputService:GetMouseLocation()
-			if location then
-				x, y = axis(location, "X"), axis(location, "Y")
-			end
+			local x, y = wheelPointer(input)
 			if TouchScroll.pointerOver(scroll, x, y) then
 				TouchScroll.applyWheel(scroll, axis(input.Position, "Z"))
 			end
 			return
 		end
-		if not tracking then
-			return
-		end
-		if input.UserInputType ~= Enum.UserInputType.Touch and input.UserInputType ~= Enum.UserInputType.MouseMovement then
+		if not steersDrag(input) then
 			return
 		end
 		if scroll.ScrollingEnabled == false then
 			tracking = false
+			trackingInput = nil
 			return
 		end
 		local _, y = pointer(input)
@@ -186,8 +245,9 @@ local function listen()
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if endsDrag(input) then
 			tracking = false
+			trackingInput = nil
 		end
 	end)
 end

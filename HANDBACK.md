@@ -1,9 +1,52 @@
-# HANDBACK — S-01 Studio PASS recorded; touch-scroll fix in source; G-01 still open
+# HANDBACK — scroll fix reviewed on the PC, Rojo-built, two input defects fixed; G-01 still open
 
-**Updated:** 2026-09-11 by [Cursor]. **Working branch:** `cursor/practice-touch-scroll-da9e` off `cursor/practice-phase1-d06-c4e2` @ `41d541e`.
+**Updated:** 2026-09-11 evening by [Cursor] on Adam's PC. **Working branch:** `cursor/practice-touch-scroll-da9e` (PR #8) off `cursor/practice-phase1-d06-c4e2` @ `41d541e`.
 **Base PR line:** draft PR #7 (`cursor/practice-phase1-d06-c4e2` → `feat/practice-siege-codex`).
 
 ## Current milestone
+
+Phase 1 practice siege. D-06 teaching and a playable success / failure / one-target comparison remain in source. Adam + Morgan observed **S-01 PASS** in Studio Play on `41d541e`. The cloud continuation below added the war-table / planner scroll helper; this PC continuation reviewed it against real Roblox input semantics, fixed two defects, ran every gate **including the Rojo build the cloud could not run**, and rebuilt `roblox/WorldGame-dev.rbxlx` so Adam can open Studio and run S-07 / S-03 / S-04 directly. **G-01 is not closed.** Phase 2 and D-02 / OPEN-21 were not started.
+
+## PC continuation (2026-09-11 evening) — what changed and why
+
+Two defects in `TouchScroll.luau` found by reading it against Roblox's input model, neither visible to the runtime stubs as they stood:
+
+1. **Wheel hit-test used `UserInputService:GetMouseLocation()`**, which is raw screen pixels. `GuiObject.AbsolutePosition` and `InputObject.Position` share the *inset-adjusted* space (the same convention `PracticeSiege` uses for the RouteCanvas hit-test, proven live on 2026-09-04). With the top-bar inset (~58px) the wheel would have missed the top band of the list and hit a phantom band below it. Now the wheel event's own `Position.X/Y` is used; `GetMouseLocation` minus `GuiService:GetGuiInset()` is only a fallback when the event carries no position.
+2. **No input identity during a drag.** Any touch `InputChanged` steered the list and any touch `InputBegan` restarted the drag and re-armed the buttons. Two fingers would jitter the list and could re-enable a tap under the first finger — the exact S-07 second-finger case. The helper now remembers the `InputObject` that began the drag; only that touch (or `MouseMovement` for a `MouseButton1` drag) steers or ends it, and a second `InputBegan` during a drag is ignored.
+
+Also: `Body.ElasticBehavior` changed `Always` → `Never`. The helper clamps `CanvasPosition` on every move; native elastic overshoot would fight that clamp at both ends and jitter under a finger.
+
+Two new deletion-sensitive stub checks pin both fixes (`check:touch-scroll` is now **11** checks): a wheel event over the list must scroll even when `GetMouseLocation` points outside it, and only the finger that began a drag may steer or end it.
+
+**Built place:** `roblox/WorldGame-dev.rbxlx`, 418,456 bytes, SHA256 `D6CAE1131EC3A66ADB4BAB97EB2B6D54F86FE7E193A4E1B5B76E736BD200AFEC`, built with `start-dev.ps1 -BuildOnly -Play` from this tip. Verified the file contains the `TouchScroll` module, the `steersDrag` / `wheelPointer` fixes and `ElasticBehavior.Never`, and contains no production URL. Studio was **not** running at build time; nothing was Play-tested. The fresh AI-off loopback world on `127.0.0.1:4178` (PID 20752, `practice-pr7-20260910-170938.sqlite`) is still up and healthy — reuse it, do not start a second one.
+
+## Checks on this PC (tip of this continuation)
+
+| Command | Result |
+|---|---|
+| `npm run check:types` | pass |
+| `npm run test:core` | 104 passed, 0 failed |
+| `npm run test:server` | 139 passed, 0 failed |
+| `npm run test:luau` | 42 syntax files; 72 rules; 7 simulations; 25 connections; 6 client audits; 272 practice contracts; 28 bridge; 12 planner scenarios; 54 wiring; **11** touch-scroll; 0 failed |
+| `npm run check:practice-persistence` | exit 0; disposable HTTP 200/200/200 + 400; identical replay; durable rows unchanged |
+| `start-dev.ps1 -BuildOnly -Play` (Rojo 7.6.1) | **pass** — place rebuilt, fix present in the file |
+| Studio Play of `TouchScroll` | **not verified** |
+| Physical phone | **not verified** |
+
+## Exact next action
+
+1. **Adam:** open `roblox/WorldGame-dev.rbxlx` (already rebuilt from this tip), HTTP requests on, iPhone XR emulator, Play against the running `127.0.0.1:4178` world. **S-07:** mouse wheel over the War list scrolls it; a drag that starts on a button row scrolls without firing the button; a second finger during a drag does nothing. Then **S-03** (Try without a gate team → FORT HELD 8 / 7 / 5) and **S-04** if time. Record results in `docs/verification/` outside the repo's proof rule as before. None of that closes G-01.
+2. **Adam (still blocks G-01):** S-09 on a real phone; unfamiliar-player study; acceptance.
+3. **Adam (blocks G-02 / real PvP):** answer the two asks in `docs/plans/2026-09-10-opening-decisions-for-adam.md`.
+
+---
+
+# Previous handback — S-01 Studio PASS recorded; touch-scroll fix in source; G-01 still open
+
+**Updated:** 2026-09-11 by [Cursor] (cloud). **Working branch:** `cursor/practice-touch-scroll-da9e` off `cursor/practice-phase1-d06-c4e2` @ `41d541e`.
+**Base PR line:** draft PR #7 (`cursor/practice-phase1-d06-c4e2` → `feat/practice-siege-codex`).
+
+## Current milestone (cloud, 2026-09-11)
 
 Phase 1 practice siege. D-06 teaching and a playable success / failure / one-target comparison remain in source. Adam + Morgan observed **S-01 PASS** in Studio Play on the previous tip. This continuation records that evidence honestly and fixes the war-table / planner scroll blocker that stopped them reaching Practice siege. **G-01 is not closed.** Phase 2 and D-02 / OPEN-21 were not started.
 
