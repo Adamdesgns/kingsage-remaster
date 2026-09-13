@@ -6,11 +6,11 @@
 **Place:** `roblox/WorldGame-dev.rbxlx`.
 **Device:** Studio device emulator, iPhone XR landscape **896×414**. Not a physical phone.
 
-This note records what was actually seen. It does **not** close G-01.
+This note records what was actually seen. It does **not** close G-01. It is **not** an independent bot PASS: reaching Practice siege required Adam’s help after the war table would not wheel-scroll. It is **not** acceptance of `bdcef2e` / `TouchScroll`. Fresh S-07 then S-03 belong on that later tip — see [2026-09-12 reconciliation](2026-09-12-practice-branch-reconciliation.md) and the [2026-09-13 boot runbook](2026-09-13-morgan-studio-boot-runbook.md).
 
-## S-01 — observed PASS
+## S-01 — observed PASS on `41d541e` only (Adam-assisted navigation)
 
-Adam + Morgan ran **S-01 Reset teaching plan** in Studio Play: War → Practice siege, no redraw, **Try this plan**.
+Adam + Morgan ran **S-01 Reset teaching plan** in Studio Play: War → Practice siege, no redraw, **Try this plan**. Navigation to that screen was **Adam-assisted**. Do not cite this row as an unaided or bot-driven PASS.
 
 Observed result panel:
 
@@ -41,18 +41,18 @@ Adam mitigation until the rebuilt place is Play-tested: drag on the list (not on
 
 | ID | Status after 2026-09-11 |
 |---|---|
-| S-01 | **Studio PASS** on `41d541e` / iPhone XR emulator 896×414 |
+| S-01 | **Studio PASS** on `41d541e` / iPhone XR emulator 896×414 — **Adam-assisted navigation, not an independent bot PASS.** Live Studio on `bdcef2e`: **NOT RUN**. |
 | S-02 | not run |
-| S-03 | not run |
+| S-03 | not run — live assertions for `bdcef2e` are in the 2026-09-12 reconciliation note |
 | S-04 | not run |
 | S-05 | not run |
 | S-06 | not run |
-| S-07 | not run (drawing vs scrolling). The scroll helper is new; re-check after rebuild. |
+| S-07 | **NOT RUN** on the `TouchScroll` tip (`bdcef2e`). Required next Studio acceptance. The 2026-09-11 session is the scroll *failure*. |
 | S-08 | not run |
-| S-09 | **not verified** — physical phone was not used |
-| S-10 | automated persistence probe; rerun on the continuation tip |
+| S-09 | **not verified** — physical phone was not used. A desktop emulator is not this row. |
+| S-10 | automated persistence probe; rerun on the `bdcef2e` / reconciliation tip |
 
-Unfamiliar-player understanding was **not** verified. Coaching was required to reach Practice siege. That is evidence G-01 stays open, not evidence it closed.
+Unfamiliar-player understanding was **not** verified. Coaching was required to reach Practice siege. That is evidence G-01 stays open, not evidence it closed. Do not treat this S-01 as an independent bot PASS for `41d541e` or for any later tip.
 
 ## What this does not authorize
 
