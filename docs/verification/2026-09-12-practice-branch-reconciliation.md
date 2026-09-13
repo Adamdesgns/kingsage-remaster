@@ -10,6 +10,8 @@
 
 This note reconciles the two open practice PRs with current remote heads, maps the Studio pack, and tells Morgan exactly which revision to load for **S-07 then S-03**.
 
+**Cold-boot (PC was shut down):** follow [2026-09-13 Morgan Studio boot runbook](2026-09-13-morgan-studio-boot-runbook.md) first. The leftover 2026-09-11 :4178 world is gone. Inspect before killing anything.
+
 ## Remote heads (fetched 2026-09-12)
 
 | Ref | Full SHA | Role |
@@ -49,10 +51,10 @@ Pinned teaching results stay in `packages/game-core/src/practice-siege-fixtures.
 | **S-06** | Reset / retry / interrupt / **Show all reasons** / **Previous reason**. | Automated Luau planner checks exist. Live Studio **NOT RUN**. |
 | **S-07** | Village + War: wheel and a drag that starts on a 44px action row both move the list. Practice: drag from **Try this plan** / teaching copy to the board and back. Draw with one finger; a second finger must not change squad, target, or submit. | Source + 11 Luau stub checks. Live Studio on `bdcef2e` is the **next required acceptance** and is **NOT RUN**. The 2026-09-11 emulator session is the bug, not the fix. |
 | **S-08** | 320px and 390px: action buttons ≥ 44px, teaching wraps, squads read Vanguard / Archers / Riders with V / A / R letters. | Automated 320/390 client checks exist. Live Studio **NOT RUN**. |
-| **S-09** | Repeat S-01, S-03, S-05, S-06, S-07 on a **physical phone**. | **NOT a desktop-emulator pass.** **NOT RUN.** |
+| **S-09** | Repeat S-01, S-03, S-05, S-06, S-07 on a **physical phone**. | **Adam-written. NOT a desktop-emulator pass.** **NOT RUN.** |
 | **S-10** | `npm run check:practice-persistence` on a disposable DB. | Automated probe. Fresh result recorded in HANDBACK for this rerun. |
 | **G-01** | Unfamiliar-player understanding + Adam acceptance. Five testers; at least four complete unaided and explain one target/route change; all understand practice troops are not city troops. | **OPEN.** One Adam-assisted S-01 on `41d541e` does not close it. |
-| **G-02** | Opening-design contract: D-01 / D-02-storage / D-08 / D-09 / D-10 plus the mutual first-war rule. | **NOT a desktop-emulator pass.** Adam yes/no only. See `docs/plans/2026-09-10-opening-decisions-for-adam.md`. Silence is not approval. Green automated gates do **not** start Phase 2. |
+| **G-02** | Opening-design contract: D-01 / D-02-storage / D-08 / D-09 / D-10 plus the mutual first-war rule. | **Adam-written only. NOT an emulator pass.** See `docs/plans/2026-09-10-opening-decisions-for-adam.md`. Silence is not approval. Green automated gates do **not** start Phase 2. |
 
 ## S-03 live Studio assertions (current build)
 
@@ -96,6 +98,8 @@ Pinned fixture: `PRACTICE_NO_GATE_TEAM_PLAN`. Resolver pin: `defenderWin`, casua
 S-04 (same session, no redraw) is the comparison: Reset / Try this plan → FORT TAKEN 5/5/4, then this row again. The only tactical change is Vanguard’s target. Do not use the retired `holdKeep` Rider x-50 vs x-40 pair.
 
 ## How to load this exact revision in Studio
+
+**Operational checklist (inspect, detach `bdcef2e`, `-BuildOnly -Play`, health GET, S-07 then S-03):** [2026-09-13 boot runbook](2026-09-13-morgan-studio-boot-runbook.md). Summary below.
 
 Cloud / this agent cannot operate Studio or a phone. Adam or Morgan on the PC:
 

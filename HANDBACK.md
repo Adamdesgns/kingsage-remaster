@@ -1,13 +1,17 @@
-# HANDBACK — PR #7/#8 reconciled on `bdcef2e`; automated gates green; G-01 still open
+# HANDBACK — boot-ready Studio runbook for Morgan; PC was shut down; G-01 still open
 
-**Updated:** 2026-09-12 by [Cursor] (cloud). **Working branch:** `cursor/practice-pack-reconcile-dfeb` off `cursor/practice-touch-scroll-da9e` @ `bdcef2e`.
+**Updated:** 2026-09-13 by [Cursor] (cloud; AlienAdam PC shut down). **Working branch:** `cursor/practice-pack-reconcile-dfeb` off `cursor/practice-touch-scroll-da9e` @ `bdcef2e`.
 **Code source of truth:** PR #8 `cursor/practice-touch-scroll-da9e` @ `bdcef2e7c16a6fa83215d2c34a0e2e07bf449bfd`.
 **Parent line:** draft PR #7 `cursor/practice-phase1-d06-c4e2` @ `41d541e9cabc5c6006b1e9f57fd17be39aaa7b6d`.
-**Release boundary:** no merge to `main`, no Roblox publish, no deploy, no Phase 2.
+**Release boundary:** no merge to `main`, no Roblox publish, no deploy, no Phase 2. Docs only.
 
 ## Current milestone
 
-Phase 1 practice siege. Remote heads already matched: continue **PR #8 / `bdcef2e`**. This continuation adds no second scroll fix. It records the pack matrix, S-03 live Studio assertions, and a fresh automated-gate rerun. **G-01 is not closed.** S-09 and G-02 are not desktop-emulator passes.
+Phase 1 practice siege. Continue **PR #8 / `bdcef2e`**. This increment adds no gameplay change and no second scroll fix. It adds the cold-boot Studio runbook Morgan can follow when the PC is back: exact `bdcef2e` load, `-BuildOnly -Play` → `roblox/WorldGame-dev.rbxlx`, disposable `GET http://127.0.0.1:4178/api/health` → `{ok:true, service:"kingsage-world", contractVersion:1}`, inspect-before-kill, then **S-07 then S-03**. **G-01 is not closed.** S-09 is physical-phone / Adam-written. G-02 is Adam-written. Green automated gates are not a Studio PASS.
+
+The 2026-09-11 leftover loopback world (PID 20752, `practice-pr7-20260910-170938.sqlite`) **is gone with the shutdown**. Do not look for it. Inspect after boot.
+
+**Morgan’s first file:** [2026-09-13 Studio boot runbook](docs/verification/2026-09-13-morgan-studio-boot-runbook.md).
 
 ## Reconciliation (do not invent a duplicate scroll fix)
 
@@ -53,11 +57,14 @@ Written map: [2026-09-12 reconciliation](docs/verification/2026-09-12-practice-b
 
 ## Exact next action (Morgan / Adam on the PC)
 
-1. Check out **`bdcef2e`** (PR #8). Rebuild: `powershell -ExecutionPolicy Bypass -File roblox/start-dev.ps1 -BuildOnly -Play`. Play `roblox/WorldGame-dev.rbxlx` against a fresh disposable `127.0.0.1:4178` world. Confirm `TouchScroll` is in the place file.
-2. **S-07 first** on the iPhone XR emulator: wheel and a drag that starts on a button both move Village / War / the practice planner; drawing still owns the board; a second finger does nothing.
-3. **S-03 next:** Reset if needed → **Try without a gate team** → do not redraw → **Try this plan**. Must see emphasized `No squad is opening the gate. Crossing the gate mark is not enough.`, then **FORT HELD**, `Losses: Vanguard 8 · Archers 7 · Riders 5`, reason `No squad was sent to open the gate.`, and three blocked-at-wall lines at x 50. S-04 if time.
-4. **S-09** only on a physical phone. **G-02** only as Adam’s written answers. Neither is an emulator pass.
-5. Do not close G-01. Do not start Phase 2 because these gates are green. No merge, publish, or deploy.
+Follow [the 2026-09-13 boot runbook](docs/verification/2026-09-13-morgan-studio-boot-runbook.md) in order. Short form:
+
+1. Inspect Studio / :4178. Do not kill unknowns. The old PID 20752 world is dead.
+2. Detach **`bdcef2e7c16a6fa83215d2c34a0e2e07bf449bfd`**. Rebuild only: `powershell -ExecutionPolicy Bypass -File roblox/start-dev.ps1 -BuildOnly -Play` → `roblox/WorldGame-dev.rbxlx`.
+3. If 4178 is free, start a **fresh disposable** AI-off world. `GET http://127.0.0.1:4178/api/health` must be `{ok:true, service:"kingsage-world", contractVersion:1}`.
+4. **S-07 first**, then **S-03** (FORT HELD, losses 8 / 7 / 5, no-gate explanation). Exact copy is in the runbook.
+5. **S-09** only on a physical phone (Adam writes it). **G-02** only as Adam’s written answers. Neither is an emulator pass.
+6. Do not close G-01. Do not start Phase 2 because automated gates are green. No merge, publish, or deploy.
 
 ---
 

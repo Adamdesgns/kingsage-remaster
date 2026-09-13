@@ -6,7 +6,7 @@
 **Place:** `roblox/WorldGame-dev.rbxlx`.
 **Device:** Studio device emulator, iPhone XR landscape **896×414**. Not a physical phone.
 
-This note records what was actually seen. It does **not** close G-01. It is **not** an independent bot PASS: reaching Practice siege required Adam’s help after the war table would not wheel-scroll. It is **not** acceptance of `bdcef2e` / `TouchScroll`. Fresh S-07 then S-03 belong on that later tip — see [2026-09-12 reconciliation](2026-09-12-practice-branch-reconciliation.md).
+This note records what was actually seen. It does **not** close G-01. It is **not** an independent bot PASS: reaching Practice siege required Adam’s help after the war table would not wheel-scroll. It is **not** acceptance of `bdcef2e` / `TouchScroll`. Fresh S-07 then S-03 belong on that later tip — see [2026-09-12 reconciliation](2026-09-12-practice-branch-reconciliation.md) and the [2026-09-13 boot runbook](2026-09-13-morgan-studio-boot-runbook.md).
 
 ## S-01 — observed PASS on `41d541e` only (Adam-assisted navigation)
 
