@@ -497,6 +497,75 @@ end
 drainTasks()
 pass("result names training-only and can step back through reasons")
 
+local function held(controller)
+	local request = controller:_request(); request.kind = nil
+	return { ok = true, practiceSiege = {
+		mode = "practice", validated = request, outcome = "defenderWin",
+		headline = "No squad was sent to open the gate, so every squad was stopped at the wall.",
+		fixedForces = {
+			attacker = { vanguard = 18, archers = 14, riders = 10 },
+			defender = { gate = 17, westTower = 5, eastTower = 5, barricade = 6, keep = 10 },
+		},
+		attackerCasualties = { vanguard = 8, archers = 7, riders = 5, total = 20 },
+		defenderCasualties = { gate = 0, westTower = 5, eastTower = 5, barricade = 0, keep = 0, total = 10 },
+		phaseEvents = {
+			{ phase = "wall", code = "objectiveSkipped", text = "No squad was sent to open the gate.", casualties = 0 },
+			{ phase = "wall", code = "blockedAtWall", text = "Vanguard reached the gate at x 50, but no squad was sent to open it, so the closed gate stopped them like a wall.", casualties = 7 },
+			{ phase = "keep", code = "siegeLost", text = "No squad reached the keep doors, so the defenders held the practice fort.", casualties = 0 },
+		},
+		reasons = { "No squad was sent to open the gate.", "Vanguard reached the gate at x 50, but no squad was sent to open it, so the closed gate stopped them like a wall.", "No squad reached the keep doors, so the defenders held the practice fort." },
+	} }
+end
+
+do
+	local controller, _, callbacks = newController()
+	local root = build(controller, 390)
+	find(root, "LoadNoGateTeam").Activated:Fire()
+	assert(string.find(controller.status, "Vanguard now aims for the keep", 1, true), controller.status)
+	assert(string.find(controller.status, "still cross the gate mark", 1, true), controller.status)
+	root = build(controller, 320)
+	controller:_submit()
+	callbacks[1](held(controller))
+	root = build(controller, 320)
+	assert(text(root, "FORT HELD"), "held outcome absent")
+	assert(not text(root, "FORT TAKEN"), "held outcome must not also claim the fort was taken")
+	assert(text(root, "No squad is opening the gate. Crossing the gate mark is not enough."), "no-gate banner missing after the result")
+	local why = find(root, "PracticeHeadline")
+	assert(why.Text == "Why: No squad was sent to open the gate, so every squad was stopped at the wall.", why.Text)
+	assert(why.TextWrapped, "headline must wrap at 320")
+	assert(find(root, "PracticeLosses").Text == "Losses: Vanguard 8 of 18 · Archers 7 of 14 · Riders 5 of 10", find(root, "PracticeLosses").Text)
+	assert(find(root, "PracticeDefenderLosses").Text == "Defenders: 10 of 43 fell.", find(root, "PracticeDefenderLosses").Text)
+	assert(text(root, "Training only"), "held outcome lost the training-only line")
+	find(root, "SkipPracticeReplay").Activated:Fire()
+	root = build(controller, 320)
+	assert(text(root, "closed gate stopped them like a wall"), "the precise wall reason was not rendered")
+	assert(string.find(controller.status, "fort held", 1, true), controller.status)
+	controller:hide()
+end
+drainTasks()
+pass("FORT HELD renders the realm's one-line cause, losses out of the practice army, and defender losses")
+
+do
+	local controller, _, callbacks = newController()
+	local root = build(controller, 390)
+	controller:_submit()
+	local reply = held(controller)
+	reply.practiceSiege.headline = nil
+	reply.practiceSiege.fixedForces = nil
+	callbacks[1](reply)
+	root = build(controller, 390)
+	assert(text(root, "FORT HELD"), "held outcome absent without optional fields")
+	assert(find(root, "PracticeLosses").Text == "Losses: Vanguard 8 · Archers 7 · Riders 5", find(root, "PracticeLosses").Text)
+	local headline = nil
+	for _, child in root:GetDescendants() do
+		if child.Name == "PracticeHeadline" or child.Name == "PracticeDefenderLosses" then headline = child end
+	end
+	assert(headline == nil, "optional explanation fields must not render empty lines")
+	controller:hide()
+end
+drainTasks()
+pass("a result without headline or force totals still renders its outcome and plain losses")
+
 do
 	for _, close in { "reset", "hide" } do
 		local controller, _, callbacks = newController()

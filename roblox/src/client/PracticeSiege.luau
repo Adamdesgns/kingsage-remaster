@@ -560,7 +560,8 @@ function Controller:loadNoGateTeam()
 	self:_disconnectDrawing()
 	self.routes, self.objectives = Config.noGateTeamLesson()
 	self.selectedSquad = Config.SQUADS[1].id
-	self.status = "No squad is opening the gate. Everyone will be stopped at the wall. Try this plan, then reset and compare."
+	self.status = "Teaching routes loaded with one change: Vanguard now aims for the keep, so no squad is opening the gate. "
+		.. "The lines still cross the gate mark, but everyone will be stopped at the wall. Try this plan, then Reset and compare."
 	self.busy = false
 	self.result = nil
 	self.revealedEvents = 0
@@ -775,15 +776,39 @@ function Controller:build(parent: ScrollingFrame, onBack: () -> ())
 		local outcome = card(root, if self.result.outcome == "attackerWin" then Color3.fromRGB(42, 76, 49) else Color3.fromRGB(85, 47, 43))
 		local outcomeLabel = label(outcome, if self.result.outcome == "attackerWin" then "FORT TAKEN" else "FORT HELD", 17, true)
 		outcomeLabel.Name = "PracticeOutcome"
+		-- The realm names the decisive cause in one line so a player does not
+		-- have to infer it from the ordered reasons below.
+		if typeof(self.result.headline) == "string" and self.result.headline ~= "" then
+			local why = label(outcome, "Why: " .. self.result.headline, 14, true)
+			why.Name = "PracticeHeadline"
+		end
 		label(outcome, "Training only. Your city troops and stock did not change.", 13)
 		local casualties = self.result.attackerCasualties
+		local forces = if typeof(self.result.fixedForces) == "table" then self.result.fixedForces else nil
+		local attackerForce = if forces and typeof(forces.attacker) == "table" then forces.attacker else nil
 		if typeof(casualties) == "table" then
-			label(outcome, string.format(
-				"Losses: Vanguard %d · Archers %d · Riders %d",
-				math.floor(tonumber(casualties.vanguard) or 0),
-				math.floor(tonumber(casualties.archers) or 0),
-				math.floor(tonumber(casualties.riders) or 0)
-			), 14)
+			local function lossText(squadId: string, shown: string): string
+				local lost = math.floor(tonumber(casualties[squadId]) or 0)
+				local sent = if attackerForce then tonumber(attackerForce[squadId]) else nil
+				if sent then
+					return string.format("%s %d of %d", shown, lost, math.floor(sent))
+				end
+				return string.format("%s %d", shown, lost)
+			end
+			local losses = label(outcome, "Losses: " .. lossText("vanguard", "Vanguard") .. " · "
+				.. lossText("archers", "Archers") .. " · " .. lossText("riders", "Riders"), 14)
+			losses.Name = "PracticeLosses"
+		end
+		local defenderLosses = self.result.defenderCasualties
+		local defenderForce = if forces and typeof(forces.defender) == "table" then forces.defender else nil
+		if typeof(defenderLosses) == "table" and defenderForce then
+			local total = 0
+			for _, count in defenderForce do
+				total += math.floor(tonumber(count) or 0)
+			end
+			local fell = math.floor(tonumber(defenderLosses.total) or 0)
+			local defenders = label(outcome, string.format("Defenders: %d of %d fell.", fell, total), 14)
+			defenders.Name = "PracticeDefenderLosses"
 		end
 		local events = self.result.phaseEvents
 		if typeof(events) == "table" then

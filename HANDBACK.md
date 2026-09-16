@@ -1,4 +1,57 @@
-# HANDBACK — scroll fix reviewed on the PC, Rojo-built, two input defects fixed; G-01 still open
+# HANDBACK — FORT HELD now explains itself; G-01 still open
+
+**Updated:** 2026-09-16 by [Cursor] (cloud). **Working branch:** `cursor/practice-fort-held-slice-08e7` off `cursor/practice-touch-scroll-da9e` @ `bdcef2e` (PR #8 line).
+**Owner direction (Adam via Morgan):** gameplay/UX progress over verification theater; Studio/test pack not this slice's concern. The Bench and BotDOOR untouched.
+
+## What this slice is
+
+The no-gate-team path (test-pack S-03) was investigated first. The game logic was **already correct**: `PRACTICE_NO_GATE_TEAM_PLAN` resolves `defenderWin`, losses 8 / 7 / 5, ten ordered events. What was wrong was the explanation layer:
+
+1. Every blocked squad read `…reached x 50, but the gate is the only way in and it was closed or missed.` The resolver knows which. In the one-tap lesson the lines *do* cross x 50, so "missed" was actively misleading — the exact confusion S-03 exists to teach.
+2. The FORT HELD card had no one-line cause. A player had to sit through ten reason cards (or tap Show all) to learn *why* they lost.
+3. `Losses: Vanguard 8 · Archers 7 · Riders 5` had no denominators and no defender line, so a held fort read as unexplained numbers.
+4. `Try without a gate team` silently replaced any hand-drawn routes with the teaching defaults; its status did not say so.
+
+## Changed and why
+
+**`packages/game-core/src/practice-siege.ts`** (server authority; the rule lives once, here)
+- Blocked-at-wall copy now names the actual case: reached the gate but nobody was sent to open it / gate team too small to open it / crossed elsewhere and hit solid wall while the gate was open / crossed elsewhere and the gate stayed closed.
+- New `headline: string` on `PracticeSiegeResult`, derived from the same resolution state: `No squad was sent to open the gate, so every squad was stopped at the wall.` · `The gate team was too small to open the gate…` · `The gate opened at x 50, but every route crossed the wall somewhere else.` · `N squads got inside, but too few attackers reached the keep doors to take it.` · win: `The gate opened, 3 squads got inside, and 28 attackers reached the keep doors.`
+- Additive only. Pinned fixture numbers unchanged (TAKEN 5 / 5 / 4, HELD 8 / 7 / 5). The Roblox bridge forwards `payload.practiceSiege` intact, so no bridge change was needed.
+
+**`roblox/src/client/PracticeSiege.luau`** (renders; decides nothing)
+- Outcome card: `Why: <headline>` under the banner (only when the realm sent one), `Losses: Vanguard 8 of 18 · Archers 7 of 14 · Riders 5 of 10` using `fixedForces.attacker`, and `Defenders: 10 of 43 fell.` from `defenderCasualties.total` / `fixedForces.defender`. A result without those fields still renders the old plain line.
+- `loadNoGateTeam` status: `Teaching routes loaded with one change: Vanguard now aims for the keep, so no squad is opening the gate. The lines still cross the gate mark, but everyone will be stopped at the wall. Try this plan, then Reset and compare.`
+
+**Checks** — `packages/game-core/test/practice-siege.test.ts` pins the headline and the four wall-copy variants on the fixtures and on two constructed plans (too-small gate team; missed open gate). `roblox/scripts/practice-client-check.luau` gains the first scenario that renders **FORT HELD** at all (the old stub always returned a win) plus a no-optional-fields fallback scenario: 12 → **14** planner scenarios.
+
+**Docs** — test pack S-01 / S-03 expected copy updated to the new lines; the 2026-09-11 S-01 PASS frame shows the older bare numbers and is labelled as such.
+
+## Not changed
+
+- No geometry, forces, defense plans, or fixtures. No schema, migration, or command name. No `BattleScene`, Bench, or BotDOOR files. `TouchScroll.luau` was re-read against `PracticeSiege` and `init.client.luau` for remaining jank; nothing found at source level that could be fixed honestly without a device, so it is untouched.
+- Phase 2 / D-02 / OPEN-21: not started.
+
+## Checks on this tip (cloud; Lune 0.10.5 and TypeScript 5.9.3 installed for the run, not committed)
+
+| Command | Result |
+|---|---|
+| `npm run check:types` | pass |
+| `npm run test:core` | **105** passed, 0 failed (was 104) |
+| `npm run test:server` | 139 passed, 0 failed (includes the real Luau contract) |
+| `npm run test:luau` | 42 syntax files; 72 rules; 7 simulations; 25 connections; 6 client audits; 272 practice contracts; 28 bridge; **14** planner scenarios; 54 wiring; 11 touch-scroll; 0 failed |
+| `npm run check:practice-persistence` | exit 0; HTTP 200/200/200 + 400; identical replay; durable DB/WAL/rows unchanged |
+| Rojo build | **not run** — `rojo` not in this image |
+| Studio Play / phone | **not verified**. No PASS or FAIL is claimed for any pack row. |
+
+## Exact next action
+
+1. **Adam:** rebuild `WorldGame-dev.rbxlx` (`start-dev.ps1 -BuildOnly -Play`), then S-03: the FORT HELD card should show the `Why:` line, `8 of 18 · 7 of 14 · 5 of 10`, and `Defenders: 10 of 43 fell.`; the wall reasons should say `reached the gate at x 50, but no squad was sent to open it`. S-07 on the rebuilt place is still owed from the previous continuation.
+2. Everything else in the 2026-09-11 handback below still stands (G-01, G-02, D-02).
+
+---
+
+# Previous handback — scroll fix reviewed on the PC, Rojo-built, two input defects fixed; G-01 still open
 
 **Updated:** 2026-09-11 evening by [Cursor] on Adam's PC. **Working branch:** `cursor/practice-touch-scroll-da9e` (PR #8) off `cursor/practice-phase1-d06-c4e2` @ `41d541e`.
 **Base PR line:** draft PR #7 (`cursor/practice-phase1-d06-c4e2` → `feat/practice-siege-codex`).
