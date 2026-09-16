@@ -76,6 +76,8 @@ export type PracticeSiegeResult = {
   };
   phaseEvents: PracticeSiegePhaseEvent[];
   outcome: "attackerWin" | "defenderWin";
+  /** One sentence naming the decisive cause, so a player never has to infer it from ten events. */
+  headline: string;
   attackerCasualties: PracticeAttackerCounts;
   attackerSurvivors: PracticeAttackerCounts;
   defenderCasualties: PracticeDefenderCounts;
@@ -678,12 +680,30 @@ export function resolvePracticeSiege(request: PracticeSiegeRequest): PracticeSie
     }
   }
 
+  const gateX = LAYOUT.gate.position.x;
+  // The resolver knows exactly why a squad stayed outside; say that instead of
+  // hedging with "closed or missed".
+  const blockedText = (squad: PracticeSquadId, crossingX: number, atGate: boolean): string => {
+    const name = squadName(squad);
+    const shownX = roundStep(crossingX);
+    if (atGate && gatePower === 0) {
+      return `${name} reached the gate at x ${shownX}, but no squad was sent to open it, so the closed gate stopped them like a wall.`;
+    }
+    if (atGate) {
+      return `${name} reached the gate at x ${shownX}, but the gate team was too small to open it, so the closed gate stopped them.`;
+    }
+    if (gateOpened) {
+      return `${name} crossed at x ${shownX} and hit solid wall. The open gate is at x ${gateX} and it is the only way in.`;
+    }
+    return `${name} crossed at x ${shownX} and hit solid wall. The gate at x ${gateX} is the only way in, and it stayed closed.`;
+  };
+
   const inside: Record<PracticeSquadId, boolean> = { vanguard: false, archers: false, riders: false };
   for (const squad of PRACTICE_SQUADS) {
     if (survivors[squad] === 0) continue;
     const crossingX = wallCrossingX(validated.routes[squad]);
-    const throughGate = Math.abs(crossingX - LAYOUT.gate.position.x) <= LAYOUT.gate.openingHalfWidth && gateOpened;
-    inside[squad] = throughGate;
+    const atGate = Math.abs(crossingX - gateX) <= LAYOUT.gate.openingHalfWidth;
+    inside[squad] = atGate && gateOpened;
     if (inside[squad]) {
       phaseEvents.push(event("wall", "enteredFort", `${squadName(squad)} followed its route through the open gate.`, {
         squad,
@@ -691,7 +711,7 @@ export function resolvePracticeSiege(request: PracticeSiegeRequest): PracticeSie
       }));
     } else {
       const losses = takeAttackerLoss(squad, Math.ceil(survivors[squad] * 0.4));
-      phaseEvents.push(event("wall", "blockedAtWall", `${squadName(squad)} reached x ${roundStep(crossingX)}, but the gate is the only way in and it was closed or missed.`, {
+      phaseEvents.push(event("wall", "blockedAtWall", blockedText(squad, crossingX, atGate), {
         squad,
         position: { x: roundStep(crossingX), y: LAYOUT.frontWallY },
         casualties: losses,
@@ -786,6 +806,22 @@ export function resolvePracticeSiege(request: PracticeSiegeRequest): PracticeSie
     }));
   }
 
+  const squadsInside = PRACTICE_SQUADS.filter((squad) => inside[squad]).length;
+  const attackersAtKeep = totalAttackerCounts(survivors).total;
+  const squadWord = (count: number) => `${count} squad${count === 1 ? "" : "s"}`;
+  let headline: string;
+  if (attackerWon) {
+    headline = `The gate opened, ${squadWord(squadsInside)} got inside, and ${attackersAtKeep} attackers reached the keep doors.`;
+  } else if (gatePower === 0) {
+    headline = "No squad was sent to open the gate, so every squad was stopped at the wall.";
+  } else if (!gateOpened) {
+    headline = "The gate team was too small to open the gate, so every squad was stopped at the wall.";
+  } else if (squadsInside === 0) {
+    headline = `The gate opened at x ${gateX}, but every route crossed the wall somewhere else.`;
+  } else {
+    headline = `${squadWord(squadsInside)} got inside, but too few attackers reached the keep doors to take it.`;
+  }
+
   return {
     mode: "practice",
     validated,
@@ -795,6 +831,7 @@ export function resolvePracticeSiege(request: PracticeSiegeRequest): PracticeSie
     },
     phaseEvents,
     outcome: attackerWon ? "attackerWin" : "defenderWin",
+    headline,
     attackerCasualties: totalAttackerCounts(attackerLosses),
     attackerSurvivors: totalAttackerCounts(survivors),
     defenderCasualties: totalDefenderCounts(defenderLosses),

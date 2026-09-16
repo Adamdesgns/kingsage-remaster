@@ -264,6 +264,11 @@ test("pinned teaching fixtures show success, failure, and one-target causality",
   assert.deepEqual(lost.attackerCasualties, { vanguard: 8, archers: 7, riders: 5, total: 20 });
   assert.ok(lost.phaseEvents.some((entry) => entry.code === "objectiveSkipped" && entry.feature === "gate"));
   assert.equal(lost.phaseEvents.filter((entry) => entry.code === "blockedAtWall").length, 3);
+  assert.equal(lost.headline, "No squad was sent to open the gate, so every squad was stopped at the wall.");
+  for (const entry of lost.phaseEvents.filter((item) => item.code === "blockedAtWall")) {
+    assert.match(entry.text, /hit solid wall/, "a route that misses the gate mark must say it hit wall");
+    assert.match(entry.text, /stayed closed/, "a closed gate must be named as closed, not 'closed or missed'");
+  }
 
   assert.equal(changedSquad, "vanguard");
   assert.equal(changedField, "objectives");
@@ -278,6 +283,45 @@ test("pinned teaching fixtures show success, failure, and one-target causality",
   assert.ok(closed.phaseEvents.some((entry) => entry.code === "objectiveSkipped" && entry.feature === "gate"));
   assert.deepEqual(open.attackerCasualties, { vanguard: 5, archers: 5, riders: 4, total: 14 });
   assert.deepEqual(closed.attackerCasualties, { vanguard: 8, archers: 7, riders: 5, total: 20 });
+
+  // The one-tap lesson's lines still cross x 50. The wall copy must say the
+  // squad reached the gate and nobody opened it, not that it "missed".
+  assert.equal(open.headline, "The gate opened, 3 squads got inside, and 28 attackers reached the keep doors.");
+  assert.equal(closed.headline, "No squad was sent to open the gate, so every squad was stopped at the wall.");
+  const closedBlocked = closed.phaseEvents.filter((entry) => entry.code === "blockedAtWall");
+  assert.equal(closedBlocked.length, 3);
+  for (const entry of closedBlocked) {
+    assert.match(entry.text, /reached the gate at x 50/);
+    assert.match(entry.text, /no squad was sent to open it/);
+    assert.doesNotMatch(entry.text, /missed/);
+  }
+});
+
+test("the headline names the decisive cause for every way a wall can stop a squad", () => {
+  const tooSmall = structuredClone(PRACTICE_WINNING_GATE_PLAN);
+  tooSmall.objectives.vanguard = "keep";
+  tooSmall.objectives.archers = "gate";
+  const tooSmallResult = resolvePracticeSiege(tooSmall);
+  assert.equal(tooSmallResult.outcome, "defenderWin");
+  assert.equal(tooSmallResult.headline, "The gate team was too small to open the gate, so every squad was stopped at the wall.");
+  assert.ok(tooSmallResult.phaseEvents.filter((entry) => entry.code === "blockedAtWall")
+    .every((entry) => /gate team was too small to open it/.test(entry.text)));
+
+  const missedOpenGate = structuredClone(PRACTICE_WINNING_GATE_PLAN);
+  missedOpenGate.objectives.archers = "keep";
+  missedOpenGate.routes.archers = [{ x: 10, y: 5 }, { x: 20, y: 34 }, { x: 30, y: 60 }, { x: 50, y: 88 }];
+  const missedResult = resolvePracticeSiege(missedOpenGate);
+  const archersBlocked = missedResult.phaseEvents.find((entry) => entry.code === "blockedAtWall" && entry.squad === "archers");
+  assert.ok(archersBlocked);
+  assert.match(archersBlocked.text, /crossed at x 20 and hit solid wall\. The open gate is at x 50/);
+  assert.equal(missedResult.outcome, "attackerWin");
+  assert.equal(missedResult.headline, "The gate opened, 2 squads got inside, and 24 attackers reached the keep doors.");
+
+  for (const result of [tooSmallResult, missedResult, resolvePracticeSiege(PRACTICE_LOSING_CLOSED_GATE_PLAN)]) {
+    assert.equal(result.reasons.length, result.phaseEvents.length);
+    assert.ok(result.headline.length > 0);
+    assert.deepEqual(JSON.parse(JSON.stringify(result)).headline, result.headline);
+  }
 });
 
 test("bad routes and unknown saved plans are rejected before simulation", () => {
