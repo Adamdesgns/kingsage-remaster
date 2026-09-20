@@ -507,7 +507,12 @@ async function main() {
   const expectedSeed = createHash("sha256").update(`${s1.world.id}:${B.id}:${rowB4.openedAt}`).digest("hex").slice(0, 24);
   expect(4, rowB4.seed === expectedSeed && battleB.seed === expectedSeed, `seed ${rowB4.seed} != sha256("${s1.world.id}:${B.id}:${rowB4.openedAt}")[:24] = ${expectedSeed}`);
   const planB4b = planRow(B.id);
-  expect(4, ms(planB4b.autoResolveAt) - ms(rowB4.openedAt) === ATTENDED_GRACE_MS && ms(planB4b.autoResolveAt) > ms(planB4.autoResolveAt), `grace: auto_resolve_at ${planB4b.autoResolveAt} vs openedAt ${rowB4.openedAt} + 180 s (was ${planB4.autoResolveAt})`);
+  // The grace is 180 s from the instant of acceptance, which store.ts reads
+  // with a second now() after the session's opened_at - so the deadline may
+  // sit a millisecond or two past opened_at + 180 s (observed on the first
+  // recorded run: +1 ms). Never earlier, never a different grace.
+  const graceMs = ms(planB4b.autoResolveAt) - ms(rowB4.openedAt);
+  expect(4, graceMs >= ATTENDED_GRACE_MS && graceMs < ATTENDED_GRACE_MS + 100 && ms(planB4b.autoResolveAt) > ms(planB4.autoResolveAt), `grace: auto_resolve_at ${planB4b.autoResolveAt} vs openedAt ${rowB4.openedAt} + 180 s (${graceMs} ms; was ${planB4.autoResolveAt})`);
   expect(4, same(planB4b.plan, UNPLANNED_ATTACK_PLAN), `the march's plan row changed on open: ${JSON.stringify(planB4b.plan)} (observed: the session carries the opened plan, the march row keeps the launch plan)`);
   const marchB4 = marchRows(P1.kingdomId).find((m) => m.id === B.id);
   expect(4, marchB4.status === "awaiting_battle" && marchB4.battleId === battleB.id, `B's row after open ${JSON.stringify(marchB4)}`);
