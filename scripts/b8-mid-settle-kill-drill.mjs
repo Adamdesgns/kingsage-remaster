@@ -26,7 +26,8 @@
 //
 //   node scripts/b8-mid-settle-kill-drill.mjs
 //   B8_SETTLE_PORT=4271 node scripts/b8-mid-settle-kill-drill.mjs
-//   B8_SETTLE_KILL_DELAY_MS=5 node scripts/b8-mid-settle-kill-drill.mjs
+//   B8_SETTLE_KILL_DELAY_MS=0 node scripts/b8-mid-settle-kill-drill.mjs   # often UNSETTLED
+//   B8_SETTLE_KILL_DELAY_MS=8 node scripts/b8-mid-settle-kill-drill.mjs   # default; observed SETTLED in-flight
 
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -67,7 +68,11 @@ const RESOLVE_ID = "b8-settle-p1-resolve";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const serverRoot = join(repoRoot, "server");
 const port = Number(process.env.B8_SETTLE_PORT ?? 4271);
-const killDelayMs = Number(process.env.B8_SETTLE_KILL_DELAY_MS ?? 0);
+// 0 ms (kill on flush) usually dies before COMMIT — wholly UNSETTLED, still
+// a valid all-or-nothing landing. 8 ms has been observed to let settle
+// COMMIT and then die before the socket write — wholly SETTLED, in-flight
+// present. That is the stronger mid-settle case; the drill accepts both.
+const killDelayMs = Number(process.env.B8_SETTLE_KILL_DELAY_MS ?? 8);
 const robloxKey = "b8-settle-throwaway-key-0001";
 
 const scratch = mkdtempSync(join(tmpdir(), "kingsmarch-b8-settle-"));
