@@ -7,6 +7,8 @@
 > [`docs/AI-TEAM-BRIEFING.md`](docs/AI-TEAM-BRIEFING.md); the honest state
 > of every system is
 > [`docs/audits/kingsage-functionality-audit.md`](docs/audits/kingsage-functionality-audit.md).
+> **What "100%" means — done vs missing, row by row:**
+> [`docs/verification/2026-09-17-full-game-acceptance-matrix.md`](docs/verification/2026-09-17-full-game-acceptance-matrix.md).
 >
 > Everything below this box describes the **archived web prototype**
 > (`index.html`, `mobile-rebuild/`) — frozen by locked decision #1
