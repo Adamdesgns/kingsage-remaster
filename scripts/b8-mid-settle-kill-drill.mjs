@@ -333,13 +333,13 @@ function classifySettle(before, after) {
 function fireResolveAndKill(body) {
   return new Promise((resolvePromise) => {
     const payload = JSON.stringify(body);
-    let killedAt = null;
+    const box = { killedAt: null };
     const killOnce = () => {
-      if (killedAt || !server || (server.exitCode !== null || server.signalCode !== null)) return;
+      if (box.killedAt || !server || (server.exitCode !== null || server.signalCode !== null)) return;
       const go = () => {
-        if (killedAt || !server || (server.exitCode !== null || server.signalCode !== null)) return;
-        killedAt = new Date().toISOString();
-        log(`$ kill -KILL <world server pid ${server.pid}>   # at ${killedAt}, resolve request flushed${killDelayMs ? `, +${killDelayMs}ms` : ""}`);
+        if (box.killedAt || !server || (server.exitCode !== null || server.signalCode !== null)) return;
+        box.killedAt = new Date().toISOString();
+        log(`$ kill -KILL <world server pid ${server.pid}>   # at ${box.killedAt}, resolve request flushed${killDelayMs ? `, +${killDelayMs}ms` : ""}`);
         server.kill("SIGKILL");
       };
       if (killDelayMs > 0) setTimeout(go, killDelayMs);
@@ -363,13 +363,13 @@ function fireResolveAndKill(body) {
         let json = null;
         try { json = JSON.parse(text); } catch { /* non-JSON */ }
         log(`POST /api/roblox/commands ${JSON.stringify(body)} -> ${res.statusCode} ${shorten(text)}   # response arrived before/with the kill`);
-        resolvePromise({ status: res.statusCode, json, text, outcome: "responded", killedAt });
+        resolvePromise({ status: res.statusCode, json, text, outcome: "responded", killedAt: box.killedAt });
       });
     });
     req.on("error", (error) => {
       const code = error.code ?? error.message;
       log(`POST /api/roblox/commands ${JSON.stringify(body)} -> no response (${code}) -> in-flight`);
-      resolvePromise({ status: 0, json: null, text: "", errorCode: code, outcome: "in-flight", killedAt });
+      resolvePromise({ status: 0, json: null, text: "", errorCode: code, outcome: "in-flight", killedAt: box.killedAt });
     });
     req.on("finish", killOnce);
     req.write(payload);

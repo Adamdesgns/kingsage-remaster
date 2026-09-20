@@ -1,104 +1,73 @@
-# HANDBACK — Phase A: "fully functioning"
+# HANDBACK — B8 mid-settle SIGKILL drill
 
-Branch: `feat/fully-functional-phase-a` (from `main` @ `c9e1e5c`).
-Written 2026-08-29, evening session, on Adam's word ("Ok let's get it
-fully functioning so we can see what it can do"). Plan:
-`docs/superpowers/plans/2026-08-29-fully-functional-phase-a.md`. Executes
-the critical path of `docs/audits/kingsage-functionality-audit.md`
-(same session). Supersedes the slice-4 handback that stood here — that
-one's claim "never committed to main" had gone stale anyway (slice 4 is
-`main~1`); its content lives on in git history.
+Branch: `cursor/b8-mid-settle-kill-1e7a` (stacked on PR #18
+`cursor/battle-settle-http-drill-58fc` @ `e6a4204`).
+Written 2026-09-20. Owner: Adam. Model: Grok / Cursor Models (cloud).
+Draft PR: https://github.com/Adamdesgns/kingsage-remaster/pull/19
 
-## Built (every item test-first; gate counts below)
+The Phase A root HANDBACK this file replaces is still in git history on
+`main` / PR #18. This file is the handback for **this** branch.
 
-- **Empty/malformed commandIds die at the door** (audit 8.5): both command
-  routes require a 1–128 char string id and a typed command object (400),
-  the store guards the same as defence-in-depth, and a non-string chat
-  body refuses instead of crashing. Before: an integration that forgot
-  commandId had every later command silently "accepted" as a replay of
-  its first.
-- **Retreat exposure is the battle's own clock** (8.4): `atMs` is derived
-  server-side from `opened_at`; the client field is ignored and no longer
-  sent. `atMs=0` no longer buys 88% survivors.
-- **Fog covers realm power and herds** (8.3): snapshots zero
-  `realmOfPower(+Max)` / `horses(+Max)` for foreign villages; the scout
-  report now carries `observedRealmOfPower` (+ derived max) — migration
-  **0011**, conditional per the 0008–0010 pattern.
-- **The event stream is fogged per reader** (8.2): one
-  `filterEventForKingdom` drops private events (marches, scout reports,
-  queue orders, battles you're not in) for other readers and fogs the
-  village inside public ones, failing closed on unknown event types.
-  Replay route and live SSE both go through it.
-- **Sequential sieges** (8.1, the P0): at most one open battle per
-  village. Attended open against a held field → `SIEGE_IN_PROGRESS`; a
-  deadline firing during someone's open battle waits a 30s beat and
-  retries. Three-scenario test proves loot conservation and
-  survivors-not-copies. Before: two attackers each fought the FULL
-  garrison and looted the same stock twice.
-- **Rate limits** (12.4): token bucket, injectable clock.
-  register+login 5/min/address (429), roblox commands 30/min/player
-  (refused in the `command.rejected` shape the client already renders).
-  The state heartbeat is deliberately never limited.
-- **`march.cancel`**: an OUTBOUND march you own turns for home from where
-  it stands; the walk back costs what the walk out cost. Arrived =
-  `MARCH_COMMITTED`; rivals = `FORBIDDEN`; replays return the stored
-  result.
-- **Open seats** (11.4 / Grok handback deviation): migration **0012**
-  widens `seat_kind` with `'open'` (table rebuild per 0007; backfill by
-  the seed's naming rule, proven against a fabricated pre-0012 DB).
-  findOpenSeat hands out the two fresh seats first, then named kingdoms
-  (capacity still 6); **the AI tick never develops an open seat**.
-- **The AI is ON in the dev loop**: `start-dev.ps1` sets
-  `KINGSAGE_AI_TICK_MS=45000`. Live drill (scratch world, 2s tick, zero
-  player action): all four named kingdoms queued farm upgrades + 12
-  Squires within seconds; the open seat got nothing.
-- **The snapshot carries a `troopCatalog`** (server-built: costs,
-  population, prerequisites, research levels + next step) so the client
-  renders numbers from server truth — no Luau mirror of economy.ts.
-- **Roblox client wiring**: full 11-troop recruitment picker with costs,
-  prerequisites and an x1/x5/x25 batch cycle (Counts stay
-  one-at-a-time); **Smithy research section** (the server path existed
-  with NO interface); **Recall** on outbound marches (two-tap armed);
-  **THE HERALD** — the realm's notifications finally render (they were
-  written to the DB and shown to nobody).
-- **Hosting is config** (11.1): `KINGSAGE_BIND` (default loopback);
-  SecretConfig gains optional `BASE_URL`; a missing secret warns loudly
-  once a minute instead of silently hanging every player (8.6).
-- **Docs truth pass**: AI-TEAM-BRIEFING's dead "80/81 known fail"
-  instruction replaced with the real bar; README now says the Roblox game
-  is the product; `docs/ops/vps-runbook.md` written (Adam's 15-minute
-  part listed first; everything else is SSH-runnable).
+## Built
 
-## Gates (all green, run on this branch)
+- `scripts/b8-mid-settle-kill-drill.mjs` — 10-step HTTP drill. One
+  disposable world, one attended Freehold fight, `battle.resolve` then
+  `SIGKILL`, restart, all-or-nothing across session / march / plan /
+  defender / war points / both notifications / both events / inbox.
+- `docs/verification/2026-09-20-b8-mid-settle-kill-evidence.md` —
+  what it proves / does not prove, honesty notes, verbatim run record.
+- `docs/verification/2026-09-17-full-game-acceptance-matrix.md` —
+  **revision 10**.
 
-- `npm run check:types` — clean.
-- `npm run test:server` — **114/114** (baseline was 97; +17 new).
-- `npm run test:core` — 92/92.
-- `npm run test:luau` — syntax + **72 rules** (63 + 9 new, the recruit
-  clamp rule mutation-checked live) + 7 spike sims.
+No `server/`, `packages/`, or `roblox/` changes.
+`git diff 9b478db HEAD -- server/ packages/ roblox/` is empty.
 
-## Not built / honest limits
+## Not built
 
-- **No live Studio look at the new village-tab and war-tab UI yet.** The
-  Luau compiles and 9 rules pin the wiring, but no human (or demo run)
-  has seen the recruit picker, research rows, Recall or Herald rendered.
-  That is the next Studio session's first job.
-- Phase B (the VPS itself) needs Adam's account + card; runbook is ready.
-- Retention/pruning of events/inbox/notifications still unbounded (audit
-  P2) — deliberately out of Phase A scope.
-- Trebuchets and night bonus remain wired-to-nothing stubs; alliances /
-  market / trade remain missing — Phase C+ scope, listed in the audit's
-  §14 build order. Adam's nine §16 decisions still stand open.
-- The rate-limit defaults (5/min auth, 30/min commands) are judgment
-  calls, tunable via injection; nobody has played against them yet.
-- `contracts.test.ts:21` still pins the fixture's nominal two-human
-  seats (the store overwrites them to 'open' now) — left alone: it tests
-  the fixture, and the new freeholds tests pin the world.
+- Power loss (a pulled plug). SIGKILL is not that.
+- Conquest (`KINGSAGE_DEV_SEED_NOBLES`). The mid-settle drill was not
+  too fragile to ship; conquest stays the next HTTP slice.
+- `battle.retreat`, rams, an unattended auto-resolve kill, Studio, hosting.
+- A kill proven to land *inside* the `COMMIT` syscall. The drill records
+  where it landed.
+
+## Result (honest)
+
+**PASS 10/10, exit 0** at `8bb89fa`. Wall time 38.5 s.
+
+This recorded run is **SETTLED** and the HTTP **200 arrived before the
+kill**. `resolved_at` is 4 ms before the SIGKILL line. That is the
+weaker mid-settle landing (wholly present after the client already had
+the body). I did not re-run to shop for an `ECONNRESET`.
+
+Smokes, both PASS 10/10:
+
+| Delay | Landing | HTTP |
+|---|---|---|
+| 0 ms (`bec4c78`) | UNSETTLED | in-flight |
+| 8 ms (`bec4c78` + env) | SETTLED | `ECONNRESET` |
+| 8 ms (`8bb89fa`, recorded) | SETTLED | 200 |
+
+Half-settled was never observed.
 
 ## How to run
 
-- Dev loop: `roblox/start-dev.ps1 -Fresh` — now boots a LIVING world
-  (AI on). Everything else unchanged.
-- Full gates: `npm run check:types && npm run test:server && npm run
-  test:core && npm run test:luau`.
-- Hosting: `docs/ops/vps-runbook.md`.
+```bash
+node scripts/b8-mid-settle-kill-drill.mjs
+# expect exit 0, "B8 mid-settle kill drill PASS (10/10 steps PASS)", ~40 s
+```
+
+## Gates this session (cloud image)
+
+| Gate | Result |
+|---|---|
+| `npm run check:types` | clean (tsc/`@types/node` installed locally, not committed) |
+| `npm run test:core` | 92/92 |
+| `npm run test:server` | 114/114 |
+| `npm run test:luau` | 72 rules, 0 failed (Lune 0.10.5 fetched to `/tmp`) |
+
+## Open doubts
+
+- 8 ms is a steering knob. A loaded box may need a different delay to
+  see SETTLED+in-flight. Both legal landings remain PASS.
+- Claude's review of the record is owed (matrix §7). None is invented here.
